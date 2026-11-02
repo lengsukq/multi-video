@@ -80,26 +80,46 @@ class _RealtimeClassroomWorkspaceState
               padding: const EdgeInsets.fromLTRB(14, 16, 14, 12),
               child: Row(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: style.accentSoft,
-                      borderRadius: BorderRadius.circular(13),
+                  if (selected == RealtimeClassroomSection.overview)
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: style.accentSoft,
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: Icon(
+                        Icons.school_outlined,
+                        color: style.text,
+                        size: 20,
+                      ),
+                    )
+                  else
+                    TextButton.icon(
+                      key: const ValueKey('classroom-back-to-overview'),
+                      onPressed: () => setState(
+                        () => _selected = RealtimeClassroomSection.overview,
+                      ),
+                      icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                      label: Text(strings.isZh ? '返回' : 'Back'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: style.textSecondary,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: const Size(0, 40),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                     ),
-                    child: Icon(
-                      Icons.school_outlined,
-                      color: style.text,
-                      size: 20,
-                    ),
-                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          strings.isZh ? '课堂工作台' : 'Classroom workspace',
+                          selected == RealtimeClassroomSection.overview
+                              ? (strings.isZh ? '课堂工作台' : 'Classroom workspace')
+                              : label(selected),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
@@ -107,9 +127,15 @@ class _RealtimeClassroomWorkspaceState
                           ),
                         ),
                         Text(
-                          isTeacher
-                              ? (strings.isZh ? '教师管理' : 'Teacher tools')
-                              : (strings.isZh ? '我的课堂' : 'My classroom'),
+                          selected == RealtimeClassroomSection.overview
+                              ? (isTeacher
+                                    ? (strings.isZh ? '教师管理' : 'Teacher tools')
+                                    : (strings.isZh ? '我的课堂' : 'My classroom'))
+                              : (strings.isZh
+                                    ? '课堂工作台'
+                                    : 'Classroom workspace'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 11.5,
                             color: style.textMuted,

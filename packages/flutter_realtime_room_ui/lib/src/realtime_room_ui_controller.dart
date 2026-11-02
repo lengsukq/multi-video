@@ -97,6 +97,7 @@ class RealtimeRoomUiController extends ChangeNotifier {
   late MediaSnapshot _snapshot;
   ChatUiController? _chatUi;
   final Set<RealtimeRoomUiAction> _pending = {};
+  final Map<RealtimeRoomUiAction, Future<void>> _actionFutures = {};
   int _actionSequence = 0;
   ({int sequence, RealtimeRoomUiAction action})? _lastCompletedAction;
 
@@ -270,12 +271,34 @@ class RealtimeRoomUiController extends ChangeNotifier {
     );
   }
 
-  /// Runs once per action; concurrent duplicate button presses are ignored.
+  /// Runs an action once. Concurrent callers await the SAME command result
+  /// (including its failure), rather than receiving a false early success.
   Future<void> execute(
     RealtimeRoomUiAction action,
     Future<void> Function() command,
+  ) {
+    final existing = _actionFutures[action];
+    if (existing != null) return existing;
+    if (_disposed) {
+      return Future<void>.error(
+        const RealtimeException(
+          code: RealtimeErrorCode.invalidState,
+          message:
+              'Cannot execute an action through a closed room UI controller.',
+          domain: 'room.ui',
+          operation: 'execute',
+        ),
+      );
+    }
+    final pending = _executeOnce(action, command);
+    _actionFutures[action] = pending;
+    return pending;
+  }
+
+  Future<void> _executeOnce(
+    RealtimeRoomUiAction action,
+    Future<void> Function() command,
   ) async {
-    if (_disposed || _pending.contains(action)) return;
     _pending.add(action);
     _lastReportedError = null;
     _error = null;
@@ -294,6 +317,7 @@ class RealtimeRoomUiController extends ChangeNotifier {
       if (!_disposed) _error = failure;
       Error.throwWithStackTrace(failure, stack);
     } finally {
+      _actionFutures.removeWhere((key, _) => key == action);
       if (!_disposed) {
         _pending.remove(action);
         notifyListeners();
@@ -347,39 +371,71 @@ class RealtimeRoomUiController extends ChangeNotifier {
     );
   }
 
+  Future<void>? _leaveFuture;
+
   /// Ends the underlying room only when requested, never on UI disposal.
   /// The caller owns navigation and the optional confirmation dialog.
-  Future<void> leave({
-    bool? closeForEveryone,
-  }) => execute(RealtimeRoomUiAction.leave, () async {
-    final endsRoom =
-        closeForEveryone ??
-        (room.media.role == MediaRole.host &&
-            room.media.managementCapabilities.closeRoom.supported);
-    if (endsRoom) {
-      // Stop before closing the room: the recording endpoint requires
-      // the still-live room and host credential to authorize Agora Stop.
-      // On failure leave the room open so the host can retry safely.
-      final state = room.recordingStatus;
-      if (state == RecordingStatus.starting ||
-          state == RecordingStatus.stopping) {
-        throw const RealtimeException(
+  /// Concurrent callers share one Future, so none can navigate before the
+  /// actual leave/cleanup completes. A failure before teardown is retryable.
+  Future<void> leave({bool? closeForEveryone}) {
+    final pending = _leaveFuture;
+    if (pending != null) return pending;
+    if (_disposed) {
+      return Future<void>.error(
+        const RealtimeException(
           code: RealtimeErrorCode.invalidState,
-          message:
-              'Wait for the cloud recording operation to finish before ending the room.',
-        );
-      }
-      final remote = state == RecordingStatus.unknown
-          ? (await room.queryCloudRecording()).taskState
-          : null;
-      if (state == RecordingStatus.recording ||
-          remote == RecordingTaskState.recording) {
-        await room.stopRecording();
-      }
-      await room.media.closeRoom();
+          message: 'Cannot leave through a closed room UI controller.',
+          domain: 'room.ui',
+          operation: 'leave',
+        ),
+      );
     }
-    await room.dispose();
-  });
+    return _leaveFuture = _leaveOnce(closeForEveryone: closeForEveryone);
+  }
+
+  Future<void> _leaveOnce({bool? closeForEveryone}) async {
+    try {
+      await execute(RealtimeRoomUiAction.leave, () async {
+        final endsRoom =
+            closeForEveryone ??
+            (room.media.role == MediaRole.host &&
+                room.media.managementCapabilities.closeRoom.supported);
+        if (endsRoom) {
+          // Stop before closing the room: the recording endpoint requires
+          // the still-live room and host credential to authorize Agora Stop.
+          // On failure leave the room open so the host can retry safely.
+          final state = room.recordingStatus;
+          if (state == RecordingStatus.starting ||
+              state == RecordingStatus.stopping) {
+            throw const RealtimeException(
+              code: RealtimeErrorCode.invalidState,
+              message:
+                  'Wait for the cloud recording operation to finish before ending the room.',
+            );
+          }
+          final remote = state == RecordingStatus.unknown
+              ? (await room.queryCloudRecording()).taskState
+              : null;
+          if (state == RecordingStatus.recording ||
+              remote == RecordingTaskState.recording) {
+            await room.stopRecording();
+          }
+          await room.media.closeRoom();
+        }
+        // UI subscriptions may still be observing room/media streams while the
+        // host route is mounted. Release them before tearing down those streams;
+        // otherwise an embedded host can be stuck waiting for leave to finish
+        // before it gets a chance to unmount the room UI.
+        await close();
+        await room.dispose();
+      });
+    } catch (_) {
+      // End-room authorization or stopping a recording may fail before we
+      // dispose the controller; permit a later explicit retry in that case.
+      _leaveFuture = null;
+      rethrow;
+    }
+  }
 
   Future<void>? _disposal;
 

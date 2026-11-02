@@ -131,7 +131,10 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
         false;
   }
 
-  void _openMobileSheet(_LiveSidePanel panel) {
+  void _openMobileSheet(
+    _LiveSidePanel panel,
+    RealtimeRoomUiController controller,
+  ) {
     final strings = RealtimeStrings.of(context);
     unawaited(
       showRealtimeRoomDrawer<void>(
@@ -144,6 +147,7 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
             : Icons.people_alt_rounded,
         child: RealtimeRoomUiScope(
           room: widget.room,
+          controller: controller,
           child: panel == _LiveSidePanel.chat
               ? const RealtimeChatPanel()
               : const RealtimeManagedParticipantList(),
@@ -271,12 +275,18 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
                             ? _LiveSidePanel.members
                             : _LiveSidePanel.chat,
                       ),
-                      onOpenChat: () => _openMobileSheet(_LiveSidePanel.chat),
+                      onOpenChat: () => _openMobileSheet(
+                        _LiveSidePanel.chat,
+                        RealtimeRoomUiScope.of(context),
+                      ),
                       onViewAudience: wide
                           ? () => setState(
                               () => _sidePanel = _LiveSidePanel.members,
                             )
-                          : () => _openMobileSheet(_LiveSidePanel.members),
+                          : () => _openMobileSheet(
+                              _LiveSidePanel.members,
+                              RealtimeRoomUiScope.of(context),
+                            ),
                       onToggleVideoFit: () => setState(
                         () => _liveVideoFitOverride =
                             _liveVideoFitOverride == BoxFit.contain

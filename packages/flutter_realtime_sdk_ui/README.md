@@ -83,6 +83,61 @@ checks. Its controller owns UI resources only. An injected controller remains
 owned by its caller. `RealtimeManagedParticipantList` uses Runtime's logical
 RTC + IM member directory; `RealtimeParticipantList` is RTC-only presence.
 
+### Navigator overlays and Scope lifetime (unreleased source API)
+
+`RealtimeRoomUiScope.of(context)` requires a context **below** the scope.
+Calling it from the same page State that creates the scope, or from an ordinary
+`showDialog`/`showModalBottomSheet` builder, can throw the Scope assertion.
+Capture the controller inside a descendant `Builder` and pass it to the
+SDK overlay helper:
+
+```dart
+RealtimeRoomUiScope(
+  room: room,
+  child: Builder(
+    builder: (roomContext) {
+      final controller = RealtimeRoomUiScope.of(roomContext);
+      return TextButton(
+        onPressed: () => showRealtimeRoomUiBottomSheet<void>(
+          roomContext,
+          controller: controller,
+          builder: (sheetContext) => RealtimeMediaDevicePicker(
+            kind: MediaDeviceKind.microphone,
+          ),
+        ),
+        child: const Text('Microphones'),
+      );
+    },
+  ),
+);
+```
+
+`showRealtimeRoomUiDialog` uses the same `controller` and `builder`
+pattern for dialogs. Both helpers **borrow** the controller without disposing
+it. Close transient sheets/dialogs before destroying their room. Do not create
+a new independent room UI controller for every overlay.
+
+**Release boundary:** These helpers and the recent Scope/leave fixes are in
+the SDK working source **only**, not in the previously published dev.10
+single-package artifact. The maintainer publishes the next SDK version
+manually; external apps can upgrade and test only after publication.
+See the [room UI lifecycle guide](../../doc/ROOM_UI_LIFECYCLE.zh-CN.md).
+
+### Leave and resource ownership
+
+- A `RealtimeRoomUiScope` without an injected controller owns the *UI
+  controller*, not the underlying media room. Unmounting a page only releases
+  its UI state.
+- An injected controller belongs to the caller: close it on final teardown,
+  not when temporarily hiding a drawer or switching between layouts.
+- `RealtimeLeaveButton` awaits `controller.leave(...)` before invoking
+  `onLeft`. Cancellation does not leave. `closeForEveryone: false` requests
+  local leave only; `null` follows SDK's role/capability default. The trusted
+  backend remains the authority for end-room operations.
+- `RealtimeConnection.dispose()` is connection-level cleanup. Popping a
+  route/unmounting room widgets does **not** disconnect the underlying session.
+  Do not navigate on an unawaited leave result.
+
 ## Optional capabilities
 
 Classroom, Live and shared content require explicit feature-plugin

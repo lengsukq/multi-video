@@ -64,6 +64,59 @@ This preview removes the older `MediaRoomView`, `MediaPreJoinPage`,
 Replace `MediaRoomViewConfig` with `RealtimeRoomViewConfig` when upgrading.
 Reusable controls and Headless APIs remain available.
 
+### Custom room UI: Scope, modal routes, and leaving
+
+`RealtimeRoomUiScope.of(context)` requires a `BuildContext` **below**
+`RealtimeRoomUiScope`. The owning page State's `context` is above the
+Scope, so it cannot look up the controller. Dialogs and bottom sheets build
+under the Navigator's Overlay and do not inherit a room page's Scope
+automatically. Capture the controller from a descendant `Builder` and use
+the SDK helpers rather than creating another room controller per modal:
+
+```dart
+RealtimeRoomUiScope(
+  room: room,
+  child: Builder(
+    builder: (roomContext) {
+      final controller = RealtimeRoomUiScope.of(roomContext);
+      return Column(
+        children: [
+          TextButton(
+            onPressed: () => showRealtimeRoomUiBottomSheet<void>(
+              roomContext,
+              controller: controller,
+              builder: (_) => RealtimeMediaDevicePicker(
+                kind: MediaDeviceKind.microphone,
+              ),
+            ),
+            child: const Text('Devices'),
+          ),
+          RealtimeLeaveButton(
+            closeForEveryone: false,
+            onLeft: () {
+              if (roomContext.mounted) Navigator.of(roomContext).maybePop();
+            },
+          ),
+        ],
+      );
+    },
+  ),
+);
+```
+
+`showRealtimeRoomUiDialog` follows the same controller/builder pattern.
+Both helpers borrow the controller; neither disposes the room. Close modal
+routes before disposing their room. Widget unmount, `Navigator.pop()`,
+`controller.close()`, `controller.leave()` and
+`RealtimeConnection.dispose()` are **different operations**: UI-only
+teardown never means an RTC leave. The SDK's leave button awaits the actual
+leave/room cleanup before invoking `onLeft`. Host end-for-everyone also
+depends on role, backend capability and cloud-recording state; server-side
+authorization remains authoritative.
+
+For the exact behavior and edge cases see the
+[room UI lifetime guide](https://github.com/lengsukq/multi-video/blob/main/doc/ROOM_UI_LIFECYCLE.zh-CN.md).
+
 Meeting presentations keep participant thumbnails below the shared screen or
 whiteboard. Select a person to focus their camera and show a live, read-only
 content preview; select that preview or **Return to shared content** to switch

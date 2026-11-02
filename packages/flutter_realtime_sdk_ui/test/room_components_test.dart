@@ -436,10 +436,17 @@ void main() {
       of: find.byType(RealtimeMeetingRail),
       matching: find.byTooltip('Participants'),
     );
+    final pageController = RealtimeRoomUiScope.of(
+      tester.element(find.byType(RealtimeRoomShell)),
+    );
     await tester.ensureVisible(people);
     await tester.tap(people);
     await tester.pumpAndSettle();
     expect(find.byType(RealtimeManagedParticipantList), findsOneWidget);
+    final drawerController = RealtimeRoomUiScope.of(
+      tester.element(find.byType(RealtimeManagedParticipantList)),
+    );
+    expect(identical(pageController, drawerController), isTrue);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -1043,9 +1050,17 @@ void main() {
     final duplicate = controller.toggleMicrophone();
     expect(controller.isPending(RealtimeRoomUiAction.microphone), isTrue);
     expect(media.muteCalls, 1);
-    await duplicate;
+    var duplicateDone = false;
+    unawaited(duplicate.then((_) => duplicateDone = true));
+    await pumpEventQueue();
+    expect(
+      duplicateDone,
+      isFalse,
+      reason: 'duplicate caller must wait for the in-flight provider action',
+    );
     media.complete();
-    await first;
+    await Future.wait([first, duplicate]);
+    expect(duplicateDone, isTrue);
     expect(controller.isPending(RealtimeRoomUiAction.microphone), isFalse);
     controller.dispose();
     expect(media.disposeCalls, 0);

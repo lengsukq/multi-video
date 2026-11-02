@@ -57,10 +57,17 @@ class RealtimePreJoinPreview extends StatelessWidget {
           return placeholder ??
               const Center(child: Icon(Icons.videocam_off_outlined, size: 56));
         }
+        final camera = preview.cameraTrack;
         return MediaTrackView(
           renderer: preview.renderer,
-          track: preview.cameraTrack,
+          track: camera,
           fit: BoxFit.contain,
+          // Native renderers (LiveKit/Agora/TRTC) know the decoded camera
+          // orientation. Do not force stale landscape track metadata over
+          // portrait iPhone frames; processed textures still use their own
+          // explicit source dimensions.
+          rendererManagesFit:
+              camera != null && preview.renderer.handlesVideoFit(camera),
           placeholder:
               placeholder ??
               const Center(child: Icon(Icons.videocam_off_outlined, size: 56)),

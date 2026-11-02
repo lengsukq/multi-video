@@ -830,6 +830,32 @@ class _PreviewCard extends StatelessWidget {
     final preview = controller.preview;
     final micOn = preview?.settings.microphoneEnabled ?? false;
     final camOn = preview?.settings.cameraEnabled ?? false;
+    final microphonePermission =
+        controller.permissions[MediaPermissionKind.microphone];
+    final cameraPermission = controller.permissions[MediaPermissionKind.camera];
+
+    void toggleCapture(MediaPermissionKind kind, bool enabled) {
+      if (enabled) {
+        final permission = kind == MediaPermissionKind.microphone
+            ? microphonePermission
+            : cameraPermission;
+        if (permission == MediaPermissionState.permanentlyDenied ||
+            permission == MediaPermissionState.restricted) {
+          unawaited(controller.openAppSettings());
+          return;
+        }
+        if (permission != MediaPermissionState.granted &&
+            permission != MediaPermissionState.unsupported) {
+          unawaited(controller.requestPermissionAndEnable(kind));
+          return;
+        }
+      }
+      unawaited(
+        kind == MediaPermissionKind.microphone
+            ? controller.setMicrophoneEnabled(enabled)
+            : controller.setCameraEnabled(enabled),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -887,8 +913,9 @@ class _PreviewCard extends StatelessWidget {
                               : (strings.isZh ? '打开麦克风' : 'Turn on microphone'),
                           onPressed: controller.busy
                               ? null
-                              : () => unawaited(
-                                  controller.setMicrophoneEnabled(!micOn),
+                              : () => toggleCapture(
+                                  MediaPermissionKind.microphone,
+                                  !micOn,
                                 ),
                         ),
                         const SizedBox(width: 10),
@@ -902,8 +929,9 @@ class _PreviewCard extends StatelessWidget {
                               : (strings.isZh ? '打开摄像头' : 'Turn on camera'),
                           onPressed: controller.busy
                               ? null
-                              : () => unawaited(
-                                  controller.setCameraEnabled(!camOn),
+                              : () => toggleCapture(
+                                  MediaPermissionKind.camera,
+                                  !camOn,
                                 ),
                         ),
                         const SizedBox(width: 10),

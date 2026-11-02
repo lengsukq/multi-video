@@ -31,6 +31,10 @@ class RealtimeLeaveButton extends StatelessWidget {
             ? null
             : () async {
                 if (onConfirm != null && !await onConfirm!(context)) return;
+                // A host may dismiss the route while the confirmation Future
+                // is pending. The borrowed controller can outlive this button;
+                // never close its room from an unmounted UI action.
+                if (!context.mounted || controller.isDisposed) return;
                 try {
                   await controller.leave(closeForEveryone: closeForEveryone);
                   if (context.mounted) onLeft?.call();

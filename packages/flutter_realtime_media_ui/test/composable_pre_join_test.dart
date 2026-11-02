@@ -8,6 +8,61 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'unknown iOS permission result still lets native microphone capture decide',
+    () async {
+      final preview = _Preview();
+      final controller = RealtimePreJoinController(
+        runCheck: () async => _check(role: MediaRole.participant),
+        openPreview: (_, _) async => preview,
+        permissionRequester: const _UnknownPermissionRequester(),
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      await controller.requestPermissionAndEnable(
+        MediaPermissionKind.microphone,
+      );
+      expect(preview.settings.microphoneEnabled, isTrue);
+    },
+  );
+
+  testWidgets('portrait Pre-Join renderer owns decoded aspect ratio on iOS', (
+    tester,
+  ) async {
+    final preview = _FitAwarePreview();
+    final controller = RealtimePreJoinController(
+      runCheck: () async => _check(role: MediaRole.participant),
+      openPreview: (_, _) async => preview,
+      permissionRequester: const _PermissionRequester(),
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.setCameraEnabled(true);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RealtimePreJoinScope(
+          controller: controller,
+          child: const Scaffold(
+            body: SizedBox(
+              width: 300,
+              height: 470,
+              child: RealtimePreJoinPreview(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<MediaTrackView>(find.byType(MediaTrackView))
+          .rendererManagesFit,
+      isTrue,
+    );
+    expect(find.byType(FittedBox), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  test(
     'permission refresh preserves the authoritative meeting policy',
     () async {
       final controller = RealtimePreJoinController(
@@ -442,6 +497,59 @@ void main() {
     await preview.closeLevels();
     expect(tester.takeException(), isNull);
   });
+}
+
+class _UnknownPermissionRequester implements MediaPermissionRequester {
+  const _UnknownPermissionRequester();
+
+  @override
+  bool get canOpenAppSettings => false;
+  @override
+  Future<bool> openAppSettings() async => false;
+  @override
+  Future<MediaPermissionState> request(MediaPermissionKind kind) async =>
+      MediaPermissionState.unknown;
+  @override
+  Future<MediaPermissionState> status(MediaPermissionKind kind) async =>
+      MediaPermissionState.unknown;
+}
+
+class _FitAwarePreview extends _Preview {
+  @override
+  MediaVideoTrack? get cameraTrack =>
+      settings.cameraEnabled ? const _PortraitPreviewTrack() : null;
+
+  @override
+  MediaTrackRenderer get renderer => const _FitAwareRenderer();
+}
+
+class _PortraitPreviewTrack extends MediaVideoTrack {
+  const _PortraitPreviewTrack();
+  @override
+  String get id => 'portrait-preview';
+  @override
+  String get participantId => 'self';
+  @override
+  bool get isLocal => true;
+  @override
+  bool get isScreenShare => false;
+  @override
+  int get width => 640;
+  @override
+  int get height => 360;
+}
+
+class _FitAwareRenderer extends MediaTrackRenderer {
+  const _FitAwareRenderer();
+  @override
+  bool handlesVideoFit(MediaVideoTrack track) => true;
+  @override
+  Widget buildView(BuildContext context, MediaVideoTrack track) => const Center(
+    child: AspectRatio(
+      aspectRatio: 9 / 16,
+      child: ColoredBox(color: Colors.black),
+    ),
+  );
 }
 
 class _PreviewWithLevels extends _Preview

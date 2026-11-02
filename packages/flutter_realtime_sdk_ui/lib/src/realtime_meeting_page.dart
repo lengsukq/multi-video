@@ -443,7 +443,7 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
                               )
                             : null,
                         topContent: widget.showRtcDataMessages
-                            ? _rtcDataPanel()
+                            ? _rtcDataPanel(controller)
                             : null,
                         desktopRail: wide
                             ? RealtimeMeetingRail(
@@ -475,7 +475,10 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
                         stage: stage,
                         dock: dock,
                         sidebar: wide && _panel != RealtimeMeetingPanel.closed
-                            ? _sidePanel(workspaceMode: classroomWorkspace)
+                            ? _sidePanel(
+                                context,
+                                workspaceMode: classroomWorkspace,
+                              )
                             : null,
                       );
                     },
@@ -614,14 +617,18 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
           icon: Icons.chat_bubble_outline_rounded,
           tooltip: strings.chat,
           active: wide && _panel == RealtimeMeetingPanel.chat,
-          onPressed: () => _toggle(RealtimeMeetingPanel.chat, isWide: wide),
+          onPressed: () =>
+              _toggle(RealtimeMeetingPanel.chat, controller, isWide: wide),
         ),
       RealtimeMeetingRailItem(
         icon: Icons.people_outline_rounded,
         tooltip: strings.participants,
         active: wide && _panel == RealtimeMeetingPanel.participants,
-        onPressed: () =>
-            _toggle(RealtimeMeetingPanel.participants, isWide: wide),
+        onPressed: () => _toggle(
+          RealtimeMeetingPanel.participants,
+          controller,
+          isWide: wide,
+        ),
       ),
       if (widget.showClassroom && widget.room.classroom != null)
         RealtimeMeetingRailItem(
@@ -629,14 +636,14 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
           tooltip: strings.classroom,
           active: wide && _panel == RealtimeMeetingPanel.classroom,
           onPressed: () =>
-              _toggle(RealtimeMeetingPanel.classroom, isWide: wide),
+              _toggle(RealtimeMeetingPanel.classroom, controller, isWide: wide),
         ),
       if (widget.showClassroom && classroom?.capabilities.canGrantSpeak == true)
         RealtimeMeetingRailItem(
           icon: Icons.pan_tool_alt_outlined,
           tooltip: strings.isZh ? '举手队列' : 'Hand requests',
           badgeCount: classroom!.raisedHands.length,
-          onPressed: () => _openClassroomHands(isWide: wide),
+          onPressed: () => _openClassroomHands(controller, isWide: wide),
         ),
       // Camera layout is one toggle in the rail instead of a tab bar above the
       // stage: the icon shows the view a tap switches to.
@@ -723,9 +730,13 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
     ];
   }
 
-  void _toggle(RealtimeMeetingPanel panel, {required bool isWide}) {
+  void _toggle(
+    RealtimeMeetingPanel panel,
+    RealtimeRoomUiController controller, {
+    required bool isWide,
+  }) {
     if (!isWide) {
-      _openDrawer(panel);
+      _openDrawer(panel, controller);
       return;
     }
     setState(() {
@@ -737,9 +748,12 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
     });
   }
 
-  void _openClassroomHands({required bool isWide}) {
+  void _openClassroomHands(
+    RealtimeRoomUiController controller, {
+    required bool isWide,
+  }) {
     if (!isWide) {
-      _openDrawer(RealtimeMeetingPanel.classroom, classroomTab: 1);
+      _openDrawer(RealtimeMeetingPanel.classroom, controller, classroomTab: 1);
       return;
     }
     setState(() {
@@ -750,7 +764,11 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
     });
   }
 
-  void _openDrawer(RealtimeMeetingPanel panel, {int classroomTab = 0}) {
+  void _openDrawer(
+    RealtimeMeetingPanel panel,
+    RealtimeRoomUiController controller, {
+    int classroomTab = 0,
+  }) {
     final strings = RealtimeStrings.of(context);
     unawaited(
       showRealtimeRoomDrawer<void>(
@@ -767,12 +785,14 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
         },
         child: RealtimeRoomUiScope(
           room: widget.room,
+          controller: controller,
           child: switch (panel) {
             RealtimeMeetingPanel.chat => const RealtimeChatPanel(),
             RealtimeMeetingPanel.classroom => RealtimeClassroomPanel(
               showHeader: false,
               initialTab: classroomTab,
-              onClose: () => Navigator.maybePop(context),
+              onClose: () =>
+                  Navigator.maybeOf(context, rootNavigator: true)?.pop(),
             ),
             _ => const RealtimeManagedParticipantList(),
           },
@@ -781,11 +801,14 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
     );
   }
 
-  Widget _rtcDataPanel() => RoomRtcDataPanel(
+  // The State's context lives ABOVE RealtimeRoomUiScope. Keep the controller
+  // captured from the descendant builder instead of looking up an ancestor
+  // that cannot exist on the State's element.
+  Widget _rtcDataPanel(RealtimeRoomUiController controller) => RoomRtcDataPanel(
     session: widget.room.media.session,
     onError: (message) {
       if (message != null) {
-        RealtimeRoomUiScope.of(context).reportActionError(
+        controller.reportActionError(
           RealtimeException(
             code: RealtimeErrorCode.unknown,
             message: 'room.data.send',
@@ -795,26 +818,28 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
     },
   );
 
-  Widget _sidePanel({bool workspaceMode = false}) => RealtimeMeetingSidePanel(
-    panel: _panel,
-    classroomTab: _classroomTab,
-    classroomPanelVisit: _classroomPanelVisit,
-    workspaceMode: workspaceMode,
-    pinnedMessage: widget.pinnedMessage,
-    notesPanel: widget.classroomNotesPanel,
-    recordingPanel:
-        workspaceMode &&
-            widget.room.recording.isConfigured &&
-            widget.room.media.isLogicalOwner
-        ? RealtimeRecordingPanel(
-            room: widget.room,
-            busy: _recordingBusy,
-            onToggleRecording: () => unawaited(_handleRecording(context)),
-            onOpenResult: () => _showCloudResultDialog(context),
-          )
-        : null,
-    onClose: () => setState(() => _panel = RealtimeMeetingPanel.closed),
-  );
+  Widget _sidePanel(BuildContext scopedContext, {bool workspaceMode = false}) =>
+      RealtimeMeetingSidePanel(
+        panel: _panel,
+        classroomTab: _classroomTab,
+        classroomPanelVisit: _classroomPanelVisit,
+        workspaceMode: workspaceMode,
+        pinnedMessage: widget.pinnedMessage,
+        notesPanel: widget.classroomNotesPanel,
+        recordingPanel:
+            workspaceMode &&
+                widget.room.recording.isConfigured &&
+                widget.room.media.isLogicalOwner
+            ? RealtimeRecordingPanel(
+                room: widget.room,
+                busy: _recordingBusy,
+                onToggleRecording: () =>
+                    unawaited(_handleRecording(scopedContext)),
+                onOpenResult: () => _showCloudResultDialog(scopedContext),
+              )
+            : null,
+        onClose: () => setState(() => _panel = RealtimeMeetingPanel.closed),
+      );
 
   Future<void> _handleRecording(BuildContext context) async {
     if (_recordingBusy || !mounted) return;

@@ -1,10 +1,12 @@
 # 第三方 Flutter App 接入 Flutter Realtime SDK（源码开发版）
 
 本文面向**不使用仓库 Demo 的宿主应用**，目标是从零完成一次真实的创建/加入/退出。
-**单包预览版 `0.1.0-dev.1` 已发布到 pub.dev。** 普通宿主在 App 目录执行
-`flutter pub add flutter_realtime_sdk:0.1.0-dev.1`，并参考
-[已发布包 README](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.1)
+**仓库当前记录的单包预览版是 `0.1.0-dev.10`（2026-10-20）。** 普通宿主在 App 目录执行
+`flutter pub add flutter_realtime_sdk:0.1.0-dev.10`，并参考
+[该版本发布包 README](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.10)
 配置 iOS Podfile、权限与后端。
+本仓库未发布的新修复（Scope/Overlay、离会并发与相关 API）**不能仅通过使用 dev.10 获得**；
+须由维护者手动发布更新版本后，第三方才可升级并回归验证。
 
 **本文后续演示源码开发接入**，适用于需要修改内部模块的宿主。
 facade + Provider 的多个本地 `path:` 属于仓库开发结构；公开分发只需要
@@ -39,7 +41,7 @@ dependencies:
 **只复用视觉设计**：再添加独立 `flutter_realtime_design_ui`，不启动媒体会话。
 仅需独立聊天室 UI 也可单独使用 `flutter_realtime_chat_ui`。
 
-**已发布单包预览版**：只需 `flutter_realtime_sdk: ^0.1.0-dev.1`，
+**仓库记录的已发布单包预览版**：只需 `flutter_realtime_sdk: ^0.1.0-dev.10`，
 通过 `package:flutter_realtime_sdk/flutter_realtime_sdk.dart` 一个入口获取
 Provider 工厂、Room 和可组合 UI；仍需在 `Realtime(providers: ...)`
 中指定启用的供应商。**不保证**未选用厂商的原生依赖会被自动移除。
@@ -169,6 +171,18 @@ RealtimeRoomUiScope(
 但它不是 Headless 必需依赖。详见
 [UI 组件接入](UI_COMPOSABILITY_ACCEPTANCE.zh-CN.md)。
 
+**Scope 与退出注意事项：** `RealtimeRoomUiScope.of(context)` 只能使用位于
+`RealtimeRoomUiScope` **子树内部**的 `BuildContext`，不能在创建该 Scope 的页面
+`State.context` 中查找它。`showDialog`、`showModalBottomSheet` 和抽屉
+是在 Navigator 的 Overlay 路由中构建，不能假设它们自动继承会议页面的 Scope。
+下一发布版 SDK 已准备
+`showRealtimeRoomUiDialog` / `showRealtimeRoomUiBottomSheet`
+（显式传入既有 Controller，**dev.10 尚未包含**）。
+退出会议也不能将 `Navigator.pop()` 或仅仅销毁 Widget 当成
+`controller.leave()`、`connection.dispose()`。
+完整代码和资源所有权说明见
+[房间 UI、弹窗与退出生命周期接入指南](ROOM_UI_LIFECYCLE.zh-CN.md)。
+
 ## 7. 选装课堂、直播互动与云录制
 
 课堂举手/Q&A/授权发言、Live 点赞/礼物**不是主 SDK 自动开启的功能**。
@@ -189,7 +203,7 @@ RealtimeRoomUiScope(
 
 首次接入先确认：
 
-1. `flutter pub get` 成功且仅安装选定的 Provider；不要依赖 Demo 私有的 `demo_provider_catalog.dart`。
+1. `flutter pub get` 成功并注册所需 Provider；单包发布版可能同时解析未启用厂商的原生依赖，不要依赖 Demo 私有的 `demo_provider_catalog.dart`。
 2. 设备能访问 `backendUrl`；后端具有真实供应商配置并能签发正确角色的 Token。
 3. 创建者与加入者使用**不同 userId / 设备**，加入后房间号及远端成员一致。
 4. 观众没有发布权限/主播工具；聊天室普通成员没有房主管理入口。

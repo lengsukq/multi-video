@@ -75,6 +75,55 @@ Demo 直接展示 SDK 提供的 `RealtimeRoomView`（按房间选择会议/直�
 其他参会者的视图。自行组合页面时可使用 `RealtimeMeetingParticipantStrip`
 及 `RealtimeMeetingStage.showFilmstrip`。
 
+### 自定义会议 UI：Scope、弹窗和离会
+
+`RealtimeRoomUiScope.of(context)` **只能使用 Scope 子树里的
+BuildContext**。创建 Scope 的页面 State 自身位于它的上方；
+普通 Dialog/BottomSheet 又构建在 Navigator 的 Overlay 中，
+不会自动继承会议页面 Scope。要从子树的 `Builder` 获得
+`controller`，并传给 SDK 提供的弹窗 API：
+
+~~~dart
+RealtimeRoomUiScope(
+  room: room,
+  child: Builder(
+    builder: (roomContext) {
+      final controller = RealtimeRoomUiScope.of(roomContext);
+      return Column(
+        children: [
+          TextButton(
+            onPressed: () => showRealtimeRoomUiBottomSheet<void>(
+              roomContext,
+              controller: controller,
+              builder: (_) => RealtimeMediaDevicePicker(
+                kind: MediaDeviceKind.microphone,
+              ),
+            ),
+            child: const Text('选择麦克风'),
+          ),
+          RealtimeLeaveButton(
+            closeForEveryone: false,
+            onLeft: () {
+              if (roomContext.mounted) Navigator.of(roomContext).maybePop();
+            },
+          ),
+        ],
+      );
+    },
+  ),
+);
+~~~
+
+`showRealtimeRoomUiDialog` 用法相同。两个 helper 只是**借用**
+已有 Controller，不另建房间、不会负责销毁 Controller；关闭房间前应先
+关闭相关弹窗。`Navigator.pop()`、UI 卸载、`controller.close()`、
+`controller.leave()` 和 `connection.dispose()` 的责任不同，
+不能混为一谈。SDK 退出按钮等到离会完成后才调用导航回调；
+结束所有人会议则必须考虑房主权限及云录制状态，并由可信后端鉴权。
+
+更完整的示例与排错请看
+[房间 UI 生命周期指南](https://github.com/lengsukq/multi-video/blob/main/doc/ROOM_UI_LIFECYCLE.zh-CN.md)。
+
 ## 四、Headless 模式、虚拟背景与摄像头
 
 宿主应用可以只用 SDK 的数据、媒体与操作接口，自己绘制会议/直播页面。

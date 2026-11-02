@@ -6,6 +6,164 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'closed UI controller rejects new actions instead of false success',
+    () async {
+      final media = _FakeMediaSession(role: MediaRole.participant);
+      final room = RealtimeRoom(
+        media: MediaRoomSession.direct(
+          roomCode: 'room',
+          participantId: 'self',
+          session: media,
+        ),
+        renderer: const _FakeRenderer(),
+        disposeClients: () {},
+      );
+      await room.initialize();
+      final controller = RealtimeRoomUiController(room);
+      await controller.close();
+      var invoked = false;
+      await expectLater(
+        controller.execute(RealtimeRoomUiAction.camera, () async {
+          invoked = true;
+        }),
+        throwsA(
+          isA<RealtimeException>().having(
+            (error) => error.code,
+            'code',
+            RealtimeErrorCode.invalidState,
+          ),
+        ),
+      );
+      expect(invoked, isFalse);
+      await room.dispose();
+    },
+  );
+
+  test(
+    'duplicate SDK UI command awaits the first operation and its failure',
+    () async {
+      final media = _FakeMediaSession(role: MediaRole.participant);
+      final room = RealtimeRoom(
+        media: MediaRoomSession.direct(
+          roomCode: 'room',
+          participantId: 'self',
+          session: media,
+        ),
+        renderer: const _FakeRenderer(),
+        disposeClients: () {},
+      );
+      await room.initialize();
+      final controller = RealtimeRoomUiController(room);
+      final gate = Completer<void>();
+      var commands = 0;
+      Future<void> task() async {
+        commands++;
+        await gate.future;
+        throw StateError('provider failed');
+      }
+
+      final first = controller.execute(RealtimeRoomUiAction.microphone, task);
+      final second = controller.execute(RealtimeRoomUiAction.microphone, task);
+      Object? secondFailure;
+      var secondCompleted = false;
+      unawaited(
+        second.then(
+          (_) => secondCompleted = true,
+          onError: (Object error) {
+            secondFailure = error;
+            secondCompleted = true;
+          },
+        ),
+      );
+      await pumpEventQueue();
+      expect(commands, 1, reason: 'duplicate actions should coalesce');
+      expect(
+        secondCompleted,
+        isFalse,
+        reason: 'the second caller must await the provider operation',
+      );
+      gate.complete();
+      await expectLater(first, throwsA(isA<RealtimeException>()));
+      await pumpEventQueue();
+      expect(
+        secondFailure,
+        isA<RealtimeException>(),
+        reason: 'all callers must observe the same failure',
+      );
+      await controller.close();
+      await room.dispose();
+    },
+  );
+
+  test(
+    'leave on previously closed UI cannot silently claim room disposal',
+    () async {
+      final media = _FakeMediaSession(role: MediaRole.participant);
+      final room = RealtimeRoom(
+        media: MediaRoomSession.direct(
+          roomCode: 'room',
+          participantId: 'self',
+          session: media,
+        ),
+        renderer: const _FakeRenderer(),
+        disposeClients: () {},
+      );
+      await room.initialize();
+      final controller = RealtimeRoomUiController(room);
+      await controller.close();
+      await expectLater(
+        controller.leave(closeForEveryone: false),
+        throwsA(
+          isA<RealtimeException>().having(
+            (error) => error.code,
+            'code',
+            RealtimeErrorCode.invalidState,
+          ),
+        ),
+      );
+      expect(
+        media.disposeCalls,
+        0,
+        reason: 'closing only UI must not dispose the underlying room',
+      );
+      await room.dispose();
+    },
+  );
+
+  test('concurrent leave callers await the same room disposal', () async {
+    final media = _FakeMediaSession(role: MediaRole.participant);
+    final gate = Completer<void>();
+    media.disposeGate = gate;
+    final room = RealtimeRoom(
+      media: MediaRoomSession.direct(
+        roomCode: 'room',
+        participantId: 'self',
+        session: media,
+      ),
+      renderer: const _FakeRenderer(),
+      disposeClients: () {},
+    );
+    await room.initialize();
+    final controller = RealtimeRoomUiController(room);
+    final first = controller.leave(closeForEveryone: false);
+    final second = controller.leave(closeForEveryone: false);
+    var secondCompleted = false;
+    unawaited(second.then((_) => secondCompleted = true));
+    await pumpEventQueue();
+    expect(
+      secondCompleted,
+      isFalse,
+      reason: 'a duplicate leave must not report success before cleanup',
+    );
+    gate.complete();
+    await Future.wait([first, second]);
+    expect(media.disposeCalls, 1);
+    expect(controller.isDisposed, isTrue);
+    await controller.leave(closeForEveryone: false);
+    expect(media.disposeCalls, 1);
+  });
+
+  test(
     'the same failure reaches the host once and only successful commands emit completion',
     () async {
       final media = _FakeMediaSession(role: MediaRole.participant);
@@ -220,6 +378,7 @@ class _FakeMediaSession extends InteractiveMediaSession {
   int cameraCalls = 0;
   final cameraPositions = <MediaCameraPosition>[];
   int disposeCalls = 0;
+  Completer<void>? disposeGate;
 
   @override
   String get providerId => 'fake';
@@ -249,6 +408,7 @@ class _FakeMediaSession extends InteractiveMediaSession {
   @override
   Future<void> dispose() async {
     disposeCalls++;
+    await disposeGate?.future;
     await _snapshots.close();
     await _states.close();
     await _events.close();

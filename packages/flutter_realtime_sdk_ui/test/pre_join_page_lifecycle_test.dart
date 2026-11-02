@@ -274,6 +274,46 @@ void main() {
     expect(find.text('Open preparation'), findsOneWidget);
   });
 
+  testWidgets(
+    'pre-join microphone button requests iOS permission before capture',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final preview = _FakeLocalPreview();
+      final permissions = _MicrophonePermissionRequester();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: FilledButton(
+                onPressed: () => _showPreJoin(
+                  context,
+                  runCheck: _readyResult,
+                  openPreview: (_, _) async => preview,
+                  permissionRequester: permissions,
+                ),
+                child: const Text('Open preparation'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open preparation'));
+      await tester.pumpAndSettle();
+      expect(preview.settings.microphoneEnabled, isFalse);
+      await tester.ensureVisible(find.byTooltip('Turn on microphone'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Turn on microphone'));
+      await tester.pumpAndSettle();
+      expect(permissions.microphoneRequests, 1);
+      expect(preview.settings.microphoneEnabled, isTrue);
+      await tester.tap(find.byTooltip('Turn off microphone'));
+      await tester.pumpAndSettle();
+      expect(preview.settings.microphoneEnabled, isFalse);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('pre-join blur selection is returned and applied to preview', (
     tester,
   ) async {
@@ -584,6 +624,28 @@ class _TestPermissionRequester implements MediaPermissionRequester {
   @override
   Future<MediaPermissionState> status(MediaPermissionKind kind) async =>
       MediaPermissionState.granted;
+}
+
+class _MicrophonePermissionRequester implements MediaPermissionRequester {
+  int microphoneRequests = 0;
+
+  @override
+  bool get canOpenAppSettings => true;
+
+  @override
+  Future<bool> openAppSettings() async => true;
+
+  @override
+  Future<MediaPermissionState> status(MediaPermissionKind kind) async =>
+      kind == MediaPermissionKind.microphone && microphoneRequests == 0
+      ? MediaPermissionState.denied
+      : MediaPermissionState.granted;
+
+  @override
+  Future<MediaPermissionState> request(MediaPermissionKind kind) async {
+    if (kind == MediaPermissionKind.microphone) microphoneRequests++;
+    return MediaPermissionState.granted;
+  }
 }
 
 Future<MediaLocalPreviewSettings?> _showPreJoin(

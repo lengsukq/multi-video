@@ -198,12 +198,16 @@ class RealtimePreJoinController extends ChangeNotifier {
   /// the requested capture track without requiring a second click.
   Future<void> requestPermissionAndEnable(MediaPermissionKind kind) async {
     await requestPermission(kind);
-    if (_disposed ||
-        busy ||
-        _permissionStates[kind] != MediaPermissionState.granted) {
+    if (_disposed || busy) return;
+    final permission = _permissionStates[kind];
+    if (permission != MediaPermissionState.granted &&
+        permission != MediaPermissionState.unknown) {
       return;
     }
     if (preview == null) await retryPreview();
+    // Some iOS SPM hosts cannot query permission_handler status although the
+    // underlying AVFoundation capture can still request/confirm permission.
+    // Allow that native capture to decide; failure remains visible to the UI.
     if (kind == MediaPermissionKind.microphone) {
       await setMicrophoneEnabled(true);
     } else {

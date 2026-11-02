@@ -41,7 +41,8 @@ class SingleSdkDistributionTest(unittest.TestCase):
         bundled = self.root / "lib/src/_bundled/flutter_realtime_sdk_ui"
         public_ui = (bundled / "flutter_realtime_sdk_ui.dart").read_text()
         for module in ("realtime_room_view", "realtime_meeting_page", "realtime_live_page",
-                       "realtime_pre_join_page", "realtime_chat_page", "realtime_room_view_config"):
+                       "realtime_pre_join_page", "realtime_chat_page", "realtime_room_view_config",
+                       "realtime_room_ui_overlay"):
             self.assertIn(f"export 'src/{module}.dart';", public_ui)
             self.assertTrue((bundled / f"src/{module}.dart").is_file())
         for removed in ("realtime_composable_template", "legacy_room_content_controls"):

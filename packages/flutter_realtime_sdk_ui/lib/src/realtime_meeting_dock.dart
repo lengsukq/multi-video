@@ -244,9 +244,11 @@ class _RealtimeDockScrollableStripState
     // arrow is not actionable. Overlaying arrows on the scroll view caused
     // them to cover the first/last tool and look off-centre at small widths.
     Widget arrowSlot(bool left) => SizedBox(
-      width: 34,
+      width: overflowing ? 34 : 0,
       height: 36,
-      child: (left ? canLeft : canRight) ? arrow(left: left) : null,
+      child: overflowing && (left ? canLeft : canRight)
+          ? arrow(left: left)
+          : null,
     );
 
     final scrollView = ScrollConfiguration(
@@ -276,18 +278,20 @@ class _RealtimeDockScrollableStripState
       },
       child: Listener(
         onPointerSignal: _scrollWheel,
-        child: overflowing
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  arrowSlot(true),
-                  const SizedBox(width: 4),
-                  Expanded(child: scrollView),
-                  const SizedBox(width: 4),
-                  arrowSlot(false),
-                ],
-              )
-            : scrollView,
+        // Keep the same Scrollable element mounted when content starts or
+        // stops overflowing. Switching between scrollView and Row(scrollView)
+        // detaches the old ScrollPosition during ensureVisible/animateTo,
+        // leaving the visible strip at offset zero despite a completed scroll.
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            arrowSlot(true),
+            SizedBox(width: overflowing ? 4 : 0),
+            Expanded(child: scrollView),
+            SizedBox(width: overflowing ? 4 : 0),
+            arrowSlot(false),
+          ],
+        ),
       ),
     );
   }

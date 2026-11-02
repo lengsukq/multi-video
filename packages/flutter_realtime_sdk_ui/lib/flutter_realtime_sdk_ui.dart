@@ -8,6 +8,7 @@ export 'package:flutter_realtime_classroom_preset/flutter_realtime_classroom_pre
 export 'src/realtime_room_view.dart';
 export 'src/realtime_role_presentation.dart';
 export 'src/room_ui_controller.dart';
+export 'src/realtime_room_ui_overlay.dart';
 export 'src/room_media_components.dart';
 export 'src/room_control_components.dart';
 export 'src/meeting_dock.dart';

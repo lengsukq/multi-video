@@ -201,17 +201,70 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('classroom-section-hands')));
     await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('classroom-back-to-overview')),
+      findsOneWidget,
+    );
     expect(find.text('Student'), findsOneWidget);
     expect(find.text('Allow'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('classroom-back-to-overview')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('classroom-overview')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('classroom-back-to-overview')),
+      findsNothing,
+    );
     await tester.tap(find.byKey(const ValueKey('classroom-section-questions')));
     await tester.pumpAndSettle();
     expect(find.byType(RealtimeClassroomQuestions), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('classroom-back-to-overview')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('classroom-overview')), findsOneWidget);
     expect(find.byTooltip('Next sidebar tabs'), findsOneWidget);
     await tester.ensureVisible(find.text('Notes'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Notes'));
     await tester.pumpAndSettle();
     expect(find.text('Host-persisted notes'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('classroom activities return to overview without closing panel', (
+    tester,
+  ) async {
+    final room = await _room(tester, _ActivityRepository(teacher: true));
+    addTearDown(room.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: RealtimeStrings.supportedLocales,
+        localizationsDelegates: RealtimeStrings.localizationsDelegates,
+        home: Scaffold(
+          body: RealtimeRoomUiScope(
+            room: room,
+            child: const SizedBox(
+              width: 340,
+              child: RealtimeClassroomSidePanel(
+                initialTabId: RealtimeWorkspaceTab.classroom,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final activities = find.byKey(
+      const ValueKey('classroom-section-activities'),
+    );
+    await tester.ensureVisible(activities);
+    await tester.pumpAndSettle();
+    await tester.tap(activities);
+    await tester.pumpAndSettle();
+    expect(find.byType(RealtimeClassroomActivityList), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('classroom-back-to-overview')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('classroom-overview')), findsOneWidget);
+    expect(find.byType(RealtimeClassroomSidePanel), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -244,10 +297,50 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('classroom-section-questions')));
     await tester.pumpAndSettle();
     expect(find.byType(RealtimeClassroomQuestionComposer), findsOneWidget);
+    expect(find.text('Back'), findsOneWidget);
     await tester.pumpWidget(app(const Locale('zh', 'CN')));
     await tester.pumpAndSettle();
     expect(find.text('课堂工作台'), findsOneWidget);
     expect(find.byType(RealtimeClassroomQuestionComposer), findsOneWidget);
+    expect(find.text('返回'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('classroom-back-to-overview')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('classroom-overview')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('directly opened classroom subpage can return at narrow width', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final room = await teacherRoom(tester);
+    addTearDown(room.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: RealtimeStrings.supportedLocales,
+        localizationsDelegates: RealtimeStrings.localizationsDelegates,
+        home: Scaffold(
+          body: RealtimeRoomUiScope(
+            room: room,
+            child: const RealtimeClassroomSidePanel(
+              initialTabId: RealtimeWorkspaceTab.classroom,
+              initialClassroomSection: RealtimeClassroomSection.hands,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(RealtimeClassroomHandQueue), findsOneWidget);
+    final back = find.byKey(const ValueKey('classroom-back-to-overview'));
+    expect(back, findsOneWidget);
+    expect(find.text('返回'), findsOneWidget);
+    await tester.tap(back);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('classroom-overview')), findsOneWidget);
+    expect(back, findsNothing);
     expect(tester.takeException(), isNull);
   });
 
