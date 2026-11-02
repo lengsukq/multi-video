@@ -10,7 +10,9 @@ from scripts import check_macos_provider_assets as checker
 class MacosProviderAssetsTest(unittest.TestCase):
     def test_aws_native_bridge_uses_separate_provider_packages(self):
         source = (checker.ROOT /
-                  'packages/flutter_realtime_media_aws_desktop/macos/Classes/'
+                  'packages/flutter_realtime_media_aws_desktop/macos/'
+                  'flutter_realtime_media_aws_desktop/Sources/'
+                  'flutter_realtime_media_aws_desktop/'
                   'FlutterRealtimeMediaAwsDesktopPlugin.swift').read_text()
         for snippet in (
             'vendorAsset = "assets/chime-sdk.js"',

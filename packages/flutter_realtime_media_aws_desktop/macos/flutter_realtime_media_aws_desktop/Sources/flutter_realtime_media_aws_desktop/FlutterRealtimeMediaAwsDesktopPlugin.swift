@@ -1198,6 +1198,12 @@ private final class AwsDesktopRuntime: NSObject,
   }
 
   private func ownResourceText(_ name: String, extension ext: String) throws -> String {
+#if SWIFT_PACKAGE
+    guard let url = Bundle.module.url(forResource: name, withExtension: ext) else {
+      throw AwsDesktopError.assetMissing(name + "." + ext)
+    }
+    return try String(contentsOf: url, encoding: .utf8)
+#else
     guard
       let bundleURL = Bundle.main.url(
         forResource: "flutter_realtime_media_aws_desktop_assets",
@@ -1209,6 +1215,7 @@ private final class AwsDesktopRuntime: NSObject,
       throw AwsDesktopError.assetMissing(name + "." + ext)
     }
     return try String(contentsOf: url, encoding: .utf8)
+#endif
   }
 
   private func finishReady(_ error: Error?) {

@@ -175,6 +175,9 @@ public final class AgoraChatMacOSPlugin: NSObject, FlutterPlugin,
   }
 
   private static func assetsBundle() throws -> Bundle {
+#if SWIFT_PACKAGE
+    return Bundle.module
+#else
     guard
       let bundleURL = Bundle.main.url(
         forResource: "flutter_realtime_chat_agora_macos_assets",
@@ -185,6 +188,7 @@ public final class AgoraChatMacOSPlugin: NSObject, FlutterPlugin,
       throw RuntimeError.assetBundleMissing
     }
     return bundle
+#endif
   }
 
   private func finishReady(with error: Error?) {

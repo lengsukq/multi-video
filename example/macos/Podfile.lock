@@ -1,51 +1,6 @@
 PODS:
-  - agora_rtc_engine (0.0.1):
-    - AgoraIrisRTC_macOS (= 4.6.4-build.4)
-    - AgoraRtcEngine_macOS_Preview (= 4.6.4-build.3)
-    - FlutterMacOS
-  - AgoraIrisRTC_macOS (4.6.4-build.4)
-  - AgoraRtcEngine_macOS_Preview (4.6.4-build.3)
-  - connectivity_plus (0.0.1):
-    - FlutterMacOS
-  - device_info_plus (0.0.1):
-    - FlutterMacOS
-  - flutter_realtime_chat_agora (0.1.0):
-    - FlutterMacOS
-  - flutter_realtime_media_agora (0.1.0):
-    - flutter_realtime_processed_video
-    - FlutterMacOS
-  - flutter_realtime_media_artc (0.1.0):
-    - FlutterMacOS
-  - flutter_realtime_media_aws_desktop (0.1.0):
-    - FlutterMacOS
-  - flutter_realtime_media_core (0.1.0):
-    - FlutterMacOS
-  - flutter_realtime_media_livekit (0.1.0):
-    - FlutterMacOS
-  - flutter_realtime_media_trtc (0.1.0):
-    - flutter_realtime_processed_video
-    - FlutterMacOS
-  - flutter_realtime_processed_video (0.1.0):
-    - FlutterMacOS
-  - flutter_realtime_screen_annotation (0.1.0):
-    - FlutterMacOS
-  - flutter_realtime_video_effects (0.0.1):
-    - flutter_realtime_processed_video
-    - FlutterMacOS
-  - flutter_webrtc (1.6.2):
-    - FlutterMacOS
-    - WebRTC-SDK (= 150.7871.01)
   - FlutterMacOS (1.0.0)
   - HydraAsync (2.0.6)
-  - iris_method_channel (0.0.1):
-    - FlutterMacOS
-  - livekit_client (2.13.0):
-    - flutter_webrtc
-    - FlutterMacOS
-    - WebRTC-SDK (= 150.7871.01)
-  - shared_preferences_foundation (0.0.1):
-    - Flutter
-    - FlutterMacOS
   - tencent_cloud_chat_sdk (8.0.0):
     - FlutterMacOS
     - HydraAsync
@@ -55,114 +10,33 @@ PODS:
     - TXLiteAVSDK_TRTC_Mac (= 13.5.21355)
   - TXIMSDK_Plus_Mac (9.1.7818)
   - TXLiteAVSDK_TRTC_Mac (13.5.21355)
-  - url_launcher_macos (0.0.1):
-    - FlutterMacOS
-  - WebRTC-SDK (150.7871.01)
 
 DEPENDENCIES:
-  - agora_rtc_engine (from `Flutter/ephemeral/.symlinks/plugins/agora_rtc_engine/macos`)
-  - connectivity_plus (from `Flutter/ephemeral/.symlinks/plugins/connectivity_plus/macos`)
-  - device_info_plus (from `Flutter/ephemeral/.symlinks/plugins/device_info_plus/macos`)
-  - flutter_realtime_chat_agora (from `Flutter/ephemeral/.symlinks/plugins/flutter_realtime_chat_agora/macos`)
-  - flutter_realtime_media_agora (from `Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_agora/macos`)
-  - flutter_realtime_media_artc (from `Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_artc/macos`)
-  - flutter_realtime_media_aws_desktop (from `Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_aws_desktop/macos`)
-  - flutter_realtime_media_core (from `Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_core/macos`)
-  - flutter_realtime_media_livekit (from `Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_livekit/macos`)
-  - flutter_realtime_media_trtc (from `Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_trtc/macos`)
-  - flutter_realtime_processed_video (from `Flutter/ephemeral/.symlinks/plugins/flutter_realtime_processed_video/macos`)
-  - flutter_realtime_screen_annotation (from `Flutter/ephemeral/.symlinks/plugins/flutter_realtime_screen_annotation/macos`)
-  - flutter_realtime_video_effects (from `Flutter/ephemeral/.symlinks/plugins/flutter_realtime_video_effects/macos`)
-  - flutter_webrtc (from `Flutter/ephemeral/.symlinks/plugins/flutter_webrtc/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
-  - iris_method_channel (from `Flutter/ephemeral/.symlinks/plugins/iris_method_channel/macos`)
-  - livekit_client (from `Flutter/ephemeral/.symlinks/plugins/livekit_client/macos`)
-  - shared_preferences_foundation (from `Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin`)
   - tencent_cloud_chat_sdk (from `Flutter/ephemeral/.symlinks/plugins/tencent_cloud_chat_sdk/macos`)
   - tencent_rtc_sdk (from `Flutter/ephemeral/.symlinks/plugins/tencent_rtc_sdk/macos`)
-  - url_launcher_macos (from `Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos`)
 
 SPEC REPOS:
   trunk:
-    - AgoraIrisRTC_macOS
-    - AgoraRtcEngine_macOS_Preview
     - HydraAsync
     - TXIMSDK_Plus_Mac
     - TXLiteAVSDK_TRTC_Mac
-    - WebRTC-SDK
 
 EXTERNAL SOURCES:
-  agora_rtc_engine:
-    :path: Flutter/ephemeral/.symlinks/plugins/agora_rtc_engine/macos
-  connectivity_plus:
-    :path: Flutter/ephemeral/.symlinks/plugins/connectivity_plus/macos
-  device_info_plus:
-    :path: Flutter/ephemeral/.symlinks/plugins/device_info_plus/macos
-  flutter_realtime_chat_agora:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_realtime_chat_agora/macos
-  flutter_realtime_media_agora:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_agora/macos
-  flutter_realtime_media_artc:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_artc/macos
-  flutter_realtime_media_aws_desktop:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_aws_desktop/macos
-  flutter_realtime_media_core:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_core/macos
-  flutter_realtime_media_livekit:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_livekit/macos
-  flutter_realtime_media_trtc:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_realtime_media_trtc/macos
-  flutter_realtime_processed_video:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_realtime_processed_video/macos
-  flutter_realtime_screen_annotation:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_realtime_screen_annotation/macos
-  flutter_realtime_video_effects:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_realtime_video_effects/macos
-  flutter_webrtc:
-    :path: Flutter/ephemeral/.symlinks/plugins/flutter_webrtc/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
-  iris_method_channel:
-    :path: Flutter/ephemeral/.symlinks/plugins/iris_method_channel/macos
-  livekit_client:
-    :path: Flutter/ephemeral/.symlinks/plugins/livekit_client/macos
-  shared_preferences_foundation:
-    :path: Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin
   tencent_cloud_chat_sdk:
     :path: Flutter/ephemeral/.symlinks/plugins/tencent_cloud_chat_sdk/macos
   tencent_rtc_sdk:
     :path: Flutter/ephemeral/.symlinks/plugins/tencent_rtc_sdk/macos
-  url_launcher_macos:
-    :path: Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos
 
 SPEC CHECKSUMS:
-  agora_rtc_engine: ce05befeeade1b2bd440750319e99132894ffe5f
-  AgoraIrisRTC_macOS: 891384a604af9bd26239f3a86f96c66938e29f42
-  AgoraRtcEngine_macOS_Preview: e2e7d060c972b9c0b261aee578b8b53a5199020a
-  connectivity_plus: 4adf20a405e25b42b9c9f87feff8f4b6fde18a4e
-  device_info_plus: 4fb280989f669696856f8b129e4a5e3cd6c48f76
-  flutter_realtime_chat_agora: 5efab6dc143a62e63b4dae23e98e1736cdcc6755
-  flutter_realtime_media_agora: ee6e6b086f0aa4619452942db297fb8709aa3ee4
-  flutter_realtime_media_artc: 64f4ae7cb3cbae9c0cc5f889564e6dfe9d0f3e12
-  flutter_realtime_media_aws_desktop: 21093e31d56882471daa117e14850b39fdb5738b
-  flutter_realtime_media_core: 5c01d7683800a02cde884c9253ac4733fc8e0aca
-  flutter_realtime_media_livekit: 03f83fe82d4fcd5cfdf1c9a704b701cb5008c261
-  flutter_realtime_media_trtc: 034de983ab3e04e92250e9c69ff51d8666de18ab
-  flutter_realtime_processed_video: 232a75c567d71da194180c744f97f677022d23fe
-  flutter_realtime_screen_annotation: 15e0f74ff4670036a8e081d14de4938fc234e272
-  flutter_realtime_video_effects: 2bc53de49a8175a1ac4de8532a446dfb55f00cf2
-  flutter_webrtc: af708ba091a5d71e101f9f631a9f96c107581a3d
   FlutterMacOS: c232990155153907050900a2e175c7773903ba4e
   HydraAsync: 8d589bd725b0224f899afafc9a396327405f8063
-  iris_method_channel: 06ef372f01b31866748a3c45da2c89c93b666daa
-  livekit_client: a6026d572e01431fd06d6ccd6f44eaf4b72dec4b
-  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   tencent_cloud_chat_sdk: 62850e2969a525306e7a29a70ae80008fd0d82cc
   tencent_rtc_sdk: 6aff0457a5c1c2e41ecd888ac1e596930dfa8ce9
   TXIMSDK_Plus_Mac: 87fb2049b5772e8821504f826672e556e9ba61d4
   TXLiteAVSDK_TRTC_Mac: 160091f27024611ec1bfea8bc1cc6855b1572c97
-  url_launcher_macos: f87a979182d112f911de6820aefddaf56ee9fbfd
-  WebRTC-SDK: 7dc931c64c00c735a614382f1a59cf65019c3c17
 
 PODFILE CHECKSUM: f0c21717cb7ee9112f915044c74bfceb5b12e02a
 

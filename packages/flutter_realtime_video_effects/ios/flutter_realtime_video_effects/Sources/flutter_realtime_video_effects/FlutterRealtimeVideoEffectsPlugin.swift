@@ -73,6 +73,18 @@ private final class IOSVideoEffectsSource: NSObject,
     )
   }
 
+  private func configureVideoOrientation() {
+    // Changing front/back inputs may replace the AVCaptureConnection. Keep
+    // the frame orientation matching the portrait texture dimensions exposed
+    // by createSource, otherwise the iOS preview becomes squashed.
+    guard let connection = videoOutput?.connection(with: .video) else { return }
+    if connection.isVideoOrientationSupported { connection.videoOrientation = .portrait }
+    if connection.isVideoMirroringSupported {
+      connection.automaticallyAdjustsVideoMirroring = false
+      connection.isVideoMirrored = false
+    }
+  }
+
   func start(completion: @escaping (Error?) -> Void) {
     let beginCapture = { [weak self] in
       guard let self else { return }
@@ -164,6 +176,7 @@ private final class IOSVideoEffectsSource: NSObject,
     session.beginConfiguration()
     defer {
       session.commitConfiguration()
+      configureVideoOrientation()
       configureFrameRate()
     }
     session.sessionPreset = requestedWidth >= 1280 ? .hd1280x720 : .vga640x480
@@ -179,13 +192,6 @@ private final class IOSVideoEffectsSource: NSObject,
       throw VideoEffectsError.captureConfigurationFailed
     }
     session.addOutput(output)
-    if let connection = output.connection(with: .video) {
-      if connection.isVideoOrientationSupported { connection.videoOrientation = .portrait }
-      if connection.isVideoMirroringSupported {
-        connection.automaticallyAdjustsVideoMirroring = false
-        connection.isVideoMirrored = false
-      }
-    }
     videoOutput = output
   }
 
@@ -193,6 +199,7 @@ private final class IOSVideoEffectsSource: NSObject,
     session.beginConfiguration()
     defer {
       session.commitConfiguration()
+      configureVideoOrientation()
       configureFrameRate()
     }
     let previous = currentInput

@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.license           = { :type => 'Proprietary', :text => 'Not published.' }
   s.author            = { 'Project' => 'N/A' }
   s.source            = { :path => '.' }
-  s.source_files      = 'Classes/**/*'
+  s.source_files      = 'flutter_realtime_chat_agora/Sources/flutter_realtime_chat_agora/**/*'
   s.dependency 'FlutterMacOS'
   s.frameworks        = 'WebKit'
   s.platform           = :osx, '12.0'

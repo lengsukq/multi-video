@@ -74,6 +74,12 @@ def run() -> dict:
                 target = resources / name / item.name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 if target.exists():
+                    # SPM and CocoaPods intentionally bundle byte-identical
+                    # copies of each native WebKit JS/HTML resource. Merge
+                    # them only when content matches; changed assets are an
+                    # error rather than silently picking a different version.
+                    if target.read_bytes() == item.read_bytes():
+                        continue
                     raise ValueError(f"macOS resource collision: {target}")
                 shutil.copy2(item, target)
     # Dynamically resolve the original plugin registration classes. The

@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.license = { :type => 'MIT' }
   s.author = { 'Realtime SDK' => 'sdk@example.invalid' }
   s.source = { :path => '.' }
-  s.source_files = 'Classes/**/*'
+  s.source_files = 'flutter_realtime_screen_annotation/Sources/flutter_realtime_screen_annotation/**/*'
   s.dependency 'FlutterMacOS'
   s.platform = :osx, '10.14'
   s.frameworks = 'AppKit'

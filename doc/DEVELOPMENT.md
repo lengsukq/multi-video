@@ -54,12 +54,11 @@ python3 scripts/flutter_ios.py build ios --release --no-codesign
 python3 scripts/flutter_ios.py run -d <ios-device-id>
 ```
 
-This helper resolves Dart dependencies from the local cache, prepares missing
-SwiftPM Flutter framework shims and removes generated macOS SwiftPM project
-references after the build. It never rewrites `pubspec.yaml` or global Flutter
-settings. Flutter's SwiftPM flag is application-wide, not platform-specific;
-macOS continues to use CocoaPods through the wrappers below. Run Apple platform
-commands one at a time because they share generated plugin files.
+This optional helper resolves Dart dependencies from the local cache and
+prepares missing iOS SwiftPM Flutter framework shims after a fresh checkout.
+It never rewrites `pubspec.yaml` or global Flutter settings. Both iOS and
+macOS run directly from `example/` with SwiftPM enabled. Avoid building
+both Apple platforms simultaneously because they share generated plugin files.
 
 ## Real-device media verification
 
@@ -67,32 +66,45 @@ See [`DEVICE_E2E.md`](DEVICE_E2E.md) for the opt-in physical-device workflow.
 
 ## macOS validation
 
-The full Demo uses CocoaPods for macOS, using the debug wrapper from the
-repository root (a direct `flutter run -d macos` would inherit the iOS SwiftPM
-setting and can link duplicate native plugins):
+Both Apple platforms now use the **same** `example/` Flutter application.
+All eight in-repository macOS native plugin packages previously limited to
+CocoaPods have been migrated to SwiftPM. CocoaPods podspecs reuse those native
+source trees; no duplicate Dart UI, providers, SDK packages or app hosts exist.
+
+```sh
+cd example
+flutter run -d macos
+flutter run -d iPhone
+```
+
+The app-wide SwiftPM toggle remains enabled. Vendor
+`tencent_cloud_chat_sdk` and `tencent_rtc_sdk` still do not ship macOS
+SwiftPM manifests, so Flutter 3.47 uses its CocoaPods fallback for those two
+plugins. This is not a claim that all third-party code is SPM-only. We retain
+the CocoaPods Podfile and source-compatible local plugin podspecs.
+Local Agora Chat and AWS WebKit plugin resources are bundled via
+`Bundle.module` on SwiftPM and CocoaPods resource bundles otherwise.
+
+The same-app macOS Debug build and `flutter run` have passed on macOS 27,
+including startup and an active Dart VM Service. They do not prove full
+provider end-to-end meeting, recording, background, or screen sharing tests.
+Agora's binary frameworks may log duplicate Objective-C classes between
+AgoraRtcKit and AgoraScreenCaptureExtension; track this separately before
+declaring release readiness.
+
+The legacy macOS .command entrypoints remain available for release and IDE
+compatibility, but now call the same standard Flutter SwiftPM commands
+without temporarily editing `pubspec.yaml` or Xcode Runner. From the
+repository root:
 
 ```sh
 ./run_macos_debug.command
+./build_macos_arm64.command
 ```
 
-If Flutter previously generated SwiftPM macOS Runner references, or if you want
-a standalone interactive CocoaPods-only entrypoint, run from the repo root:
-
-```sh
-./run_macos_debug.command
-# or: python3 scripts/run_flutter_macos.py --debug
-```
-
-This invokes the real `flutter run -d macos --debug` command (not a build-only
-launch): use `r` to hot reload, `R` to restart and `q` to quit. It also removes
-stale generated SwiftPM Runner dependencies before launching, and restores the
-original `pubspec.yaml` configuration when the session ends. VS Code users can
-choose **Terminal → Run Task → Flutter macOS Debug (CocoaPods + Hot Reload)**.
-Run only one macOS/iOS Flutter command at a time against this Demo.
-
-The project setting applies before the environment/global feature flag. Do not
-change user-wide settings to run this check. The macOS build helper also repairs
-generated Runner references left by earlier SwiftPM builds.
+For normal debug use the `example/` commands above. They support Flutter
+hot reload (`r`), hot restart (`R`) and quit (`q`) without toggling the
+manifest. Full installed-DMG/signing QA still requires validation.
 
 ### Validate desktop provider runtime assets
 
@@ -137,19 +149,14 @@ the Demo, creates the DMG, installs/replaces the same application in
 `chmod +x build_macos_arm64.command`. The shell entry point invokes the internal
 Python packaging utility; you do not need to run a `.py` file yourself.
 
-The command builds `example/` in Release mode through
-`scripts/build_flutter_macos.py --release --no-pub` (temporarily using CocoaPods
-without changing global Flutter settings), validates that the main executable
-contains an **arm64 slice**, and writes a compressed DMG under `dist/macos/`.
-The macOS Runner uses **CocoaPods only**: the generated Flutter SwiftPM product
-was removed from `example/macos/Runner.xcodeproj`, avoiding Xcode 27 errors
-resolving `iris_method_channel_objc` and `RealtimeNativeFrameSinks` when the
-same plugins are provided by CocoaPods. The helper also removes those generated
-Runner references again if Flutter recreates them after dependency changes.
-The project-level `enable-swift-package-manager: true` setting in
-`example/pubspec.yaml` allows standard iOS commands. The macOS wrappers
-temporarily disable SwiftPM, then restore the iOS default afterwards. Do not
-use a direct macOS command for the CocoaPods-only build.
+The DMG tool invokes `scripts/build_flutter_macos.py --release --no-pub`
+as a compatibility entrypoint, which now simply delegates to standard
+`flutter build macos --release --no-pub` using the same SwiftPM setup as
+direct development. It no longer changes Flutter's manifest or removes
+macOS native SPM Xcode references. The SwiftPM Release command has built
+`multi-video.app` successfully. The DMG packager independently verifies arm64
+and creates the archive under `dist/macos/`; the full installed-DMG
+workflow still requires user-device acceptance testing.
 The DMG contains the `.app` and an `Applications` shortcut for drag-and-drop.
 The default `.command` invocation copies the `.app` into `/Applications` and
 replaces existing installations of the same application. Replacement is refused for a

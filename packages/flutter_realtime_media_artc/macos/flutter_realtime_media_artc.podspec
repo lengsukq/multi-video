@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.license          = { :type => 'MIT' }
   s.author           = { 'OnePlusDream' => 'developers@oneplusdream.com' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*'
+  s.source_files     = 'flutter_realtime_media_artc/Sources/flutter_realtime_media_artc/**/*'
   s.dependency 'FlutterMacOS'
   s.frameworks       = 'AVFoundation', 'AppKit'
   s.platform         = :osx, '12.0'

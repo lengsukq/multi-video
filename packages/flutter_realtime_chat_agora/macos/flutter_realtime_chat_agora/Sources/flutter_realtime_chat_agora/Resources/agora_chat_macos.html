@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <script src="agora_chat_macos.js"></script>
+    <script>
+      async function guardedInvoke(method, args) {
+        const bridge = globalThis.AgoraChatBridge;
+        if (!bridge || typeof bridge[method] !== 'function') {
+          throw new Error(`Agora Chat bridge method ${method} is unavailable.`);
+        }
+        try {
+          return await bridge[method](...args);
+        } catch (error) {
+          const name = typeof error?.name === 'string' ? error.name : 'Error';
+          const message = typeof error?.message === 'string'
+            ? error.message
+            : String(error);
+          const code = error?.code ?? error?.type ?? error?.errorCode;
+          const codeText = code == null ? '' : ` (code ${String(code)})`;
+          return {
+            __flutterAgoraChatError: `${name}${codeText}: ${message}`,
+          };
+        }
+      }
+    </script>
+  </body>
+</html>

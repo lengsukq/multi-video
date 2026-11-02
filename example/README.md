@@ -84,8 +84,15 @@ media provider supports bidirectional data; LiveKit supports this on Web.
 
 ### Run on macOS
 
-Run `./run_macos_debug.command` from the repository root to use CocoaPods
-(normal `flutter run -d macos` uses the app-wide SwiftPM flag).
+Use the same Flutter Demo directory and SPM configuration as iOS:
+
+```sh
+flutter run -d macos
+```
+
+All local macOS plugin sources now support SwiftPM and CocoaPods.
+Flutter still uses its CocoaPods fallback for the third-party Tencent Chat
+and RTC plugins, which do not yet publish macOS SwiftPM packages.
 The Agora Chat adapter requires macOS 12 or later. It
 uses the same backend-issued short-lived user token as other platforms; the
 Agora App Certificate stays on the server.
@@ -95,8 +102,8 @@ Agora App Certificate stays on the server.
 The Demo enables SwiftPM in `pubspec.yaml`, so from the `example/` directory
 run `flutter run -d iPhone`. For first-time local SwiftPM framework shim setup,
 run `python3 scripts/flutter_ios.py run -d iPhone` from the repository root.
-Flutter does not support different SwiftPM flags for iOS and macOS inside one
-app manifest; use the macOS CocoaPods wrapper above for desktop development.
+Both macOS and iOS use this same app-level SwiftPM configuration; no wrapper
+or manifest toggle is required for normal Flutter debug sessions.
 
 For a terminal launch, run `flutter run -d web-server` from this directory and
 open the printed URL in a supported browser.
@@ -116,10 +123,10 @@ switched. The app UI does not expose or require provider selection.
 
 Use Flutter 3.47+, Dart 3.12+, Java 17, Android API 28+ with compile SDK 37,
 iOS 15+, macOS 12+, Windows 10+, and a secure browser context for Web media.
-This local monorepo example enables Swift Package Manager for iOS (IVS Media/Chat
-require it) while macOS uses a CocoaPods-specific development wrapper. SDK
-consumers can choose SwiftPM and Flutter's CocoaPods fallback according to their
-own plugin dependencies.
+This local monorepo enables Swift Package Manager for both iOS and macOS, with
+Flutter's CocoaPods fallback for the macOS Tencent plugins still lacking SPM
+packages. SDK consumers can choose the native integration approach compatible
+with their own plugin dependencies.
 
 Agora's optional real-service device E2E flow is documented in
 [`../doc/AGORA_E2E.md`](../doc/AGORA_E2E.md).
@@ -148,10 +155,10 @@ can use their own VOD services. Provider setup, costs, status, and unverified
 paths are documented in [Cloud recording](../doc/CLOUD_RECORDING.md).
 Screen annotations are drawn in the shared-content preview.
 
-For macOS builds that hit the Iris SwiftPM FlutterMacOS linker issue, use
-`python3 ../scripts/build_flutter_macos.py --release --no-pub` instead of a
-global Flutter configuration change. It temporarily selects CocoaPods for the
-Demo manifest and restores that manifest afterwards.
+The macOS SwiftPM and CocoaPods plugin targets now share one native source
+tree. Standard macOS Debug/Release builds no longer need a CocoaPods wrapper.
+The existing DMG packaging script delegates to the same SwiftPM Flutter build;
+its installer/signing workflow still needs separate release QA.
 
 See [interaction acceptance](../doc/INTERACTION_ACCEPTANCE.md) for current
 build/test evidence and pending real-device checks.

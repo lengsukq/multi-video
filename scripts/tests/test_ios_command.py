@@ -51,18 +51,16 @@ class IosCommandTest(unittest.TestCase):
         self.assertEqual(len(self.commands), 1)
         self.assertEqual(self.manifest.read_text(), self.original)
 
-    def test_ios_resolution_does_not_leave_swiftpm_wired_into_macos_runner(self):
+    def test_ios_resolution_preserves_macos_swiftpm_runner(self):
         runner = self.project / 'macos/Runner.xcodeproj/project.pbxproj'
         runner.parent.mkdir(parents=True)
-        runner.write_text('user-owned object\n')
+        original = 'user-owned object\nSwiftPM macOS Runner dependency\n'
+        runner.write_text(original)
         def resolve(command, cwd):
             self.run_command(command, cwd)
-            if command[1] == 'pub':
-                generated = ''.join(f'{item}\n' for item in helper.without_generated_swiftpm_dependency.__globals__['GENERATED_SWIFTPM_IDS'])
-                runner.write_text('user-owned object\n' + generated)
             return subprocess.CompletedProcess(command, 0)
         helper.run_ios(self.project, ['build', 'ios'], resolve)
-        self.assertEqual(runner.read_text(), 'user-owned object\n')
+        self.assertEqual(runner.read_text(), original)
 
     def test_interrupted_debug_run_restores_configuration(self):
         def interrupted(command, cwd):
@@ -98,16 +96,16 @@ class IosCommandTest(unittest.TestCase):
             helper.run_ios(self.project, ['build', 'ios'], self.run_command)
         self.assertEqual(self.commands, [])
 
-    def test_macos_wrapper_uses_cocoapods_then_restores_ios_default(self):
-        from build_flutter_macos import with_cocoapods
+    def test_macos_compatibility_entrypoint_preserves_shared_swiftpm_config(self):
+        from build_flutter_macos import debug
         commands = []
 
         def run(command, cwd):
             self.assertEqual(cwd, self.project)
-            self.assertIn('enable-swift-package-manager: false', self.manifest.read_text())
+            self.assertIn('enable-swift-package-manager: true', self.manifest.read_text())
             commands.append(command)
             return subprocess.CompletedProcess(command, 0)
 
-        self.assertEqual(with_cocoapods(self.project, ['flutter', 'run', '-d', 'macos'], run), 0)
+        self.assertEqual(debug(self.project, [], run), 0)
         self.assertEqual(commands, [['flutter', 'run', '-d', 'macos']])
         self.assertEqual(self.manifest.read_text(), self.original)

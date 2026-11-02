@@ -10,9 +10,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from build_flutter_macos import without_generated_swiftpm_dependency
-
-
 _FLUTTER_FRAMEWORK_PACKAGE = '''// swift-tools-version: 5.9
 import PackageDescription
 let package = Package(
@@ -68,21 +65,13 @@ def run_ios(project: Path, args: list[str], run=subprocess.run) -> int:
     manifest = project / 'pubspec.yaml'
     if not re.search(r'(?m)^[ \t]+enable-swift-package-manager:[ \t]*true[ \t]*$', manifest.read_text()):
         raise ValueError('iOS requires enable-swift-package-manager: true in the Demo pubspec.yaml.')
-    try:
-        resolved = run(['flutter', 'pub', 'get', '--offline'], cwd=project)
-        if resolved.returncode != 0:
-            return resolved.returncode
-        ensure_flutter_framework_dependencies(project)
-        return run(['flutter', *args], cwd=project).returncode
-    finally:
-        # Flutter pub get may wire SwiftPM into macOS Runner too. Keep its
-        # CocoaPods-only Xcode project clean without touching pubspec.yaml.
-        runner = project / 'macos/Runner.xcodeproj/project.pbxproj'
-        if runner.is_file():
-            original = runner.read_text()
-            cleaned = without_generated_swiftpm_dependency(original)
-            if cleaned != original:
-                runner.write_text(cleaned)
+    resolved = run(['flutter', 'pub', 'get', '--offline'], cwd=project)
+    if resolved.returncode != 0:
+        return resolved.returncode
+    ensure_flutter_framework_dependencies(project)
+    # The macOS Runner is also SwiftPM-based now. Never remove its generated
+    # package integration when iOS exits, including after an interrupted run.
+    return run(['flutter', *args], cwd=project).returncode
 
 
 def stop(_signal, _frame):
