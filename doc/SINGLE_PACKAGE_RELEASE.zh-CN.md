@@ -4,7 +4,7 @@
 > 开发根目录（本仓库根）是私有 tooling workspace，`publish_to: none`；44 个内部源码模块
 > 同样保持 `publish_to: none`，不逐个发布。发行脚本把这些模块聚合为唯一对外发布包
 > `flutter_realtime_sdk`。
-> **当前已发布版本为 `flutter_realtime_sdk 0.1.0-dev.10`（2026-10-20）。**
+> **当前已发布版本为 `flutter_realtime_sdk 0.1.0-dev.12`（2026-11-03）。**
 > `0.1.0-dev.1`（2026-10-15）是首个单包预览版，相关发布叙述仅为历史记录，
 > 已被后续版本取代，不代表当前版本。
 > 真机通话、Windows/Linux、部分供应商组合和第三方许可仍需单独验收，不因包已发布而视为完成。
@@ -14,20 +14,21 @@
 
 | 版本 | 状态 | 说明 |
 | --- | --- | --- |
-| `0.1.0-dev.10` | **当前已发布（2026-10-20）** | 外部宿主依赖 `^0.1.0-dev.10`；本文所有“当前版本”均指此版本 |
-| `0.1.0-dev.11` | 未发布（下一版本示例） | 仅用于下文准备命令示例，尚未生成或发布；发布前仍需维护者审查 |
+| `0.1.0-dev.12` | **当前已发布（2026-11-03）** | 外部宿主依赖 `^0.1.0-dev.12`；Web 白板事件 ID 与共享内容错误修复 |
+| `0.1.0-dev.11` | 历史版本 | 已由 dev.12 取代 |
+| `0.1.0-dev.10` | 历史（2026-10-20） | 会议模式、组合式预览与内容共享 |
 | `0.1.0-dev.1` | 历史（2026-10-15） | 首个单包预览版，已被 dev.2–dev.10 取代，不是当前版本 |
 
 dev.1 的“已上传/已发布”叙述只还原当时的首发动作；当前接入、升级和问题定位
-一律以 dev.10 为准，不要据此安装或引用 dev.1。
+一律以 dev.12 为准，不要据此安装或引用 dev.1。
 
 ## 目标、边界和必须接受的代价
 
-**宿主的依赖和导入只有一个 SDK 名称。当前已发布版本（dev.10）的声明如下**：
+**宿主的依赖和导入只有一个 SDK 名称。当前已发布版本（dev.12）的声明如下**：
 
 ```yaml
 dependencies:
-  flutter_realtime_sdk: ^0.1.0-dev.10
+  flutter_realtime_sdk: ^0.1.0-dev.12
 ```
 
 ```dart
@@ -36,7 +37,11 @@ import 'package:flutter_realtime_sdk/flutter_realtime_sdk.dart';
 final realtime = Realtime(
   backendUrl: 'https://your-backend.example',
   providers: [createLivekitProvider()],
-  featurePlugins: const [ClassroomPreset(), LivePreset()],
+  featurePlugins: const [
+    ClassroomPreset(),
+    SharedContentPreset(),
+    LivePreset(),
+  ],
 );
 // 需要 UI 时，使用同一包导出的 RealtimeRoomView、可组合组件；
 // Headless 宿主可以完全不创建任何 SDK Widget。
@@ -104,7 +109,7 @@ flutter pub publish --dry-run
 ### 实际独立宿主验收结果（2026-10-15，历史记录）
 
 > 本表是 2026-10-15 对当时候选（早于 dev.9）的验收证据，保留用于追溯技术方案；
-> 它不是对当前已发布 dev.10 的验收结论。当前版本仍待完成的验收项见文末“后续阶段与验收门槛”。
+> 它不是对当前已发布 dev.12 的验收结论。当前版本仍待完成的验收项见文末“后续阶段与验收门槛”。
 
 使用 `build/single_sdk_host`（仅依赖单一 SDK 路径包），不是现有大 Demo：
 

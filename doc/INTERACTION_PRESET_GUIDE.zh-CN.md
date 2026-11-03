@@ -51,11 +51,12 @@ await connection.dispose();
 
 ```dart
 import 'package:flutter_realtime_classroom_preset/flutter_realtime_classroom_preset.dart';
+import 'package:flutter_realtime_shared_content_preset/flutter_realtime_shared_content_preset.dart';
 
 final realtime = Realtime(
   providers: myProviderBundles,
   backendUrl: backendUrl,
-  featurePlugins: const [ClassroomPreset()],
+  featurePlugins: const [ClassroomPreset(), SharedContentPreset()],
 );
 final connection = await realtime.open(meetingRequest);
 final room = connection.mediaRoom!;
@@ -71,10 +72,13 @@ if (classroom != null) {
 await connection.dispose();
 ```
 
-`ClassroomPreset` 使用已有 `ClassroomSession`、
-`HttpClassroomRepository`，并拥有自己的 `room.sharedContent`
-（白板/屏幕共享/标注）组合对象。没有匹配的 Meeting 元数据或凭证时不创建该
-业务对象；可以注入 `repositoryFactory` 使用自己的可信控制面。
+`ClassroomPreset` 使用已有的 `ClassroomSession` 和
+`HttpClassroomRepository` 处理举手、发言授权等课堂互动。
+`SharedContentPreset` 独立提供 `room.sharedContent`（白板、屏幕共享与批注）。
+两者可以任意顺序注册：SDK 会先附加已经注册的课堂插件，
+再创建共享内容控制器。普通会议也能仅注册 `SharedContentPreset()`
+而不加载教学功能。没有对应 Meeting 元数据或凭证时，功能可能不可用；
+也可以注入 `repositoryFactory` 对接自己的可信控制面。
 完全自定义的直连房间须同时设置
 `enableForDirectRooms: true` 和 `repositoryFactory`。
 
@@ -131,21 +135,27 @@ RTC Data 的 `canPublish`/`canSubscribe`、定向发送和不可靠传输能力�
 ## 5. 自己实现可复用的 SDK Feature 插件
 
 ```dart
-class MyPresenceFeature implements RealtimeFeaturePlugin {
+class MyPresenceController {
+  void dispose() {}
+}
+
+class MyPresenceFeature extends RealtimeFeaturePlugin<MyPresenceController> {
   const MyPresenceFeature();
-  @override
-  String get id => 'myapp.presence';
+  static const featureKey =
+      RealtimeFeatureKey<MyPresenceController>('myapp.presence');
 
   @override
-  Object? attach(RealtimeFeatureContext context) {
+  RealtimeFeatureKey<MyPresenceController> get key => featureKey;
+
+  @override
+  MyPresenceController? attach(RealtimeFeatureContext context) {
     // context.media / context.chat / context.interactions()
     // 此处可建立订阅；没有权限或房间类型不匹配时返回 null。
-    return MyPresenceController(context);
+    return MyPresenceController();
   }
 
   @override
-  Future<void> detach(Object feature) =>
-      (feature as MyPresenceController).dispose();
+  void detach(MyPresenceController feature) => feature.dispose();
 }
 
 final realtime = Realtime(
@@ -153,10 +163,12 @@ final realtime = Realtime(
   featurePlugins: const [MyPresenceFeature()],
 );
 // 房间打开后：
-// final feature = room.features.get<MyPresenceController>('myapp.presence');
+// final feature = room.features.get(MyPresenceFeature.featureKey);
 ```
 
-如果需要首次权威状态读取，实现 `RealtimeStartingFeaturePlugin`；
+对应的公开 SDK API 编译回归测试在
+`packages/flutter_realtime_sdk/test/third_party_plugin_example_test.dart`。
+如果需要首次权威状态读取，覆盖插件的 `start(T feature)`；
 SDK 仅在注册后 attach，每个房间独立初始化，错误彼此隔离，
 断开房间时逆注册顺序释放。异步 attach 不应阻塞已经就绪的其他业务包。
 `MyPresenceController` 为应用自定义的对象，代码片段只展示插件契约。

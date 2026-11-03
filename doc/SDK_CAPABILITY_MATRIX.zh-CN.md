@@ -139,7 +139,8 @@ Flutter Windows 原生构建门禁见 `.github/workflows/windows-video-effects-s
 工作流包含三个 Provider 的 Windows 原生构建检查，并执行带 ONNX Runtime
 链接的 x64 Release 构建。编译通过不代表实际人像分割质量和远端像素验收通过；
 仍必须完成 Windows 双设备真实通话。
-这些都是开发工作区变化，未包含于已发布的 dev.10。实现不等于真实远端画面验收通过。
+以上描述的是源码中的实现声明；具体发布版支持范围以该版本的能力矩阵和
+实际设备测试为准。源码实现不等于真实远端画面验收通过。
 
 Demo 的 Pre-Join 直接使用 Platform Bridge 做实时虚化预览，不进入 Provider 房间。
 正式入房前 `RealtimeRoomView` 会重新创建 processed source 并 attach 给当前

@@ -8,7 +8,7 @@
 
 | 版本/形态 | 状态 | 如何接入 |
 | --- | --- | --- |
-| [`flutter_realtime_sdk 0.1.0-dev.10`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.10) | **已发布预览版（2026-10-20）** | 新增会议模式、组合式预览与仓库驱动的内容共享，更新会议/直播/聊天/课堂/白板 UI、内置字体和 macOS 麦克风电平表 |
+| [`flutter_realtime_sdk 0.1.0-dev.12`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.12) | **已发布预览版（2026-11-03）** | 新增会议模式、组合式预览与仓库驱动的内容共享，更新会议/直播/聊天/课堂/白板 UI、内置字体和 macOS 麦克风电平表 |
 | 源码仓库 | 开发用 | Facade + 选定的 Provider/UI 内部包 |
 
 **不要混淆两种使用方式：** pub.dev 发布物把 44 个内部模块组装为**一个公开 SDK 包**；本仓库开发时仍然是多模块源码，依赖配置不同。支持列表不代表每个供应商和设备都完成实机验收，Windows/Linux、部分平台组合和第三方许可审查仍有待完成。
@@ -19,7 +19,7 @@
 
 ~~~yaml
 dependencies:
-  flutter_realtime_sdk: ^0.1.0-dev.10
+  flutter_realtime_sdk: ^0.1.0-dev.12
 ~~~
 
 已发布的单包 SDK **只需要一个 Dart import**：
@@ -49,10 +49,10 @@ UI 可以选择 `RealtimeRoomView`、组合式按钮/网格，或全部自己实
 
 ### Headless 摄像头及虚拟背景
 
-已发布的 **`0.1.0-dev.10`** 保留 `room.setCameraEnabled(bool)` 和 `DefaultRealtimeVideoEffects` 导出，并新增会议模式、组合式预览、仓库驱动的内容共享、更新后的会议/直播/聊天/课堂/白板 UI、内置字体和 macOS 入会前麦克风电平表。电平表读取系统默认输入设备，不代表远端实际收到音频。
+已发布的 **`0.1.0-dev.12`** 保留 `room.setCameraEnabled(bool)` 和 `DefaultRealtimeVideoEffects` 导出，并新增会议模式、组合式预览、仓库驱动的内容共享、更新后的会议/直播/聊天/课堂/白板 UI、内置字体和 macOS 入会前麦克风电平表。电平表读取系统默认输入设备，不代表远端实际收到音频。
 
 ~~~dart
-// 当前已发布的 dev.10 包含此接口：
+// 当前已发布的 dev.12 包含此接口：
 final realtime = Realtime(
   backendUrl: 'https://your-backend.example',
   providers: [createLivekitProvider()],

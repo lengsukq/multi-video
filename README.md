@@ -8,7 +8,7 @@
 
 | Distribution | Status | How to integrate |
 | --- | --- | --- |
-| [`flutter_realtime_sdk 0.1.0-dev.10`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.10) | **Published** preview (2026-10-20) | Meeting modes and composed previews, repository-backed shared content, refreshed SDK workspaces, bundled fonts, and a native macOS microphone meter |
+| [`flutter_realtime_sdk 0.1.0-dev.12`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.12) | **Published** preview (2026-11-03) | Meeting modes and composed previews, repository-backed shared content, refreshed SDK workspaces, bundled fonts, and a native macOS microphone meter |
 | Monorepo source packages | Development only | Facade plus selected Provider/UI modules |
 
 The hosted preview bundles 44 internal modules into **one pub.dev package**. This repository still has separate source modules, with different dependency instructions. Windows/Linux, some native vendor/device combinations, and third-party license verification remain release acceptance work.
@@ -19,7 +19,7 @@ Requires Flutter ≥ 3.47 and Dart ≥ 3.12. The combined native package require
 
 ~~~yaml
 dependencies:
-  flutter_realtime_sdk: ^0.1.0-dev.10
+  flutter_realtime_sdk: ^0.1.0-dev.12
 ~~~
 
 ~~~dart
@@ -45,10 +45,10 @@ Register providers explicitly. Use a **trusted backend** for short-lived credent
 
 ### Virtual-background update for Headless apps
 
-Published **`0.1.0-dev.10`** retains `room.setCameraEnabled(bool)` and the `DefaultRealtimeVideoEffects` export, with meeting-mode selection, composed previews, repository-backed shared content, refreshed Meeting/Live/Chat/classroom/whiteboard UI, bundled design fonts, and a native macOS pre-join microphone meter. The meter reads the system default input and does not prove remote audio delivery:
+Published **`0.1.0-dev.12`** retains `room.setCameraEnabled(bool)` and the `DefaultRealtimeVideoEffects` export, with meeting-mode selection, composed previews, repository-backed shared content, refreshed Meeting/Live/Chat/classroom/whiteboard UI, bundled design fonts, and a native macOS pre-join microphone meter. The meter reads the system default input and does not prove remote audio delivery:
 
 ~~~dart
-// Available in the published dev.10 preview.
+// Available in the published dev.12 preview.
 final realtime = Realtime(
   backendUrl: 'https://your-backend.example',
   providers: [createLivekitProvider()],

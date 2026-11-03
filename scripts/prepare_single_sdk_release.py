@@ -223,6 +223,19 @@ def prepare(version: str, root: Path = ROOT) -> Path:
             "- Exclude local Python bytecode caches from the one-package "
             "Windows distribution archive.\n"
         )
+    elif version == "0.1.0-dev.13":
+        notes = (
+            "- Make classroom and shared-content preset registration order independent "
+            "with typed optional feature dependencies.\n"
+            "- Keep whiteboard/shared content usable without registering classroom features.\n"
+            "- Fix CI format and generated capability declarations, Web-only platform "
+            "tests, macOS native frame feed paths, Windows symlink handling, and "
+            "Web bridge npm dependency installation.\n"
+            "- Refresh third-party SDK onboarding and plugin examples, with a "
+            "public-API compilation regression test.\n"
+            "- Preserve the current single-package provider dependency model; "
+            "optional vendor pruning remains a future packaging decision.\n"
+        )
     else:
         notes = (
             "- Fix camera-off background selection followed by camera-on in external Headless apps.\n"

@@ -30,7 +30,11 @@ final realtime = Realtime(
   services: const RealtimeRoomServices(
     videoEffectsFactory: DefaultRealtimeVideoEffects.new,
   ),
-  featurePlugins: const [ClassroomPreset(), LivePreset()],
+  featurePlugins: const [
+    ClassroomPreset(),
+    SharedContentPreset(),
+    LivePreset(),
+  ],
 );
 
 final connection = await realtime.open(

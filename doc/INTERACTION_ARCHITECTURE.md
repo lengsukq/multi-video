@@ -101,7 +101,9 @@ The host can also register independently managed features:
 featurePlugins: [MyCustomFeaturePlugin()],
 
 // After opening the room and awaiting room.initialize():
-final feature = room.features.get<MyCustomFeature>('myapp.custom');
+final feature = room.features.get(
+  const RealtimeFeatureKey<MyCustomFeature>('myapp.custom'),
+);
 ```
 
 Feature plugins implement `RealtimeFeaturePlugin` and receive

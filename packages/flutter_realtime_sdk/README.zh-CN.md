@@ -9,8 +9,8 @@
 
 ## 版本说明
 
-- [`0.1.0-dev.10`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.10)：**当前已发布的聚合单包预览版**，新增会议模式、组合式预览、仓库驱动的内容共享、更新后的工作区 UI、内置字体和 macOS 麦克风电平表。
-- dev.4–dev.9：较早的历史版本，已由 dev.10 取代。
+- [`0.1.0-dev.12`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.12)：**当前已发布的聚合单包预览版**，新增会议模式、组合式预览、仓库驱动的内容共享、更新后的工作区 UI、内置字体和 macOS 麦克风电平表。
+- dev.4–dev.9：较早的历史版本，已由 dev.12 取代。
 - 本目录：源码开发使用的 Facade，版本与发布单包不应混为一谈。
 
 ## 一、何时使用此目录？
@@ -34,7 +34,7 @@ dependencies:
 
 ~~~yaml
 dependencies:
-  flutter_realtime_sdk: ^0.1.0-dev.10
+  flutter_realtime_sdk: ^0.1.0-dev.12
 ~~~
 
 发布版仅需 `import 'package:flutter_realtime_sdk/flutter_realtime_sdk.dart';`。
@@ -75,6 +75,8 @@ final room = connection.mediaRoom!;
 
 - SDK UI 独立包：`flutter_realtime_sdk_ui`；提供可组合按钮、视频网格、默认会议/直播页面。
 - 课堂：独立导入 `flutter_realtime_classroom_preset` 并注册 `ClassroomPreset()`。
+- 白板/屏幕共享：独立导入 `flutter_realtime_shared_content_preset` 并注册
+  `SharedContentPreset()`；与 ClassroomPreset 同时启用时无需手动控制顺序。
 - 直播：独立导入 `flutter_realtime_live_preset` 并注册 `LivePreset()`。
 - 没有 UI 依赖也可以使用 Runtime 的媒体、聊天与业务事件接口。
 - 礼物/点赞是非支付互动，需要后端授权与状态同步。
@@ -84,7 +86,7 @@ final room = connection.mediaRoom!;
 `room.setBackgroundEffect(...)` 串行化，避免关摄像头选背景后，直接调用
 底层 `media.session.setVideoEnabled(true)` 导致摄像头源状态不一致。
 源码开发时如需实际背景处理，还需配置视频特效 Factory；
-已发布的 pub.dev 单包 `0.1.0-dev.10` 可从公共 import 获取
+已发布的 pub.dev 单包 `0.1.0-dev.12` 可从公共 import 获取
 `DefaultRealtimeVideoEffects`。请始终检查能力支持，并处理初始化异常。
 
 详见 [SDK / Headless 接入](../../doc/SDK_RUNTIME_INTEGRATION.zh-CN.md)。

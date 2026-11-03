@@ -11,8 +11,8 @@ remain optional; all shipped vendor SDK dependencies may still enter the app.
 
 [Single-package release architecture and current blockers](https://github.com/lengsukq/multi-video/blob/main/doc/SINGLE_PACKAGE_RELEASE.zh-CN.md).
 
-The hosted single-package preview `0.1.0-dev.10` is currently published on
-[pub.dev](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.10).
+The hosted single-package preview `0.1.0-dev.12` is currently published on
+[pub.dev](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.12).
 It adds meeting modes, composed previews, repository-backed shared content,
 refreshed built-in workspaces, bundled fonts, and a native macOS pre-join
 microphone meter. Earlier releases are superseded; this source module remains
@@ -45,7 +45,7 @@ dependencies:
     path: ../multi-video/packages/flutter_realtime_provider_livekit
 ```
 
-These paths assume the host Flutter project and the SDK checkout are sibling folders. Replace them with the real relative paths in your workspace. For the published preview, use `flutter pub add flutter_realtime_sdk:0.1.0-dev.10` instead and follow the published package's README.
+These paths assume the host Flutter project and the SDK checkout are sibling folders. Replace them with the real relative paths in your workspace. For the published preview, use `flutter pub add flutter_realtime_sdk:0.1.0-dev.12` instead and follow the published package's README.
 
 **Language and distribution:** [English source README](README.md) ·
 [中文源码 README](README.zh-CN.md) ·
@@ -100,6 +100,10 @@ final realtime = Realtime(
 ```
 
 These presets require a trusted authoritative backend (or explicitly provided repositories). Classroom hands, Q&A and Live gift/like events are *not* automatically enabled by importing the facade. Gifts are a demonstration of non-payment interactions.
+For whiteboard and shared-content modes, also register
+`SharedContentPreset()` (and its source module when using local path dependencies).
+When both it and `ClassroomPreset()` are registered, order is irrelevant.
+Classroom endpoints must still be implemented on your trusted backend.
 
 In the **development monorepo**, optional ready-to-use widgets still require
 `flutter_realtime_sdk_ui` as a separate path dependency. In the **published

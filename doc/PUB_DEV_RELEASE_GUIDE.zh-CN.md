@@ -1,10 +1,10 @@
 # Flutter Realtime SDK — pub.dev 单包发布清单
 
-> **当前发布形态（2026-10-20）：** 对外唯一发布物是聚合包
-> [`flutter_realtime_sdk 0.1.0-dev.10`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.10)，
-> 该版本于 2026-10-20 发布。44 个内部源码模块与根目录 tooling workspace
-> 均保持 `publish_to: none`，不逐个发布。dev.10 包含会议模式、组合式预览、仓库驱动的内容共享、
-> 更新后的 SDK 工作区 UI、内置字体和原生 macOS 入会前麦克风电平表。
+> **当前发布形态（2026-11-03）：** 对外唯一发布物是聚合包
+> [`flutter_realtime_sdk 0.1.0-dev.12`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.12)，
+> 已于 2026-11-03 发布。44 个内部源码模块与根目录 tooling workspace
+> 均保持 `publish_to: none`，不逐个发布。dev.12 保留会议模式、
+> 组合式预览、内容共享和原生入会前预览，并修复 Web 白板事件 ID 与共享内容错误处理。
 > Windows/Linux、真实设备/供应商 E2E 和第三方许可审查仍是独立验收项。
 >
 > 以下 dev.4–dev.9 条目是按时间保留的历史记录，不是当前发布状态；
@@ -18,7 +18,7 @@
 
 ```yaml
 dependencies:
-  flutter_realtime_sdk: ^0.1.0-dev.10
+  flutter_realtime_sdk: ^0.1.0-dev.12
 ```
 
 只需导入 `package:flutter_realtime_sdk/flutter_realtime_sdk.dart`。
@@ -70,7 +70,7 @@ python3 scripts/verify_single_sdk_web_assets.py \
   --web-build build/single_sdk_web_smoke/build/web
 ```
 
-dev.6 Web 资源修复允许第三方宿主不再复制 SDK 内部的 `web/models`、`web/wasm`；当前接入请使用 **`flutter_realtime_sdk: ^0.1.0-dev.10`**。仍需配置
+dev.6 Web 资源修复允许第三方宿主不再复制 SDK 内部的 `web/models`、`web/wasm`；当前接入请使用 **`flutter_realtime_sdk: ^0.1.0-dev.12`**。仍需配置
 `RealtimeRoomServices(videoEffectsFactory: DefaultRealtimeVideoEffects.new)`
 及摄像头权限、HTTPS 或 localhost。此修复仅修改单包的资源组装方式，
 并不改变内部源码包的模型路径。
@@ -95,7 +95,7 @@ dev.6 Web 资源修复允许第三方宿主不再复制 SDK 内部的 `web/model
 ```yaml
 # 当前已发布预览版
 dependencies:
-  flutter_realtime_sdk: ^0.1.0-dev.10
+  flutter_realtime_sdk: ^0.1.0-dev.12
 ```
 
 对外只需要 `package:flutter_realtime_sdk/flutter_realtime_sdk.dart`。
@@ -173,7 +173,7 @@ flutter pub publish --dry-run
 ```
 
 发版前在 dry-run 的文件树中确认中文文件已被包含，并以完整独立宿主进行
-音视频验证。以上是当时针对 dev.5 的历史记录；当前接入请使用顶部所列的已发布 dev.10。
+音视频验证。以上是当时针对 dev.5 的历史记录；当前接入请使用顶部所列的已发布 dev.12。
 
 ## 3. 正式单包发版验收门槛
 
@@ -241,7 +241,7 @@ Flutter SDK **只持有短期凭据和控制合同**，不能把录制后台服�
 
 ## 6. 当前结论
 
-**当前已发布的聚合单包预览版为 `0.1.0-dev.10`；稳定版的全面验收尚未完成。**
+**当前已发布的聚合单包预览版为 `0.1.0-dev.12`；稳定版的全面验收尚未完成。**
 内部 44 包的 `publish_to: none` 保持不变；独立分发准备器仅支持
 `0.1.0-dev.N`，生成真实接入 README、CHANGELOG、文件哈希清单，并排除
 iOS 厂商框架和本地缓存。实际上传使用经过 dry-run 的同一目录，由维护者

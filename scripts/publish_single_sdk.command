@@ -5,11 +5,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.1.0-dev.12}"
+VERSION="${1:-0.1.0-dev.13}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   echo "Usage: bash scripts/publish_single_sdk.command [0.1.0-dev.N]"
-  echo "Default: 0.1.0-dev.12"
+  echo "Default: 0.1.0-dev.13"
   echo "First run checks, assembles, analyzes and dry-runs a release."
   echo "Reruns verify/reuse the same staged release without rebuilding."
   echo "Only pub.dev's own interactive y/N confirmation can publish."
