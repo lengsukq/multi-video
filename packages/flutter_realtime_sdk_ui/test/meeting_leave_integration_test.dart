@@ -2,11 +2,109 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
 import 'package:flutter_realtime_sdk_ui/flutter_realtime_sdk_ui.dart';
 
 import 'support/meeting_sharing_fixture.dart';
 
 void main() {
+  testWidgets(
+    'owned room scope detaches listeners before disposing controller on room swap and unmount',
+    (tester) async {
+      final first = await MeetingSharingFixture.create(teaching: false);
+      final second = await MeetingSharingFixture.create(teaching: false);
+      addTearDown(first.room.dispose);
+      addTearDown(second.room.dispose);
+      Widget page(RealtimeRoom room) => MaterialApp(
+        home: RealtimeRoomUiScope(
+          room: room,
+          child: const Scaffold(body: _ControllerTransitionProbe()),
+        ),
+      );
+      await tester.pumpWidget(page(first.room));
+      final former = RealtimeRoomUiScope.of(
+        tester.element(find.byType(_ControllerTransitionProbe)),
+      );
+      await tester.pumpWidget(page(second.room));
+      final current = RealtimeRoomUiScope.of(
+        tester.element(find.byType(_ControllerTransitionProbe)),
+      );
+      expect(identical(former, current), isFalse);
+      expect(former.isDisposed, isTrue);
+      expect(current.isDisposed, isFalse);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(current.isDisposed, isTrue);
+      expect(tester.takeException(), isNull);
+      expect(first.media.changes.isClosed, isFalse);
+      expect(second.media.changes.isClosed, isFalse);
+    },
+  );
+
+  testWidgets(
+    'ownership transfer to the same externally supplied controller keeps it alive',
+    (tester) async {
+      final fixture = await MeetingSharingFixture.create(teaching: false);
+      addTearDown(fixture.room.dispose);
+      Widget page({RealtimeRoomUiController? controller}) => MaterialApp(
+        home: RealtimeRoomUiScope(
+          room: fixture.room,
+          controller: controller,
+          child: const Scaffold(body: _ControllerTransitionProbe()),
+        ),
+      );
+      await tester.pumpWidget(page());
+      final original = RealtimeRoomUiScope.of(
+        tester.element(find.byType(_ControllerTransitionProbe)),
+      );
+      await tester.pumpWidget(page(controller: original));
+      expect(original.isDisposed, isFalse);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(
+        original.isDisposed,
+        isFalse,
+        reason: 'borrowed controller lifetime belongs to the host',
+      );
+      await tester.runAsync(original.close);
+      expect(original.isDisposed, isTrue);
+    },
+  );
+
+  testWidgets(
+    'room shell keeps the stage visible when a mobile header becomes extremely tall',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 720));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      const stageKey = ValueKey('room-stage');
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: RealtimeRoomShell(
+              compact: true,
+              header: SizedBox(height: 100000, child: Text('Long diagnostic')),
+              tabletRail: SizedBox(height: 44, child: Text('Tools')),
+              stage: ColoredBox(
+                key: stageKey,
+                color: Colors.black,
+                child: SizedBox.expand(),
+              ),
+              dock: SizedBox(height: 68, child: Text('Dock')),
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      expect(tester.getSize(find.byKey(stageKey)).height, greaterThan(100));
+      expect(find.text('Dock'), findsOneWidget);
+      expect(
+        tester.getSize(find.byType(RealtimeRoomShell)).height,
+        closeTo(720, 1),
+      );
+    },
+  );
+
   testWidgets('confirmed leave does not dispose a room after button unmount', (
     tester,
   ) async {
@@ -216,4 +314,54 @@ void main() {
     expect(find.text('Open meeting'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+}
+
+/// Simulates a descendant that is subscribed to the old room controller
+/// while an inherited scope switches to another room. The old controller
+/// must not be disposed until this element has processed the new dependency
+/// (or finished unmounting).
+class _ControllerTransitionProbe extends StatefulWidget {
+  const _ControllerTransitionProbe();
+
+  @override
+  State<_ControllerTransitionProbe> createState() =>
+      _ControllerTransitionProbeState();
+}
+
+class _ControllerTransitionProbeState
+    extends State<_ControllerTransitionProbe> {
+  RealtimeRoomUiController? _previous;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = RealtimeRoomUiScope.of(context);
+    final old = _previous;
+    if (old != null && !identical(old, next)) {
+      expect(
+        old.isDisposed,
+        isFalse,
+        reason: 'Children must detach before their notifier is disposed',
+      );
+    }
+    _previous = next;
+  }
+
+  @override
+  void dispose() {
+    expect(
+      _previous?.isDisposed,
+      isFalse,
+      reason: 'Descendants must finish unmounting before scope disposal',
+    );
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const Column(
+    children: [
+      RealtimeDockMicrophoneButton(),
+      RealtimeDockSharedContentButton(),
+    ],
+  );
 }

@@ -164,16 +164,30 @@ class _LiveKitPublishing {
             _session._screenShare._androidScreenShareServiceStarted;
         await _session._screenShare._prepareMacOsScreenShare();
       }
-      await _session._requireLocalParticipant().setScreenShareEnabled(
-        enabled,
-        screenShareCaptureOptions:
-            !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS
-            ? const lk.ScreenShareCaptureOptions(
-                useiOSBroadcastExtension: false,
-              )
-            : null,
-      );
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        // setScreenShareEnabled(true) silently calls BroadcastManager and
+        // returns null on iOS without a Broadcast Upload Extension, even
+        // with useiOSBroadcastExtension: false. Publish the app-only track
+        // explicitly until LiveKit restores the in-app capture option.
+        await _session._screenShare._setIosInAppScreenShareEnabled(enabled);
+      } else {
+        await _session._requireLocalParticipant().setScreenShareEnabled(
+          enabled,
+        );
+      }
       _session._mapper._refreshSnapshot();
+      if (!kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.iOS &&
+          _session.snapshot.localScreenShareEnabled != enabled) {
+        throw RealtimeException(
+          code: RealtimeErrorCode.providerError,
+          message: 'iOS screen capture did not reach the requested state.',
+          providerId: _session.providerId,
+          operation: 'screenShare',
+          recoverable: true,
+          suggestedAction: 'retry-screen-sharing',
+        );
+      }
       if (!enabled) {
         await _session._screenShare._stopAndroidScreenShareService();
       }

@@ -14,7 +14,7 @@
 
 | RTC 媒体适配器 | Web 桌面浏览器 | Android | iOS | macOS | Windows |
 |---|---|---|---|---|---|
-| LiveKit | 基础，浏览器授权 | 基础，MediaProjection | 条件，当前以应用内采集为主，缺 Broadcast Extension 全屏 | 基础，系统屏幕录制权限 | 基础，待 Windows 构建/实机 |
+| LiveKit | 基础，浏览器授权 | 基础，MediaProjection | **应用内屏幕共享已修复（待真机实际授权和远端验收）**；跨 App 全系统共享仍需 Broadcast Upload Extension + App Group | 基础，系统屏幕录制权限 | 基础，待 Windows 构建/实机 |
 | Agora | 初步，屏幕选择/取消/恢复摄像头已修复；已能接收原生端共享状态，但 Web 发送端缺可靠跨平台信令 | **初步，MediaProjection Capture + 共享发布/远端共享信令与轨道映射已有**，真实双设备待验收 | 未接 ReplayKit Broadcast Extension | **初步，本轮补官方共享显示器枚举 + 自动选择主屏幕**，待实机验证 | **初步，本轮补官方共享显示器枚举 + 自动选择主屏幕**，待 Windows 构建和实机 |
 | 腾讯 TRTC | 初步，JS 辅路采集与播放 | 基础，原生辅路 | 条件，原生 ScreenCapture/ReplayKit 扩展配置需验收 | **初步，本轮实现主显示器自动枚举/选定 + 辅路采集** | **初步，本轮实现主显示器自动枚举/选定 + 辅路采集**，缺 Windows 构建 |
 | 阿里 ARTC | 初步，Web 摄像头/屏幕流分流和清理 | **初步，Android MediaProjection 共享 SDK+原生桥已接，独立远端屏幕轨道和撤销回调已接；待真机** | **接收远端共享已接；发送整个系统屏幕仍缺 ReplayKit Broadcast Extension** | **接收远端共享已接；发送端尚缺屏幕源选择；需额外厂商 Framework** | 无默认原生 Driver |
@@ -24,6 +24,8 @@
 Web 浏览器是否支持 `navigator.mediaDevices.getDisplayMedia` 需运行时检测。桌面 Chrome、Edge、Safari 的实现与权限不同，**移动浏览器不能因为同属 Flutter Web 就宣称能共享系统屏幕**。
 
 ## 已完成的 SDK 修复
+
+- **LiveKit iOS 应用内屏幕共享（下一预览版本，尚未发布）：** `livekit_client 2.13.x` 的 `LocalParticipant.setScreenShareEnabled(true)` 在 iOS 上无条件转入 `BroadcastManager.requestActivation()`；即使 `useiOSBroadcastExtension: false` 且宿主没有配置扩展，也可能静默返回而不发布轨道。SDK 现改为显式使用 `LocalVideoTrack.createScreenShareTrack(useiOSBroadcastExtension: false)` 与 `publishVideoTrack`；发布失败时关闭已创建的 ReplayKit 本地轨道，确认实际存在 `screenShareVideo` publication 后才允许业务层提交共享模式。**这是仅共享当前 App 的方案，不能共享切到后台后的其他 App。** 全系统共享仍需在宿主 App 集成 Broadcast Upload Extension、App Group、签名和停止事件闭环。
 
 - **统一 Web 状态**：`provider_web_session_factory.dart` 根据本地共享轨道同步 `localScreenShareEnabled`，避免实际共享成功但 UI 永远显示未开启。
 - **Agora Web**：先等待用户选择屏幕再停止原来的摄像头发布；取消选择不影响摄像头。发布失败释放屏幕并恢复摄像头，停止共享后恢复摄像头。

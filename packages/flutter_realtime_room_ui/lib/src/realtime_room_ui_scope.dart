@@ -44,6 +44,17 @@ class _RealtimeRoomUiScopeState extends State<RealtimeRoomUiScope> {
   late RealtimeRoomUiController _controller;
   bool _ownsController = false;
 
+  // During a room/controller swap Flutter updates the inherited descendants
+  // later in the same frame. Disposing the previous ChangeNotifier here would
+  // leave those descendants temporarily subscribed to a dead notifier (and a
+  // newly-mounted ListenableBuilder throws "used after being disposed").
+  // Release owned controllers only after descendants have detached.
+  void _releaseAfterFrame(RealtimeRoomUiController controller) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.dispose();
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -67,14 +78,20 @@ class _RealtimeRoomUiScopeState extends State<RealtimeRoomUiScope> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.room, widget.room) ||
         !identical(oldWidget.controller, widget.controller)) {
-      if (_ownsController) _controller.dispose();
+      final previous = _controller;
+      final previouslyOwned = _ownsController;
       _initialize();
+      // It is legal for a host to take over ownership of the same controller
+      // on update. In that case the new externally-owned scope still uses it.
+      if (previouslyOwned && !identical(previous, _controller)) {
+        _releaseAfterFrame(previous);
+      }
     }
   }
 
   @override
   void dispose() {
-    if (_ownsController) _controller.dispose();
+    if (_ownsController) _releaseAfterFrame(_controller);
     super.dispose();
   }
 

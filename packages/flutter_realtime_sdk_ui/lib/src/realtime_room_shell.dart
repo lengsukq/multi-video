@@ -30,36 +30,58 @@ class RealtimeRoomShell extends StatelessWidget {
   final double controlsMaxWidth;
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      header,
-      if (tabletRail != null) tabletRail!,
-      if (topContent != null) topContent!,
-      Expanded(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (desktopRail != null) desktopRail!,
-            Expanded(
-              child: compact
-                  ? Column(
-                      children: [
-                        Expanded(child: stage),
-                        dock,
-                      ],
-                    )
-                  : RealtimeIdleControls(
-                      child: stage,
-                      controls: dock,
-                      controlsMaxWidth: controlsMaxWidth,
-                      reserveControlsSpace: true,
-                      autoHide: false,
-                    ),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      // The header and its optional tool rail are content-driven. When text
+      // scaling, keyboard insets or a diagnostic widget makes them unusually
+      // tall, constrain only that region so the stage and dock retain usable
+      // space rather than overflowing the entire iPhone viewport.
+      final maxHeaderHeight = constraints.maxHeight.isFinite
+          ? constraints.maxHeight * 0.4
+          : 320.0;
+      return Column(
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeaderHeight),
+            child: SingleChildScrollView(
+              primary: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  header,
+                  if (tabletRail != null) tabletRail!,
+                  if (topContent != null) topContent!,
+                ],
+              ),
             ),
-            if (sidebar != null) SizedBox(width: 340, child: sidebar!),
-          ],
-        ),
-      ),
-    ],
+          ),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (desktopRail != null) desktopRail!,
+                Expanded(
+                  child: compact
+                      ? Column(
+                          children: [
+                            Expanded(child: stage),
+                            dock,
+                          ],
+                        )
+                      : RealtimeIdleControls(
+                          child: stage,
+                          controls: dock,
+                          controlsMaxWidth: controlsMaxWidth,
+                          reserveControlsSpace: true,
+                          autoHide: false,
+                        ),
+                ),
+                if (sidebar != null) SizedBox(width: 340, child: sidebar!),
+              ],
+            ),
+          ),
+        ],
+      );
+    },
   );
 }

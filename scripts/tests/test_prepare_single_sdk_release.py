@@ -7,10 +7,49 @@ import unittest
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
-from prepare_single_sdk_release import prepare, refresh_readmes, verify_staged
+from prepare_single_sdk_release import (
+    prepare,
+    refresh_changelog,
+    refresh_readmes,
+    verify_staged,
+)
 
 
 class ReleasePreparationTest(unittest.TestCase):
+    def test_dev16_release_notes_and_safe_refresh_preserve_staged_sources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            source = root / "build/single_sdk_candidate"
+            for name, value in {
+                "pubspec.yaml": "name: flutter_realtime_sdk\nversion: 0.1.0\npublish_to: none\n",
+                "ios/vendor_frameworks.json": "{}",
+                "ios/vendor_frameworks.rb": "# resolver",
+                "ios/podfile.rb": "# helper",
+                "ios/flutter_realtime_sdk.podspec": "s.version = '0.1.0'",
+                "macos/flutter_realtime_sdk.podspec": "s.version = '0.1.0'",
+                "LICENSE": "MIT",
+                "lib/flutter_realtime_sdk.dart": "// do not change source",
+            }.items():
+                path = source / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(value)
+            templates = root / "scripts/templates"
+            templates.mkdir(parents=True)
+            (templates / "single_sdk_README.md").write_text("@VERSION@")
+            (templates / "single_sdk_README.zh-CN.md").write_text("@VERSION@")
+            release = prepare("0.1.0-dev.16", root)
+            dart_source = (release / "lib/flutter_realtime_sdk.dart").read_bytes()
+            changelog = (release / "CHANGELOG.md").read_text()
+            self.assertIn("RealtimeRoomUiController lifecycle", changelog)
+            self.assertIn("extremely tall mobile headers", changelog)
+            self.assertNotIn("Headless apps", changelog)
+            self.assertEqual(refresh_changelog("0.1.0-dev.16", root), release)
+            self.assertEqual((release / "lib/flutter_realtime_sdk.dart").read_bytes(), dart_source)
+            self.assertEqual((release / "CHANGELOG.md").read_text(), changelog)
+            self.assertEqual(verify_staged("0.1.0-dev.16", root), release)
+            with self.assertRaises(ValueError):
+                refresh_changelog("0.1.0-dev.15", root)
+
     def test_preview_excludes_local_artifacts_and_preserves_source(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)

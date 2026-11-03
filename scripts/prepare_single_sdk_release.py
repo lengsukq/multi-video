@@ -117,6 +117,45 @@ def refresh_readmes(version: str, root: Path = ROOT) -> Path:
     return destination
 
 
+def _dev16_changelog() -> str:
+    return (
+        "## 0.1.0-dev.16\n\n"
+        "- Fix RealtimeRoomUiController lifecycle during room swaps and "
+        "unmount: defer disposal until inherited descendants have detached "
+        "their ChangeNotifier listeners.\n"
+        "- Preserve controllers when an SDK-owned room scope transfers "
+        "ownership of the same instance to an external host.\n"
+        "- Constrain the responsive meeting/live room header and secondary "
+        "rail to a scrollable portion of the viewport so oversized content "
+        "cannot overflow the entire mobile stage and dock.\n"
+        "- Add regression tests for controller ownership transitions, "
+        "room changes, unmounts and extremely tall mobile headers.\n"
+        "- Real-device vendor RTC, iOS Simulator, Windows/Linux and "
+        "redistribution acceptance are not completed by this release.\n"
+    )
+
+
+def refresh_changelog(version: str, root: Path = ROOT) -> Path:
+    """Amend only release notes in an existing verified, unpublished stage.
+
+    Never rebuild staged code or silently accept changes to a frozen artifact.
+    The initial dev.16 stage was created before its dedicated notes existed.
+    """
+    if version != "0.1.0-dev.16":
+        raise ValueError("The dedicated changelog refresh is for dev.16 only")
+    destination = verify_staged(version, root)
+    (destination / "CHANGELOG.md").write_text(
+        _dev16_changelog(), encoding="utf-8"
+    )
+    count = _write_inventory(destination)
+    metadata_path = destination.parent / "PREPARATION.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["fileCount"] = count
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    verify_staged(version, root)
+    return destination
+
+
 def prepare(version: str, root: Path = ROOT) -> Path:
     # Stable releases need a separate acceptance decision. This tool prepares
     # only an explicitly versioned preview, retaining pending evidence as such.
@@ -276,6 +315,24 @@ def prepare(version: str, root: Path = ROOT) -> Path:
             "- Add mobile pinch reversal and finger-replacement widget "
             "regressions alongside iOS packaging checks.\n"
         )
+    elif version == "0.1.0-dev.16":
+        notes = None
+    elif version == "0.1.0-dev.17":
+        notes = (
+            "- Fix LiveKit iOS in-app screen sharing with flutter_webrtc: "
+            "capture a ReplayKit screen track directly and publish it as "
+            "screenShareVideo instead of relying on LiveKit's BroadcastManager "
+            "path, which silently returns without an iOS Broadcast Extension.\n"
+            "- Treat real screen track publication as the success condition; "
+            "stop captured tracks if publication fails and propagate the "
+            "original error to the shared-content UI.\n"
+            "- Add capture/publish transaction regression tests, including "
+            "permission errors, failed publications and cleanup failures.\n"
+            "- Scope: only the current iOS app can be shared. System-wide "
+            "sharing needs a signed ReplayKit Broadcast Upload Extension "
+            "and App Group in the host app.\n"
+            "- Retain dev.16 lifecycle and mobile overflow fixes.\n"
+        )
     else:
         notes = (
             "- Fix camera-off background selection followed by camera-on in external Headless apps.\n"
@@ -284,9 +341,11 @@ def prepare(version: str, root: Path = ROOT) -> Path:
             "- Unify default meeting/live virtual-background entries and unsupported-state messaging.\n"
         )
     (destination / "CHANGELOG.md").write_text(
-        f"## {version}\n\n"
-        + notes
-        + "- iOS Simulator, Windows/Linux and real-device vendor acceptance remain pending/unsupported as documented.\n"
+        _dev16_changelog() if notes is None else (
+            f"## {version}\n\n"
+            + notes
+            + "- iOS Simulator, Windows/Linux and real-device vendor acceptance remain pending/unsupported as documented.\n"
+        )
     )
     # Parent build/ is ignored by the source checkout. Make Pub's package file
     # inventory independent of that checkout, without creating a source commit.
@@ -313,11 +372,16 @@ if __name__ == "__main__":
         "--verify", action="store_true",
         help="Validate an existing staged release without modifying or publishing it."
     )
+    parser.add_argument(
+        "--refresh-changelog", action="store_true",
+        help="Update only the dev.16 release notes and rehash a verified unpublished stage."
+    )
     args = parser.parse_args()
-    if args.verify and args.refresh_readmes:
-        parser.error("--verify and --refresh-readmes are mutually exclusive")
+    if sum((args.verify, args.refresh_readmes, args.refresh_changelog)) > 1:
+        parser.error("--verify, --refresh-readmes and --refresh-changelog are mutually exclusive")
     print(
         verify_staged(args.version) if args.verify
+        else refresh_changelog(args.version) if args.refresh_changelog
         else refresh_readmes(args.version) if args.refresh_readmes
         else prepare(args.version)
     )
