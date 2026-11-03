@@ -35,6 +35,13 @@ class SingleSdkDistributionTest(unittest.TestCase):
         self.assertTrue((self.root / ".pubignore").is_file())
         self.assertFalse(self.report["publishable"])
 
+    def test_native_distribution_excludes_python_bytecode_and_cache(self):
+        # A source-machine __pycache__ must never leak into the pub.dev zip.
+        for path in self.root.rglob("*"):
+            if path.is_file():
+                self.assertNotIn("__pycache__", path.parts)
+                self.assertNotIn(path.suffix, {".pyc", ".pyo"})
+
     def test_distribution_exposes_current_pages_without_legacy_templates(self):
         # Validate the supported surface; removing obsolete pages legitimately
         # lowers the library count and must not require keeping dead modules.

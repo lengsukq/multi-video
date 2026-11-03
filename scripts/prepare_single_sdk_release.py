@@ -35,6 +35,58 @@ def _write_inventory(destination: Path) -> int:
     return len(files)
 
 
+def verify_staged(version: str, root: Path = ROOT) -> Path:
+    """Verify the original staged artifact before resuming a canceled publish.
+
+    Dependency resolution may create .dart_tool / pubspec.lock, which are not
+    part of the release. All publishable source files must still match their
+    assembly-time hashes. Never silently rebuild or overwrite a staged build.
+    """
+    if not re.fullmatch(r"0\.1\.0-dev\.[1-9][0-9]*", version):
+        raise ValueError("Expected an explicit preview version: 0.1.0-dev.N")
+    parent = root / "build/pub_release" / version
+    destination = parent / "flutter_realtime_sdk"
+    manifest_path = parent / "FILES.sha256.json"
+    metadata_path = parent / "PREPARATION.json"
+    if not destination.is_dir() or not manifest_path.is_file() or not metadata_path.is_file():
+        raise FileNotFoundError(f"Missing staged release or inventory: {parent}")
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if (metadata.get("package"), metadata.get("version"), metadata.get("published")) != (
+        "flutter_realtime_sdk", version, False
+    ):
+        raise ValueError("Staged version, package, or publishing status is invalid")
+
+    pubspec = (destination / "pubspec.yaml").read_text(encoding="utf-8")
+    if not re.search(rf"(?m)^version:\s*{re.escape(version)}\s*$", pubspec):
+        raise ValueError(f"Staged pubspec version does not match {version}")
+    if re.search(r"(?m)^publish_to:\s*none\s*$", pubspec):
+        raise ValueError("Staged package is not configured for publication")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or not manifest or metadata.get("fileCount") != len(manifest):
+        raise ValueError("Release inventory is invalid")
+
+    current = {
+        str(path.relative_to(destination)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in destination.rglob("*")
+        if path.is_file()
+        and not ({".git", ".dart_tool"} & set(path.relative_to(destination).parts))
+        and path.name not in {
+            "pubspec.lock", ".flutter-plugins", ".flutter-plugins-dependencies"
+        }
+    }
+    if current != manifest:
+        changed = sorted(
+            name for name in current.keys() | manifest.keys()
+            if current.get(name) != manifest.get(name)
+        )
+        raise ValueError(
+            "Staged release has changed since preparation; refusing to publish: "
+            + ", ".join(changed[:10])
+        )
+    return destination
+
+
 def refresh_readmes(version: str, root: Path = ROOT) -> Path:
     """Refresh *only* docs of an unpublished staged version, not binaries/code."""
     if not re.fullmatch(r"0\.1\.0-dev\.[1-9][0-9]*", version):
@@ -156,6 +208,21 @@ def prepare(version: str, root: Path = ROOT) -> Path:
             "- Surface macOS meter permission/capture errors; the meter reads the system default input and does not prove remote audio delivery.\n"
             "- Add regression coverage for meeting workspaces, pre-join lifecycle, shared-content sessions, local previews and room ownership.\n"
         )
+    elif version == "0.1.0-dev.12":
+        notes = (
+            "- Fix the Flutter Web crash before classroom/whiteboard HTTP actions: "
+            "replace invalid 32-bit shifts when generating random event IDs.\n"
+            "- Fix the same event-ID generation bug in whiteboard drawing, "
+            "RTC interaction revisions, live interactions and annotations.\n"
+            "- Preserve the original HTTP status/code on shared-content transition "
+            "failures instead of displaying an opaque internal error identifier.\n"
+            "- Translate shared-content failures into actionable messages for "
+            "expired rooms, missing permissions, revision conflicts and network failures.\n"
+            "- Add real Chrome regression coverage for classroom HTTP actions and "
+            "SDK shared-content error handling.\n"
+            "- Exclude local Python bytecode caches from the one-package "
+            "Windows distribution archive.\n"
+        )
     else:
         notes = (
             "- Fix camera-off background selection followed by camera-on in external Headless apps.\n"
@@ -189,8 +256,15 @@ if __name__ == "__main__":
         "--refresh-readmes", action="store_true",
         help="Update only bilingual READMEs and file inventory in an existing unpublished staged version."
     )
+    parser.add_argument(
+        "--verify", action="store_true",
+        help="Validate an existing staged release without modifying or publishing it."
+    )
     args = parser.parse_args()
+    if args.verify and args.refresh_readmes:
+        parser.error("--verify and --refresh-readmes are mutually exclusive")
     print(
-        refresh_readmes(args.version) if args.refresh_readmes
+        verify_staged(args.version) if args.verify
+        else refresh_readmes(args.version) if args.refresh_readmes
         else prepare(args.version)
     )

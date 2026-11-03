@@ -7,7 +7,7 @@ import unittest
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
-from prepare_single_sdk_release import prepare, refresh_readmes
+from prepare_single_sdk_release import prepare, refresh_readmes, verify_staged
 
 
 class ReleasePreparationTest(unittest.TestCase):
@@ -80,6 +80,19 @@ class ReleasePreparationTest(unittest.TestCase):
                 json.loads((release.parent / "PREPARATION.json").read_text())["fileCount"],
                 len(revised),
             )
+            # A canceled publishing prompt is resumable without rebuilding.
+            # Dependency cache files must not invalidate the immutable stage.
+            self.assertEqual(verify_staged("0.1.0-dev.1", root), release)
+            original_readme = (release / "README.md").read_text()
+            (release / "README.md").write_text("tampered")
+            with self.assertRaisesRegex(ValueError, "README.md"):
+                verify_staged("0.1.0-dev.1", root)
+            (release / "README.md").write_text(original_readme)
+            (release / "unexpected_file.txt").write_text("not in inventory")
+            with self.assertRaisesRegex(ValueError, "unexpected_file.txt"):
+                verify_staged("0.1.0-dev.1", root)
+            (release / "unexpected_file.txt").unlink()
+            self.assertEqual(verify_staged("0.1.0-dev.1", root), release)
 
     def test_dev10_changelog_describes_the_sdk_preview_changes(self):
         with tempfile.TemporaryDirectory() as temporary:

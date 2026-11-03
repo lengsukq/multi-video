@@ -32,7 +32,11 @@ def copy_platform(platform: str) -> Path:
     out = OUT / platform
     if out.exists():
         shutil.rmtree(out)
-    shutil.copytree(src, out)
+    shutil.copytree(
+        src,
+        out,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+    )
     return out
 
 
@@ -41,8 +45,12 @@ def windows() -> None:
     # The public SDK merges plugin registration into one DLL, but the
     # effects source and its vendor-independent frame hub stay in separate
     # source subdirectories to preserve local include paths.
-    shutil.copytree(VIDEO_EFFECTS / "windows", dst / "effects",
-                    ignore=shutil.ignore_patterns("test", "*.md", "*.py"))
+    shutil.copytree(
+        VIDEO_EFFECTS / "windows", dst / "effects",
+        ignore=shutil.ignore_patterns(
+            "test", "*.md", "*.py", "__pycache__", "*.pyc", "*.pyo"
+        ),
+    )
     shutil.copytree(PROCESSED_VIDEO / "windows" / "include",
                     dst / "processed_video" / "include")
     for package, folder in ((LIVEKIT, "livekit"), (AGORA, "agora"),
