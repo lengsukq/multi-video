@@ -98,6 +98,14 @@ class _DependentPlugin extends _SyncPlugin {
   List<RealtimeFeatureKey<Object>> get requiredFeatures => dependencies;
 }
 
+class _OptionalClassroomPlugin extends _SyncPlugin {
+  _OptionalClassroomPlugin(super.id, super.log);
+  @override
+  List<RealtimeFeatureKey<Object>> get optionalFeatures => const [
+    RealtimeFeatureKey<String>('classroom'),
+  ];
+}
+
 void main() {
   late _Media media;
   late MediaRoomSession room;
@@ -139,6 +147,59 @@ void main() {
         'detach:classroom',
         'detach:slow',
       ]);
+    },
+  );
+
+  test(
+    'optional classroom dependency attaches first even if declared last',
+    () async {
+      final log = <String>[];
+      final registry = RealtimeFeatureRegistry([
+        _OptionalClassroomPlugin('shared-content', log),
+        _SyncPlugin('classroom', log),
+      ]);
+      await registry.initialize(context);
+      expect(log.take(2).toList(), [
+        'attach:classroom:demo-1',
+        'attach:shared-content:demo-1',
+      ]);
+      await registry.dispose();
+      expect(log.skip(2).toList(), [
+        'detach:shared-content',
+        'detach:classroom',
+      ]);
+    },
+  );
+
+  test(
+    'shared content still works with no classroom preset registered',
+    () async {
+      final log = <String>[];
+      final registry = RealtimeFeatureRegistry([
+        _OptionalClassroomPlugin('shared-content', log),
+      ]);
+      await registry.initialize(context);
+      expect(registry.contains('shared-content'), isTrue);
+      await registry.dispose();
+      expect(log, ['attach:shared-content:demo-1', 'detach:shared-content']);
+    },
+  );
+
+  test(
+    'optional classroom finishes asynchronous attach before shared content',
+    () async {
+      final log = <String>[];
+      final gate = Completer<void>();
+      final registry = RealtimeFeatureRegistry([
+        _OptionalClassroomPlugin('shared-content', log),
+        _Plugin('classroom', log, gate: gate),
+      ]);
+      final attaching = registry.initialize(context);
+      expect(registry.contains('shared-content'), isFalse);
+      gate.complete();
+      await attaching;
+      expect(log, ['attach:classroom:demo-1', 'attach:shared-content:demo-1']);
+      await registry.dispose();
     },
   );
   test('late async feature starts once after ready sync presets', () async {

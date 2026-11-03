@@ -47,7 +47,9 @@ class SharedContentPreset
   @override
   RealtimeFeatureKey<SharedContentRoomFeature> get key => featureKey;
   @override
-  List<RealtimeFeatureKey<Object>> get requiredFeatures => const [];
+  List<RealtimeFeatureKey<Object>> get optionalFeatures => const [
+    ClassroomPreset.featureKey,
+  ];
   @override
   SharedContentRoomFeature? attach(RealtimeFeatureContext context) {
     final factory = repositoryFactory;

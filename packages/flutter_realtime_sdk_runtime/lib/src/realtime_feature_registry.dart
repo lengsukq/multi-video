@@ -113,7 +113,13 @@ class RealtimeFeatureRegistry {
     final generation = (_generations[plugin.id] ?? 0) + 1;
     _generations[plugin.id] = generation;
     _set(plugin.id, const RealtimeFeatureAttaching());
-    final pending = plugin.requiredFeatures.where(
+    final availableDependencies = [
+      ...plugin.requiredFeatures,
+      ...plugin.optionalFeatures.where(
+        (key) => _plugins.any((candidate) => candidate.id == key.id),
+      ),
+    ];
+    final pending = availableDependencies.where(
       (key) => !_attached.containsKey(key.id),
     );
     if (pending.isEmpty) return _attachNow(plugin, generation);
@@ -288,6 +294,14 @@ class RealtimeFeatureRegistry {
         final dependency = byId[key.id];
         if (dependency == null || dependency.key.valueType != key.valueType) {
           throw ArgumentError('Missing/invalid feature dependency');
+        }
+        visit(dependency);
+      }
+      for (final key in plugin.optionalFeatures) {
+        final dependency = byId[key.id];
+        if (dependency == null) continue;
+        if (dependency.key.valueType != key.valueType) {
+          throw ArgumentError('Invalid optional feature dependency');
         }
         visit(dependency);
       }
