@@ -82,9 +82,15 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
   static const Size infiniteSceneSize = Size(1600, 900);
   final _activePointers = <int>{};
   final _pointerDownPositions = <int, Offset>{};
-  int _gesturePointers = 0;
+  final _pointerPositions = <int, Offset>{};
+  // A two-finger gesture is driven by actual pointer positions. Flutter's
+  // ScaleUpdateDetails.scale may rebase when the number of touches changes,
+  // which makes incremental ratios jump during a mobile pinch.
+  bool _pinchUsed = false;
+  double _pinchStartRadius = 1;
+  double _pinchStartScale = 1;
+  Offset? _pinchAnchorScene;
   Offset? _previousFocal;
-  double _previousGestureScale = 1;
   @override
   void dispose() {
     _flushTimer?.cancel();
@@ -130,26 +136,54 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
     );
   }
 
-  void _navigate(Offset focal, double gestureScale) {
+  void _navigate(Offset focal) {
     final previous = _previousFocal;
     if (previous == null) {
       _previousFocal = focal;
-      _previousGestureScale = gestureScale;
       return;
     }
     final current = _transform.value.getMaxScaleOnAxis();
-    final ratio = _previousGestureScale == 0
-        ? 1.0
-        : gestureScale / _previousGestureScale;
-    final next = (current * ratio).clamp(0.25, 8.0);
     final anchor = _transform.toScene(previous);
-    final offset = focal - anchor * next;
+    final offset = focal - anchor * current;
+    _transform.value = Matrix4.identity()
+      ..translateByDouble(offset.dx, offset.dy, 0, 1)
+      ..scaleByDouble(current, current, 1, 1);
+    _previousFocal = focal;
+  }
+
+  (Offset, double) _pinchGeometry() {
+    final positions = _pointerPositions.values.toList(growable: false);
+    final center =
+        positions.reduce((a, b) => a + b) / positions.length.toDouble();
+    final squaredRadius = positions.fold<double>(
+      0,
+      (sum, point) => sum + (point - center).distanceSquared,
+    );
+    return (center, math.sqrt(squaredRadius / positions.length));
+  }
+
+  void _rebasePinch() {
+    if (_pointerPositions.length < 2) {
+      _pinchAnchorScene = null;
+      return;
+    }
+    final (center, radius) = _pinchGeometry();
+    _pinchAnchorScene = _transform.toScene(center);
+    _pinchStartScale = _transform.value.getMaxScaleOnAxis();
+    _pinchStartRadius = radius;
+  }
+
+  void _updatePinch() {
+    final anchor = _pinchAnchorScene;
+    if (anchor == null) return;
+    final (center, radius) = _pinchGeometry();
+    final ratio = _pinchStartRadius < 1 ? 1.0 : radius / _pinchStartRadius;
+    final next = (_pinchStartScale * ratio).clamp(0.25, 8.0);
+    final offset = center - anchor * next;
     _transform.value = Matrix4.identity()
       ..translateByDouble(offset.dx, offset.dy, 0, 1)
       ..scaleByDouble(next, next, 1, 1);
     widget.onViewportTransformChanged?.call(next);
-    _previousFocal = focal;
-    _previousGestureScale = gestureScale;
   }
 
   Widget _infiniteViewport(
@@ -170,43 +204,45 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
     ];
     return Listener(
       onPointerDown: (e) {
+        if (_activePointers.isEmpty) _pinchUsed = false;
         _activePointers.add(e.pointer);
         _pointerDownPositions[e.pointer] = e.localPosition;
+        _pointerPositions[e.pointer] = e.localPosition;
+        if (_activePointers.length > 1) {
+          _pinchUsed = true;
+          _finish();
+          _rebasePinch();
+        }
+      },
+      onPointerMove: (e) {
+        if (!_pointerPositions.containsKey(e.pointer)) return;
+        _pointerPositions[e.pointer] = e.localPosition;
+        if (_pointerPositions.length > 1) _updatePinch();
       },
       onPointerUp: (e) {
         _activePointers.remove(e.pointer);
         _pointerDownPositions.remove(e.pointer);
+        _pointerPositions.remove(e.pointer);
+        _rebasePinch();
       },
       onPointerCancel: (e) {
         _activePointers.remove(e.pointer);
         _pointerDownPositions.remove(e.pointer);
+        _pointerPositions.remove(e.pointer);
+        _rebasePinch();
       },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onScaleStart: (details) {
-          _gesturePointers = details.pointerCount;
           _previousFocal = details.localFocalPoint;
-          _previousGestureScale = 1;
           // Wait for a one-pointer move before starting ink. A second finger
           // can arrive immediately after the first touch; creating a stroke
           // here would leave a phantom mark after every pinch.
         },
         onScaleUpdate: (details) {
-          final multiTouch =
-              details.pointerCount > 1 || _activePointers.length > 1;
-          if (multiTouch) {
-            if (_gesturePointers <= 1) {
-              _finish();
-              _previousFocal = details.localFocalPoint;
-              _previousGestureScale = details.scale;
-            } else {
-              _navigate(details.localFocalPoint, details.scale);
-            }
-            _gesturePointers = 2;
-            return;
-          }
-          if (_gesturePointers > 1) return;
-          _gesturePointers = 1;
+          // Once a pinch starts, the remaining finger must not start an ink
+          // stroke or a one-finger pan until every touch is released.
+          if (_pinchUsed || details.pointerCount > 1) return;
           if (teacher && _isEditing) {
             if (_draft != null) {
               _update(details.localFocalPoint, infiniteSceneSize);
@@ -218,14 +254,12 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
               _update(details.localFocalPoint, infiniteSceneSize);
             }
           } else {
-            _navigate(details.localFocalPoint, 1);
+            _navigate(details.localFocalPoint);
           }
         },
         onScaleEnd: (_) {
           _finish();
-          _gesturePointers = 0;
           _previousFocal = null;
-          _previousGestureScale = 1;
         },
         // Do not mount a competing tap recognizer for pen/highlight strokes;
         // it can win the gesture arena on short drags and swallow the ink.
@@ -235,6 +269,7 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
                 (_activeTool == AnnotationTool.text ||
                     _activeTool == AnnotationTool.eraser)
             ? (e) {
+                if (_pinchUsed) return;
                 if (_activeTool == AnnotationTool.text) {
                   unawaited(_label(e.localPosition, infiniteSceneSize));
                 } else if (_activeTool == AnnotationTool.eraser) {

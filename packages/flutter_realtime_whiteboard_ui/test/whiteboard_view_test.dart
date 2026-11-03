@@ -54,6 +54,91 @@ void main() {
   );
 
   testWidgets(
+    'mobile pinch reversal and finger replacement never jump or leave ink',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 760);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final session = WhiteboardSession.local();
+      await session.start();
+      addTearDown(session.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: WhiteboardView(session: session)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final surface = find.byType(AnnotationSurface);
+      final rect = tester.getRect(surface);
+      final transform = tester
+          .widget<AnnotationSurface>(surface)
+          .transformationController!;
+      final origin = rect.center - rect.topLeft;
+      final initialScene = transform.toScene(origin);
+
+      final first = await tester.startGesture(
+        rect.center + const Offset(-40, 0),
+        pointer: 31,
+      );
+      final second = await tester.startGesture(
+        rect.center + const Offset(40, 0),
+        pointer: 32,
+      );
+      await tester.pump();
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
+
+      // Move one finger at a time as iOS delivers touch events. Both fingers
+      // eventually return to their starting positions, so zoom and the world
+      // point at the viewport center must return exactly to their origin.
+      await first.moveBy(const Offset(-40, 0));
+      await tester.pump();
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1.5, .01));
+      await second.moveBy(const Offset(40, 0));
+      await tester.pump();
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(2, .01));
+
+      await first.moveBy(const Offset(40, 0));
+      await tester.pump();
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1.5, .01));
+      await second.moveBy(const Offset(-40, 0));
+      await tester.pump();
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .01));
+      expect(transform.toScene(origin).dx, closeTo(initialScene.dx, .01));
+      expect(transform.toScene(origin).dy, closeTo(initialScene.dy, .01));
+
+      // A third finger replaces the first one. Its down event must only
+      // rebase the pinch, not move the board, and the remaining finger must
+      // not start drawing when the first is lifted.
+      await first.up();
+      await tester.pump();
+      await second.moveBy(const Offset(15, 0));
+      await tester.pump();
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .01));
+      final beforeReplacement = transform.value.clone();
+      final third = await tester.startGesture(
+        rect.center + const Offset(-40, 0),
+        pointer: 33,
+      );
+      await tester.pump();
+      expect(transform.value.storage, orderedEquals(beforeReplacement.storage));
+
+      await third.moveBy(const Offset(-25, 0));
+      await tester.pump();
+      expect(transform.value.getMaxScaleOnAxis(), greaterThan(1.2));
+      await second.up();
+      await third.up();
+      await tester.pumpAndSettle();
+      expect(session.canvas.shapes, isEmpty);
+
+      // Subsequent independent one-finger drawing is still permitted.
+      await tester.dragFrom(rect.center, const Offset(25, 15));
+      await tester.pumpAndSettle();
+      expect(session.canvas.shapes, hasLength(1));
+    },
+  );
+
+  testWidgets(
     'eraser deletes real ink, undo restores it without covering ink',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 800));

@@ -25,12 +25,28 @@ def _render_readmes(destination: Path, version: str, root: Path) -> None:
         )
 
 
+def _inventory_file(path: Path, destination: Path) -> bool:
+    """Track release source, never resolution or native build artifacts.
+
+    The SDK's podspec downloads pinned IVS binaries into ios/Frameworks during
+    pod install, but .pubignore excludes that directory from publication.
+    Building a staged package must not make its immutable source inventory
+    appear modified or accidentally add third-party binaries to that inventory.
+    """
+    relative = path.relative_to(destination)
+    return (
+        path.is_file()
+        and not ({".git", ".dart_tool"} & set(relative.parts))
+        and relative.parts[:2] != ("ios", "Frameworks")
+        and path.name
+        not in {"pubspec.lock", ".flutter-plugins", ".flutter-plugins-dependencies"}
+    )
+
+
 def _write_inventory(destination: Path) -> int:
     files = {str(path.relative_to(destination)): hashlib.sha256(path.read_bytes()).hexdigest()
              for path in sorted(destination.rglob("*"))
-             if path.is_file()
-             and not ({".git", ".dart_tool"} & set(path.relative_to(destination).parts))
-             and path.name not in {"pubspec.lock", ".flutter-plugins", ".flutter-plugins-dependencies"}}
+             if _inventory_file(path, destination)}
     (destination.parent / "FILES.sha256.json").write_text(json.dumps(files, indent=2) + "\n")
     return len(files)
 
@@ -69,11 +85,7 @@ def verify_staged(version: str, root: Path = ROOT) -> Path:
     current = {
         str(path.relative_to(destination)): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in destination.rglob("*")
-        if path.is_file()
-        and not ({".git", ".dart_tool"} & set(path.relative_to(destination).parts))
-        and path.name not in {
-            "pubspec.lock", ".flutter-plugins", ".flutter-plugins-dependencies"
-        }
+        if _inventory_file(path, destination)
     }
     if current != manifest:
         changed = sorted(
@@ -235,6 +247,34 @@ def prepare(version: str, root: Path = ROOT) -> Path:
             "public-API compilation regression test.\n"
             "- Preserve the current single-package provider dependency model; "
             "optional vendor pruning remains a future packaging decision.\n"
+        )
+    elif version == "0.1.0-dev.14":
+        notes = (
+            "- Fix iOS CocoaPods-only host integration for the single-package SDK: "
+            "resolve Agora RTC and Chat against one shared, newer aosl framework "
+            "using the bundled pre_install helper.\n"
+            "- Export only Objective-C plugin public headers from the combined "
+            "iOS Podspec, preventing duplicate Headers and Swift Clang scans "
+            "of private Agora C++ implementation headers.\n"
+            "- Document iOS host-level SwiftPM opt-out until the aggregated "
+            "native plugin supports SwiftPM end-to-end.\n"
+            "- Add release tool regression coverage for framework selection "
+            "and safe native header exports.\n"
+        )
+    elif version == "0.1.0-dev.15":
+        notes = (
+            "- Fix iOS single-package CocoaPods integration, including Agora "
+            "RTC/Chat shared aosl framework selection and private C++ header "
+            "leakage into Swift umbrella modules.\n"
+            "- Document the host-only SwiftPM compatibility switch while the "
+            "aggregated native plugin remains CocoaPods-based.\n"
+            "- Eliminate mobile whiteboard pinch jitter by deriving zoom and "
+            "pan from touch positions with a stable gesture anchor; rebasing "
+            "on finger addition/removal does not move the canvas.\n"
+            "- Keep one-finger drawing suppressed after a pinch until all "
+            "touches lift; preserve regular single-finger drawing afterward.\n"
+            "- Add mobile pinch reversal and finger-replacement widget "
+            "regressions alongside iOS packaging checks.\n"
         )
     else:
         notes = (

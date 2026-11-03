@@ -5,15 +5,19 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-0.1.0-dev.13}"
+VERSION="${1:-}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  echo "Usage: bash scripts/publish_single_sdk.command [0.1.0-dev.N]"
-  echo "Default: 0.1.0-dev.13"
+  echo "Usage: bash scripts/publish_single_sdk.command 0.1.0-dev.N"
+  echo "An explicit unpublished version is required; dev.15 has already shipped."
   echo "First run checks, assembles, analyzes and dry-runs a release."
   echo "Reruns verify/reuse the same staged release without rebuilding."
   echo "Only pub.dev's own interactive y/N confirmation can publish."
   exit 0
+fi
+if [[ -z "$VERSION" ]]; then
+  echo "Specify the NEXT unpublished preview version explicitly (dev.15 is already published)." >&2
+  exit 2
 fi
 if [[ ! "$VERSION" =~ ^0\.1\.0-dev\.[1-9][0-9]*$ ]]; then
   echo "Invalid preview version: $VERSION (expected 0.1.0-dev.N)" >&2

@@ -71,6 +71,42 @@ class IosFrameworkInstallTest(unittest.TestCase):
 
 @unittest.skipUnless(RUBY, "Ruby required")
 class AgoraFrameworkEmbedTest(unittest.TestCase):
+    def test_preinstall_deduplicates_only_the_older_infrastructure_podspec(self):
+        # No framework directory or official vendor archive is deleted.
+        script = """
+require 'ostruct'
+module Pod
+  module UI
+    def self.puts(*args); end
+  end
+end
+Spec = Struct.new(:version, :attributes_hash)
+Target = Struct.new(:pod_name, :specs)
+older = Spec.new(ARGV[0], {
+  'vendored_frameworks' => 'aosl.xcframework', 'weak_frameworks' => 'aosl'
+})
+newer = Spec.new(ARGV[1], {
+  'vendored_frameworks' => 'aosl.xcframework', 'weak_frameworks' => 'aosl'
+})
+agora = Target.new('AgoraInfra_iOS', [older])
+shengwang = Target.new('ShengwangInfra_iOS', [newer])
+installer = OpenStruct.new(pod_targets: [agora, shengwang])
+2.times { FlutterRealtimeSdk::PodfileIntegration.prepare_agora_infrastructure!(installer) }
+puts "#{older.attributes_hash.key?('vendored_frameworks')} #{newer.attributes_hash.key?('vendored_frameworks')}"
+"""
+        for agora_version, shengwang_version, expected in (
+            ("1.3.5", "1.3.16", "false true"),
+            ("1.4.0", "1.3.16", "true false"),
+        ):
+            with self.subTest(versions=(agora_version, shengwang_version)):
+                result = subprocess.run(
+                    [RUBY, "-r", str(ROOT / "scripts/templates/single_sdk_ios_podfile.rb"),
+                     "-e", script, agora_version, shengwang_version],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), expected)
+
     def test_only_duplicate_chat_embed_is_removed_when_rtc_uses_swiftpm(self):
         self.check_embed(rtc=True)
 

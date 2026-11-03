@@ -122,7 +122,14 @@ Pod::Spec.new do |s|
   s.license = { :file => '../LICENSE' }
   s.author = { 'OnePlusDream' => 'developers@oneplusdream.com' }
   s.source = { :path => '.' }
-  s.source_files = 'Classes/**/*.{swift,h,m,mm,c,cc,cpp}'
+  # All provider bridges are compiled into the same CocoaPods module.
+  # Their private C++/Objective-C headers must remain alongside each .mm/.m
+  # file for quoted imports, but MUST NOT be copied into the framework's
+  # public Headers folder or imported by its generated Swift umbrella header.
+  # In particular AgoraBase.h imports <cassert>, which Swift's Clang module
+  # scanner cannot parse as an Objective-C umbrella declaration.
+  s.source_files = 'Classes/**/*.{swift,m,mm,c,cc,cpp}', 'Classes/**/include/**/*.h', 'Classes/**/FlutterRealtimeMediaLivekitPlugin.h'
+  s.public_header_files = 'Classes/**/include/**/*.h', 'Classes/**/FlutterRealtimeMediaLivekitPlugin.h'
   s.resources = 'Resources/**/*'
   s.platform = :ios, '15.0'
   s.swift_version = '5.9'

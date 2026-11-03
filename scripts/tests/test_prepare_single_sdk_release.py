@@ -63,6 +63,9 @@ class ReleasePreparationTest(unittest.TestCase):
             (release / "pubspec.lock").write_text("transient")
             (release / ".dart_tool").mkdir()
             (release / ".dart_tool/package_config.json").write_text("{}")
+            native_cache = release / "ios/Frameworks/AmazonIVS.xcframework/Info.plist"
+            native_cache.parent.mkdir(parents=True)
+            native_cache.write_text("verified pod-install download, not a publishable file")
             original_pubspec = (release / "pubspec.yaml").read_bytes()
             original_licenses = (release / "LICENSE").read_bytes()
             template.write_text("Updated English @VERSION@\n[简体中文](README.zh-CN.md)\n")
@@ -75,6 +78,7 @@ class ReleasePreparationTest(unittest.TestCase):
             revised = json.loads((release.parent / "FILES.sha256.json").read_text())
             self.assertNotIn("pubspec.lock", revised)
             self.assertNotIn(".dart_tool/package_config.json", revised)
+            self.assertFalse(any(name.startswith("ios/Frameworks/") for name in revised))
             self.assertIn("README.zh-CN.md", revised)
             self.assertEqual(
                 json.loads((release.parent / "PREPARATION.json").read_text())["fileCount"],

@@ -2,6 +2,30 @@
 # replace its own hooks or alter any vendor SDK's files or dependency versions.
 module FlutterRealtimeSdk
   module PodfileIntegration
+    # The CocoaPods-only host resolves both Agora RTC and Agora Chat.
+    # AgoraInfra_iOS (1.3.5) and ShengwangInfra_iOS (1.3.16) each vendor
+    # aosl.xcframework. CocoaPods rejects duplicate framework basenames.
+    # Retain only the highest-version framework's vendored declaration.
+    # Do not delete or replace either vendor binary.
+    # This is invoked before CocoaPods validates duplicate framework names.
+    def self.prepare_agora_infrastructure!(installer)
+      pod_targets = installer.pod_targets
+      agora = pod_targets.find { |target| target.pod_name == 'AgoraInfra_iOS' }
+      shengwang = pod_targets.find { |target| target.pod_name == 'ShengwangInfra_iOS' }
+      return unless agora && shengwang
+
+      require 'rubygems/version'
+      agora_version = Gem::Version.new(agora.specs.first.version.to_s)
+      shengwang_version = Gem::Version.new(shengwang.specs.first.version.to_s)
+      keep = agora_version > shengwang_version ? agora : shengwang
+      omit = keep.equal?(agora) ? shengwang : agora
+      omit.specs.each do |spec|
+        spec.attributes_hash.delete('vendored_frameworks')
+        spec.attributes_hash.delete('weak_frameworks')
+      end
+      Pod::UI.puts("flutter_realtime_sdk: use #{keep.pod_name} as the only aosl framework provider")
+    end
+
     def self.deduplicate_agora_frameworks!(installer)
       ios = installer.config.installation_root.to_s
       package = File.join(ios, 'Flutter', 'ephemeral', 'Packages',

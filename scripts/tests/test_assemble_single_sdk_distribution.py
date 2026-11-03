@@ -42,6 +42,26 @@ class SingleSdkDistributionTest(unittest.TestCase):
                 self.assertNotIn("__pycache__", path.parts)
                 self.assertNotIn(path.suffix, {".pyc", ".pyo"})
 
+    def test_ios_umbrella_exposes_only_objc_plugin_headers(self):
+        # Public C++ headers cause Swift's umbrella module scan to fail on
+        # <cassert>. Duplicate provider-local headers collide in Framework
+        # Headers during Xcode compilation, even with a valid Pod install.
+        spec = (self.root / "ios/flutter_realtime_sdk.podspec").read_text()
+        self.assertIn("s.public_header_files = 'Classes/**/include/**/*.h'", spec)
+        self.assertIn("Classes/**/FlutterRealtimeMediaLivekitPlugin.h", spec)
+        self.assertIn("Classes/**/*.{swift,m,mm,c,cc,cpp}", spec)
+        self.assertNotIn("Classes/**/*.{swift,h,m,mm", spec)
+
+    def test_mobile_whiteboard_pinch_uses_stable_raw_touch_geometry(self):
+        surface = (
+            self.root
+            / "lib/src/_bundled/flutter_realtime_whiteboard_ui/src/annotation_surface.dart"
+        ).read_text()
+        self.assertIn("void _rebasePinch()", surface)
+        self.assertIn("void _updatePinch()", surface)
+        self.assertIn("if (_pinchUsed || details.pointerCount > 1) return;", surface)
+        self.assertNotIn("_previousGestureScale", surface)
+
     def test_distribution_exposes_current_pages_without_legacy_templates(self):
         # Validate the supported surface; removing obsolete pages legitimately
         # lowers the library count and must not require keeping dead modules.
