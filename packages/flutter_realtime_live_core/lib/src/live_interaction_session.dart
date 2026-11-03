@@ -36,7 +36,7 @@ class LiveInteractionSession {
   Stream<LiveLikeEvent> get likes => _likes.stream;
   Stream<Object> get errors => _errors.stream;
   String newEventId() =>
-      '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
+      '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(0x100000000)}';
   Future<void> start() async {
     if (_disposed) {
       throw RealtimeException(

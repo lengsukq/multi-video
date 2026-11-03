@@ -115,7 +115,7 @@ class WhiteboardSession implements AnnotationController {
               action,
               {...data, 'expectedRevision': _state!.revision},
               eventId:
-                  '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}',
+                  '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(0x100000000)}',
             ),
           ),
         );

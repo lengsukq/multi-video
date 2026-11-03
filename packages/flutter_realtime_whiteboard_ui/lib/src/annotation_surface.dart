@@ -279,7 +279,7 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
     final canvas = widget.session.canvas;
     if (!canvas.active) return;
     final id =
-        '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
+        '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(0x100000000)}';
     _canvasId = canvas.canvasId;
     final tool = _activeTool;
     final color = _activeColor;
@@ -386,7 +386,7 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
     );
     if (text == null || text.isEmpty || !mounted) return;
     final shape = AnnotationShape(
-      id: '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}',
+      id: '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(0x100000000)}',
       tool: AnnotationTool.text,
       points: [_point(offset, size)],
       color: _activeColor,

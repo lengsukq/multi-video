@@ -82,6 +82,65 @@ class RealtimeStrings {
           ? '网页资源版本不一致。请完整重启应用或刷新页面后重试。'
           : 'Web resources are incompatible. Restart the app or reload the page and retry.';
     }
+    // A failed shared-content commit may wrap the original HTTP failure.
+    // Do not show internal identifiers or mislabel an expired room as an
+    // arbitrary invalidState. Inspect only the bounded exception chain.
+    final failures = <RealtimeException>[];
+    Object? current = error;
+    for (var depth = 0; depth < 6 && current is RealtimeException; depth++) {
+      if (failures.any((item) => identical(item, current))) break;
+      failures.add(current);
+      current = current.cause;
+    }
+    final isSharedContentFailure = failures.any(
+      (item) =>
+          item.message.startsWith('sharedContent.') ||
+          item.domain == 'sharedContent' ||
+          item.operation == 'commitAfterCaptureStop',
+    );
+    if (isSharedContentFailure) {
+      if (failures.any(
+        (item) =>
+            item.code == RealtimeErrorCode.roomNotFound ||
+            item.statusCode == 404,
+      )) {
+        return isZh
+            ? '会议已失效或已结束，请退出并重新创建或加入会议。'
+            : 'This room has expired or ended. Leave and create or join a room again.';
+      }
+      if (failures.any(
+        (item) =>
+            item.code == RealtimeErrorCode.forbidden ||
+            item.code == RealtimeErrorCode.unauthorized ||
+            item.statusCode == 401 ||
+            item.statusCode == 403,
+      )) {
+        return isZh
+            ? '没有切换白板或共享内容的权限，请检查主持人身份。'
+            : 'You do not have permission to change the whiteboard or shared content.';
+      }
+      if (failures.any(
+        (item) =>
+            item.code == RealtimeErrorCode.roomConflict ||
+            item.statusCode == 409,
+      )) {
+        return isZh
+            ? '共享内容状态已被其他操作更新，请重试。'
+            : 'Shared content changed during this action. Please retry.';
+      }
+      if (failures.any(
+        (item) =>
+            item.code == RealtimeErrorCode.network ||
+            item.code == RealtimeErrorCode.timeout,
+      )) {
+        return isZh
+            ? '无法同步白板状态，请检查后端连接后重试。'
+            : 'Could not sync the whiteboard. Check the backend connection and retry.';
+      }
+      return isZh
+          ? '切换白板或共享内容失败，请重试；如持续出现请检查后端日志。'
+          : 'Unable to change shared content. Retry or check the backend logs.';
+    }
     return switch (error.code) {
       RealtimeErrorCode.network =>
         isZh

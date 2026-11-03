@@ -121,7 +121,7 @@ class SystemScreenAnnotationController implements SystemAnnotationBridge {
     }
     _owner = this;
     _sessionId =
-        '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
+        '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(0x100000000)}';
     try {
       if (await _channel.invokeMethod<bool>('requestPermission') != true) {
         throw RealtimeException(
@@ -187,7 +187,7 @@ class SystemScreenAnnotationController implements SystemAnnotationBridge {
     final rect = viewport.toJson();
     _owner = this;
     _sessionId =
-        '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
+        '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(0x100000000)}';
     _canvasId = annotations.canvas.canvasId;
     _error = null;
     try {

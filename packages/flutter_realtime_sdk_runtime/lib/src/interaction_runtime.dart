@@ -183,7 +183,7 @@ class DefaultInteractionSession implements InteractionSession {
     final event = InteractionEvent(
       roomCode: roomCode,
       eventId:
-          '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}',
+          '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(0x100000000)}',
       senderId: senderId,
       topic: topic,
       timestampMs: DateTime.now().millisecondsSinceEpoch,

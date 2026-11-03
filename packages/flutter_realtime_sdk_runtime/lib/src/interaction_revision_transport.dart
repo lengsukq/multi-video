@@ -30,7 +30,7 @@ class InteractionRevisionHintCodec {
       'v': 1,
       'type': type,
       'roomCode': roomCode,
-      'eventId': '$now-${_random.nextInt(1 << 32)}',
+      'eventId': '$now-${_random.nextInt(0x100000000)}',
       'revision': revision,
       'timestampMs': now,
     });

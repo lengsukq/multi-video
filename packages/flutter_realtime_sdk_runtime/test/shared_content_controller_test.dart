@@ -35,6 +35,7 @@ class _Repository implements ClassroomRepository {
   final WhiteboardState whiteboard;
   int revision = 0;
   bool failCommit = false, teacher = true, legacy = false;
+  RealtimeException? commitFailure;
   bool revisionConflictOnce = false;
   SharedContentMode mode = SharedContentMode.whiteboard;
   final calls = <String>[];
@@ -64,6 +65,7 @@ class _Repository implements ClassroomRepository {
     final type = command.wireName;
     final data = command.toWireData();
     calls.add(type);
+    if (commitFailure case final failure?) throw failure;
     if (failCommit) throw StateError('Commit failed');
     final payload = jsonDecode(data['payload']!) as Map<String, dynamic>;
     if (type == 'tool.content.mode') {
@@ -192,6 +194,44 @@ void main() {
       expect(c.status.error, isNull);
     },
   );
+  test(
+    'failed content commit retains backend status after capture stops',
+    () async {
+      for (final (code, status, backendCode) in [
+        (RealtimeErrorCode.roomNotFound, 404, 'room-not-found'),
+        (RealtimeErrorCode.forbidden, 403, 'forbidden'),
+        (RealtimeErrorCode.roomConflict, 409, 'canvas-conflict'),
+      ]) {
+        final (media, repo, _, controller) = await fixture(screen: true);
+        repo.commitFailure = RealtimeException(
+          code: code,
+          message: 'Backend request failed (HTTP $status).',
+          domain: 'classroom',
+          operation: 'POST /rooms/lesson/classroom/action',
+          statusCode: status,
+          details: {'backendCode': backendCode},
+        );
+        await expectLater(
+          controller.selectMode(SharedContentMode.whiteboard),
+          throwsA(
+            isA<RealtimeException>()
+                .having((e) => e.code, 'code', code)
+                .having((e) => e.statusCode, 'statusCode', status)
+                .having(
+                  (e) => (e.details as Map)['backendCode'],
+                  'backend code',
+                  backendCode,
+                )
+                .having((e) => e.cause, 'underlying cause', isNotNull),
+          ),
+        );
+        expect(media.calls, [false]);
+        expect(controller.status.captureActive, false);
+        expect(controller.status.busy, false);
+      }
+    },
+  );
+
   test('cancelled or failed system selection preserves whiteboard', () async {
     final (media, repo, _, c) = await fixture();
     media.cancel = true;

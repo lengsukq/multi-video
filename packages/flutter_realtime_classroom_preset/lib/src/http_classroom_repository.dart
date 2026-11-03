@@ -63,8 +63,10 @@ class HttpClassroomRepository implements ClassroomRepository {
     'action': command.wireName,
     // A unique id is generated once per logical action, allowing the same
     // HTTP request body to be retried without applying the action twice.
+    // Use a literal: Dart Web evaluates (1 << 32) as zero in JavaScript,
+    // causing Random.nextInt(0) to throw before the HTTP action is sent.
     'eventId':
-        '${DateTime.now().microsecondsSinceEpoch}-${_secure.nextInt(1 << 32)}',
+        '${DateTime.now().microsecondsSinceEpoch}-${_secure.nextInt(0x100000000)}',
     ...command.toWireData(),
   });
   @override

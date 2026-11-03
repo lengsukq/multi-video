@@ -393,13 +393,38 @@ class SharedContentController {
         try {
           await _commitFresh(mode);
         } catch (e) {
+          // Capture has already stopped. Preserve the backend error (notably
+          // 401/403/404/409 and its operation) so the UI can distinguish a
+          // vanished room from a revision conflict or permission failure.
+          // The old invalidState wrapper hid every HTTP failure behind the
+          // opaque string "sharedContent.commitAfterCaptureStop".
+          final failure = normalizeRealtimeException(
+            e,
+            domain: 'sharedContent',
+            operation: 'commitAfterCaptureStop',
+          );
           throw RealtimeException(
-            code: RealtimeErrorCode.invalidState,
-            message: 'sharedContent.commitAfterCaptureStop',
+            code: failure.code,
+            message: failure.message,
+            domain: failure.domain,
+            operation: failure.operation,
+            statusCode: failure.statusCode,
             cause: e,
-            recoverable: true,
-            suggestedAction: 'retry-content-change',
-            details: const {'captureActive': false},
+            recoverable:
+                failure.recoverable ||
+                failure.code == RealtimeErrorCode.roomConflict ||
+                failure.code == RealtimeErrorCode.providerError,
+            suggestedAction: switch (failure.code) {
+              RealtimeErrorCode.roomNotFound => 'rejoin-room',
+              RealtimeErrorCode.forbidden ||
+              RealtimeErrorCode.unauthorized => 'check-permissions',
+              _ => failure.suggestedAction ?? 'retry-content-change',
+            },
+            details: {
+              'captureActive': false,
+              if (failure.details is Map)
+                ...(failure.details as Map),
+            },
           );
         }
       } else {
