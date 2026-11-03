@@ -8,7 +8,7 @@
 
 | 版本/形态 | 状态 | 如何接入 |
 | --- | --- | --- |
-| [`flutter_realtime_sdk 0.1.0-dev.12`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.12) | **已发布预览版（2026-11-03）** | 新增会议模式、组合式预览与仓库驱动的内容共享，更新会议/直播/聊天/课堂/白板 UI、内置字体和 macOS 麦克风电平表 |
+| [`flutter_realtime_sdk 0.1.0-dev.15`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.15) | **已发布预览版（2026-11-03）** | 修复 iOS 聚合包 CocoaPods/Agora RTC 与 Chat 框架冲突、Swift 私有头文件导出，以及手机白板双指缩放跳动 |
 | 源码仓库 | 开发用 | Facade + 选定的 Provider/UI 内部包 |
 
 **不要混淆两种使用方式：** pub.dev 发布物把 44 个内部模块组装为**一个公开 SDK 包**；本仓库开发时仍然是多模块源码，依赖配置不同。支持列表不代表每个供应商和设备都完成实机验收，Windows/Linux、部分平台组合和第三方许可审查仍有待完成。
@@ -19,7 +19,7 @@
 
 ~~~yaml
 dependencies:
-  flutter_realtime_sdk: ^0.1.0-dev.12
+  flutter_realtime_sdk: ^0.1.0-dev.15
 ~~~
 
 已发布的单包 SDK **只需要一个 Dart import**：
@@ -47,12 +47,39 @@ final room = connection.mediaRoom!;
 
 UI 可以选择 `RealtimeRoomView`、组合式按钮/网格，或全部自己实现。课堂预设 `ClassroomPreset` 和直播预设 `LivePreset` 需要显式注册，并依赖后端权限控制；示例礼物不包含支付。
 
+### dev.15：iOS 宿主配置与手机白板
+
+当前聚合版 SDK 的原生 iOS 仍依赖 CocoaPods。**只在接入 SDK 的宿主项目**
+`pubspec.yaml` 中禁用 SwiftPM，避免 Agora RTC 被注册为 SwiftPM 后，
+聚合 Podspec 找不到其 CocoaPods 依赖：
+
+~~~yaml
+flutter:
+  config:
+    enable-swift-package-manager: false
+~~~
+
+在宿主 `ios/Podfile` 已有的 `post_install` **之前**添加
+（如已有 `pre_install` 请合并）：
+
+~~~ruby
+pre_install do |installer|
+  require_relative '.symlinks/plugins/flutter_realtime_sdk/ios/podfile'
+  FlutterRealtimeSdk::PodfileIntegration.prepare_agora_infrastructure!(installer)
+end
+~~~
+
+该 Hook 让 Agora RTC/Chat 选择较新的 `aosl` 框架，不删除官方二进制；
+dev.15 的 Podspec 不再向 Swift 导出内部 C++ 头文件。手机白板采用
+稳定双指触点计算缩放与平移，换手指、反向缩放不应引发视图跳变。
+这不代表所有 RTC 供应商和真实双设备白板同步场景已验收完成。
+
 ### Headless 摄像头及虚拟背景
 
-已发布的 **`0.1.0-dev.12`** 保留 `room.setCameraEnabled(bool)` 和 `DefaultRealtimeVideoEffects` 导出，并新增会议模式、组合式预览、仓库驱动的内容共享、更新后的会议/直播/聊天/课堂/白板 UI、内置字体和 macOS 入会前麦克风电平表。电平表读取系统默认输入设备，不代表远端实际收到音频。
+已发布的 **`0.1.0-dev.15`** 保留 `room.setCameraEnabled(bool)` 和 `DefaultRealtimeVideoEffects` 导出，并新增会议模式、组合式预览、仓库驱动的内容共享、更新后的会议/直播/聊天/课堂/白板 UI、内置字体和 macOS 入会前麦克风电平表。电平表读取系统默认输入设备，不代表远端实际收到音频。
 
 ~~~dart
-// 当前已发布的 dev.12 包含此接口：
+// 当前已发布的 dev.15 包含此接口：
 final realtime = Realtime(
   backendUrl: 'https://your-backend.example',
   providers: [createLivekitProvider()],

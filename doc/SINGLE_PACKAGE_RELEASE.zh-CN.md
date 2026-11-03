@@ -4,7 +4,7 @@
 > 开发根目录（本仓库根）是私有 tooling workspace，`publish_to: none`；44 个内部源码模块
 > 同样保持 `publish_to: none`，不逐个发布。发行脚本把这些模块聚合为唯一对外发布包
 > `flutter_realtime_sdk`。
-> **当前已发布版本为 `flutter_realtime_sdk 0.1.0-dev.12`（2026-11-03）。**
+> **当前已发布版本为 `flutter_realtime_sdk 0.1.0-dev.15`（2026-11-03）。**
 > `0.1.0-dev.1`（2026-10-15）是首个单包预览版，相关发布叙述仅为历史记录，
 > 已被后续版本取代，不代表当前版本。
 > 真机通话、Windows/Linux、部分供应商组合和第三方许可仍需单独验收，不因包已发布而视为完成。
@@ -14,21 +14,23 @@
 
 | 版本 | 状态 | 说明 |
 | --- | --- | --- |
-| `0.1.0-dev.12` | **当前已发布（2026-11-03）** | 外部宿主依赖 `^0.1.0-dev.12`；Web 白板事件 ID 与共享内容错误修复 |
-| `0.1.0-dev.11` | 历史版本 | 已由 dev.12 取代 |
+| `0.1.0-dev.15` | **当前已发布（2026-11-03）** | iOS CocoaPods 聚合包、Agora `aosl` 与公开头修复；手机双指白板缩放稳定性 |
+| `0.1.0-dev.13` | 历史版本 | 课堂与共享内容预设顺序无关、跨平台 CI 修复 |
+| `0.1.0-dev.12` | 历史版本（2026-11-03） | Web 白板事件 ID 与共享内容错误修复 |
+| `0.1.0-dev.11` | 历史版本 | 已由后续版本取代 |
 | `0.1.0-dev.10` | 历史（2026-10-20） | 会议模式、组合式预览与内容共享 |
 | `0.1.0-dev.1` | 历史（2026-10-15） | 首个单包预览版，已被 dev.2–dev.10 取代，不是当前版本 |
 
 dev.1 的“已上传/已发布”叙述只还原当时的首发动作；当前接入、升级和问题定位
-一律以 dev.12 为准，不要据此安装或引用 dev.1。
+一律以 dev.15 为准，不要据此安装或引用 dev.1。
 
 ## 目标、边界和必须接受的代价
 
-**宿主的依赖和导入只有一个 SDK 名称。当前已发布版本（dev.12）的声明如下**：
+**宿主的依赖和导入只有一个 SDK 名称。当前已发布版本（dev.15）的声明如下**：
 
 ```yaml
 dependencies:
-  flutter_realtime_sdk: ^0.1.0-dev.12
+  flutter_realtime_sdk: ^0.1.0-dev.15
 ```
 
 ```dart
@@ -109,7 +111,7 @@ flutter pub publish --dry-run
 ### 实际独立宿主验收结果（2026-10-15，历史记录）
 
 > 本表是 2026-10-15 对当时候选（早于 dev.9）的验收证据，保留用于追溯技术方案；
-> 它不是对当前已发布 dev.12 的验收结论。当前版本仍待完成的验收项见文末“后续阶段与验收门槛”。
+> 它不是对当前已发布 dev.15 的验收结论。当前版本仍待完成的验收项见文末“后续阶段与验收门槛”。
 
 使用 `build/single_sdk_host`（仅依赖单一 SDK 路径包），不是现有大 Demo：
 
@@ -137,13 +139,26 @@ Flutter 使用 `:path` 安装插件，CocoaPods 不会执行 `prepare_command`�
 因此解析器在 podspec 加载时执行；首次安装需要网络，有缓存可离线构建。
 所有 iOS 厂商 XCFramework 均排除在 Pub 文件清单之外。
 
-默认开启 SwiftPM 的宿主同时使用 Agora RTC 和 Chat 时，需要在
-`ios/Podfile` 的 `post_integrate` 调用包内 `ios/podfile.rb` 的
-`FlutterRealtimeSdk::PodfileIntegration.deduplicate_agora_frameworks!(installer)`。
-它仅在检测到 RTC SwiftPM product 时移除 Chat 的重复 `aosl.framework`
-嵌入项，保留其他框架和宿主自己的 hooks。完整代码见
+**dev.15 当前 iOS 宿主安装方式（取代旧版 SwiftPM 混合方案）：**
+聚合包仍使用 CocoaPods。宿主 `pubspec.yaml` 应配置
+`flutter.config.enable-swift-package-manager: false`，仅对该工程生效；
+宿主 `ios/Podfile` 添加 `pre_install`：
+
+```ruby
+pre_install do |installer|
+  require_relative '.symlinks/plugins/flutter_realtime_sdk/ios/podfile'
+  FlutterRealtimeSdk::PodfileIntegration.prepare_agora_infrastructure!(installer)
+end
+```
+
+这会在两个 Pod 同时存在时保留版本较新的 `aosl` framework 声明，
+不删除官方二进制；合包 Podspec 只导出必要 Objective-C 公共头文件，
+避免 Swift 模块扫描私有 C++ 头。已验证独立 Demo 的 iOS Debug 真机目标编译；
+Agora RTC/Chat 实际同会话共存的 ABI 及通信质量仍需双设备验收。
+旧的 `post_integrate` / `deduplicate_agora_frameworks!` 属于
+此前 SwiftPM 混用方案，**不要作为 dev.15 的默认集成步骤**。
+具体安装细节见
 [`scripts/templates/single_sdk_README.md`](../scripts/templates/single_sdk_README.md)。
-真实设备上的 Agora RTC/Chat ABI 共存验收仍待执行。
 
 此外独立的第三方 `flutter_webrtc` fork 必须另行验证功能兼容和许可证；
 原型使用 pub.dev 的版本声明并不意味着 fork 差异已得到验证。

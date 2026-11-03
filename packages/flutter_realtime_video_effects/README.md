@@ -29,7 +29,7 @@ adapter cannot consume the platform output directly, attachment fails closed
 instead of routing frames through Dart or publishing the raw camera frame.
 
 The iOS bridge is **development source**, not part of published
-`flutter_realtime_sdk 0.1.0-dev.12`. It has no physical-iPhone/remote-pixel
+`flutter_realtime_sdk 0.1.0-dev.15`. It has no physical-iPhone/remote-pixel
 acceptance record yet. LiveKit, Agora and Tencent TRTC have native iOS
 processed-video sink code and the iOS unsigned Release build passes.
 Windows now has native camera and ONNX person-segmentation source code, with

@@ -187,9 +187,22 @@ presets require trusted backend state and permission enforcement.
 
 ## iOS setup
 
-Use iOS 15+ and keep Flutter's Swift Package Manager support enabled (the
-default in the required Flutter version). The combined plugin uses CocoaPods
-for ARTC/Chime and its own bridges; some third-party plugins use SwiftPM.
+Use iOS 15+. This preview bundles the native providers into a single
+CocoaPods plugin and currently needs a **CocoaPods-only iOS host**.
+Flutter's SwiftPM resolution skips Agora RTC's local CocoaPods plugin, while
+the umbrella Podspec still requires it. Until the aggregate plugin has a
+fully compatible SwiftPM target, disable SwiftPM **for this host project only**:
+
+```yaml
+# Host Flutter pubspec.yaml
+flutter:
+  config:
+    enable-swift-package-manager: false
+```
+
+This is a preview-build compatibility constraint, not a recommendation to
+disable SwiftPM for every Flutter app. A future Flutter release may remove
+this migration option.
 
 IVS Broadcast 1.47.0 and IVS Chat 1.0.1 are fetched from AWS's official HTTPS
 archives at `pod install` time and checked against the SHA-256 values in
@@ -198,20 +211,27 @@ the Pub archive. The installer reuses compatible local SwiftPM archives;
 a fresh installation needs access to the official AWS endpoints. A corrupt
 archive fails installation instead of silently selecting another SDK version.
 
-Set `platform :ios, '15.0'` in `ios/Podfile`. Add the following hook (or merge
-its body into an existing `post_integrate` hook) to avoid Agora RTC/Chat both
-embedding `aosl.framework`:
+Set `platform :ios, '15.0'` in `ios/Podfile`. Add this hook **before** the
+existing `post_install` hook (or merge its body into your existing
+`pre_install`). It resolves the Agora RTC/Chat duplicate
+`aosl.xcframework` by retaining the newer infrastructure Pod's vendored
+framework declaration:
 
 ```ruby
-post_integrate do |installer|
+pre_install do |installer|
   require_relative '.symlinks/plugins/flutter_realtime_sdk/ios/podfile'
-  FlutterRealtimeSdk::PodfileIntegration.deduplicate_agora_frameworks!(installer)
+  FlutterRealtimeSdk::PodfileIntegration.prepare_agora_infrastructure!(installer)
 end
 ```
 
-The helper removes only Chat's duplicate embed when RTC's SwiftPM product
-is present, preserving other frameworks and the application's own hooks.
-Actual Agora RTC/Chat coexistence still requires device testing.
+The helper changes only the in-memory CocoaPods specification; it does
+**not** remove official frameworks or modify the global CocoaPods cache.
+The single-package build also exports only Objective-C plugin headers,
+keeping private Agora C++ headers out of the generated Swift umbrella module.
+If you intentionally enable a mixed SwiftPM/CocoaPods setup, the separate
+`deduplicate_agora_frameworks!` post-integration helper remains available,
+but this preview's mixed build is not supported.
+Actual Agora RTC/Chat behavior still requires real-device testing.
 ARTC's current framework is device-only; this combined package does not
 support the iOS Simulator.
 

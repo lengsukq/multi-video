@@ -178,8 +178,20 @@ SDK 会停止故障发布；显式重设效果成功后才能重新开启摄像�
 
 ## 五、iOS 配置（发布单包）
 
-iOS 最低版本为 **15.0**，保留 Flutter 默认的 Swift Package Manager 支持。
-合并插件为 ARTC/Chime 和自有桥接使用 CocoaPods；部分第三方插件通过 SwiftPM 集成。
+iOS 最低版本为 **15.0**。当前预览包把原生 Provider 聚合到一个
+CocoaPods 插件中，因此 iOS 宿主需要**只使用 CocoaPods**。
+默认 SwiftPM 会将 Agora RTC 注册到 SwiftPM，却不会提供聚合 Podspec
+所需的本地 `agora_rtc_engine` Pod。请仅在使用此 SDK 的宿主项目中添加：
+
+~~~yaml
+# 宿主 Flutter pubspec.yaml
+flutter:
+  config:
+    enable-swift-package-manager: false
+~~~
+
+这只是当前聚合预览版的兼容方案，不建议全局关闭 Flutter 的 SwiftPM。
+Flutter 未来版本也可能取消此过渡开关，届时需要升级 SDK 原生集成方式。
 
 IVS Broadcast 1.47.0 与 IVS Chat 1.0.1 会在 `pod install` 阶段从 AWS
 官方 HTTPS 归档下载，通过 `ios/vendor_frameworks.json` 中固定的 SHA-256 校验。
@@ -191,17 +203,22 @@ Pub 包**不重新分发这些供应商二进制文件**，首次安装需要可
 platform :ios, '15.0'
 ~~~
 
-然后添加（如果已有同名 hook，请合并其内容）：
+然后在已有 `post_install` 前添加（已有同名 hook 时请合并）：
 
 ~~~ruby
-post_integrate do |installer|
+pre_install do |installer|
   require_relative '.symlinks/plugins/flutter_realtime_sdk/ios/podfile'
-  FlutterRealtimeSdk::PodfileIntegration.deduplicate_agora_frameworks!(installer)
+  FlutterRealtimeSdk::PodfileIntegration.prepare_agora_infrastructure!(installer)
 end
 ~~~
 
-这会在 Agora RTC 的 SwiftPM 产品存在时，避免 Agora RTC/Chat 重复嵌入
-`aosl.framework`；**并不代表所有设备上的 Agora 共存已经验收通过**。
+Agora RTC 与 Chat 分别通过 `AgoraInfra_iOS` 和 `ShengwangInfra_iOS`
+引入同名的 `aosl.xcframework`。新 hook 只调整 CocoaPods 内存中的
+依赖声明，保留**版本较高**的那份供两个组件共用，
+不会删除官方二进制或篡改全局 Pod 缓存。
+聚合 SDK 的 Podspec 也限制了公开头文件范围，
+不再将 Agora C++ 私有头文件导入 Swift umbrella module。
+这些修复不代表所有厂商的真实设备通话已经完成验收。
 当前 ARTC 框架仅支持真机，因此该合并包不支持 iOS Simulator。
 
 如需受控或离线安装，可设置 `FLUTTER_REALTIME_SDK_IOS_OFFLINE=1`；

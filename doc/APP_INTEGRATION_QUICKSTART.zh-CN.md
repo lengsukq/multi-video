@@ -1,12 +1,37 @@
 # 第三方 Flutter App 接入 Flutter Realtime SDK（源码开发版）
 
 本文面向**不使用仓库 Demo 的宿主应用**，目标是从零完成一次真实的创建/加入/退出。
-**当前已发布的单包预览版是 `0.1.0-dev.12`（2026-11-03）。** 普通宿主在 App 目录执行
-`flutter pub add flutter_realtime_sdk:0.1.0-dev.12`，并参考
-[该版本发布包 README](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.12)
+**当前已发布的单包预览版是 `0.1.0-dev.15`（2026-11-03）。** 普通宿主在 App 目录执行
+`flutter pub add flutter_realtime_sdk:0.1.0-dev.15`，并参考
+[该版本发布包 README](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.15)
 配置 iOS Podfile、权限与后端。
-Scope/Overlay 和离会并发改进已包含在 dev.12；之后在源码仓库新增的变更
+Scope/Overlay 和离会并发改进已包含在 dev.15；之后在源码仓库新增的变更
 仍需维护者发布新版本，第三方才可升级并回归验证。
+
+**dev.15 iOS 必需配置：** 聚合包目前仍依赖 CocoaPods，请在宿主
+`pubspec.yaml` 的 `flutter:` 下添加：
+
+```yaml
+flutter:
+  config:
+    enable-swift-package-manager: false
+```
+
+在 `ios/Podfile` 的 `post_install` 之前添加（如已有 `pre_install`，合并内容）：
+
+```ruby
+pre_install do |installer|
+  require_relative '.symlinks/plugins/flutter_realtime_sdk/ios/podfile'
+  FlutterRealtimeSdk::PodfileIntegration.prepare_agora_infrastructure!(installer)
+end
+```
+
+这会解决 Agora RTC/Chat 的重复 `aosl.xcframework`；dev.15 发行包
+同时修复了 Swift umbrella 头文件污染。不要再复制旧版 dev.13 的
+手工修改 `source_files` / `public_header_files` 或 Headers 阶段的
+Podfile workaround。**双指缩放跳动修复**同样包含在 dev.15：
+触点数量变化时保持画布变换，不应影响随后单指绘画。该功能仍需各机型
+真实设备手感与跨端同步验收。
 
 **本文后续演示源码开发接入**，适用于需要修改内部模块的宿主。
 facade + Provider 的多个本地 `path:` 属于仓库开发结构；公开分发只需要
@@ -41,7 +66,7 @@ dependencies:
 **只复用视觉设计**：再添加独立 `flutter_realtime_design_ui`，不启动媒体会话。
 仅需独立聊天室 UI 也可单独使用 `flutter_realtime_chat_ui`。
 
-**当前已发布单包预览版**：只需 `flutter_realtime_sdk: ^0.1.0-dev.12`，
+**当前已发布单包预览版**：只需 `flutter_realtime_sdk: ^0.1.0-dev.15`，
 通过 `package:flutter_realtime_sdk/flutter_realtime_sdk.dart` 一个入口获取
 Provider 工厂、Room 和可组合 UI；仍需在 `Realtime(providers: ...)`
 中指定启用的供应商。**不保证**未选用厂商的原生依赖会被自动移除。
@@ -184,7 +209,7 @@ RealtimeRoomUiScope(
 是在 Navigator 的 Overlay 路由中构建，不能假设它们自动继承会议页面的 Scope。
 下一发布版 SDK 已准备
 `showRealtimeRoomUiDialog` / `showRealtimeRoomUiBottomSheet`
-（显式传入既有 Controller，**dev.12 已包含**）。
+（显式传入既有 Controller，**dev.15 已包含**）。
 退出会议也不能将 `Navigator.pop()` 或仅仅销毁 Widget 当成
 `controller.leave()`、`connection.dispose()`。
 完整代码和资源所有权说明见

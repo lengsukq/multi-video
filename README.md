@@ -8,7 +8,7 @@
 
 | Distribution | Status | How to integrate |
 | --- | --- | --- |
-| [`flutter_realtime_sdk 0.1.0-dev.12`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.12) | **Published** preview (2026-11-03) | Meeting modes and composed previews, repository-backed shared content, refreshed SDK workspaces, bundled fonts, and a native macOS microphone meter |
+| [`flutter_realtime_sdk 0.1.0-dev.15`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.15) | **Published** preview (2026-11-03) | iOS single-package CocoaPods fixes, Agora RTC/Chat framework deduplication, and smoother two-finger whiteboard navigation |
 | Monorepo source packages | Development only | Facade plus selected Provider/UI modules |
 
 The hosted preview bundles 44 internal modules into **one pub.dev package**. This repository still has separate source modules, with different dependency instructions. Windows/Linux, some native vendor/device combinations, and third-party license verification remain release acceptance work.
@@ -19,7 +19,7 @@ Requires Flutter ≥ 3.47 and Dart ≥ 3.12. The combined native package require
 
 ~~~yaml
 dependencies:
-  flutter_realtime_sdk: ^0.1.0-dev.12
+  flutter_realtime_sdk: ^0.1.0-dev.15
 ~~~
 
 ~~~dart
@@ -43,12 +43,39 @@ final room = connection.mediaRoom!;
 
 Register providers explicitly. Use a **trusted backend** for short-lived credentials, never vendor secrets in the Flutter app. The [Demo Server](demo-server/README.md) is optional; `RealtimeSource.credentials(...)` accepts your own provisioning. For presentation choose `RealtimeRoomView`, composable widgets, or a completely custom **Headless** UI. Classroom and Live presets are opt-in and require authoritative backend permissions. Demo gifts contain no payment logic.
 
+### iOS host setup and whiteboard navigation (dev.15)
+
+The aggregated iOS SDK is still CocoaPods-based. Disable Flutter SwiftPM
+**in this host app only** until all aggregated native providers support it:
+
+~~~yaml
+flutter:
+  config:
+    enable-swift-package-manager: false
+~~~
+
+In the host `ios/Podfile` add the following hook before `post_install`
+(merge with an existing `pre_install` if needed):
+
+~~~ruby
+pre_install do |installer|
+  require_relative '.symlinks/plugins/flutter_realtime_sdk/ios/podfile'
+  FlutterRealtimeSdk::PodfileIntegration.prepare_agora_infrastructure!(installer)
+end
+~~~
+
+This keeps the newer of the Agora RTC/Chat `aosl` frameworks without
+deleting vendor binaries; the dev.15 Podspec excludes private C++ headers
+from the Swift umbrella. On phones, the shared whiteboard supports stable
+two-finger zoom/pan and rebases safely when fingers are added or lifted.
+See the [host integration guide](doc/APP_INTEGRATION_QUICKSTART.zh-CN.md).
+
 ### Virtual-background update for Headless apps
 
-Published **`0.1.0-dev.12`** retains `room.setCameraEnabled(bool)` and the `DefaultRealtimeVideoEffects` export, with meeting-mode selection, composed previews, repository-backed shared content, refreshed Meeting/Live/Chat/classroom/whiteboard UI, bundled design fonts, and a native macOS pre-join microphone meter. The meter reads the system default input and does not prove remote audio delivery:
+Published **`0.1.0-dev.15`** retains `room.setCameraEnabled(bool)` and the `DefaultRealtimeVideoEffects` export, with meeting-mode selection, composed previews, repository-backed shared content, refreshed Meeting/Live/Chat/classroom/whiteboard UI, bundled design fonts, and a native macOS pre-join microphone meter. The meter reads the system default input and does not prove remote audio delivery:
 
 ~~~dart
-// Available in the published dev.12 preview.
+// Available in the published dev.15 preview.
 final realtime = Realtime(
   backendUrl: 'https://your-backend.example',
   providers: [createLivekitProvider()],

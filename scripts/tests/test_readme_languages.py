@@ -16,8 +16,8 @@ class BilingualReadmeTest(unittest.TestCase):
             self.assertTrue(chinese.exists(), str(chinese))
             self.assertIn("(README.zh-CN.md)", english.read_text())
             self.assertIn("(README.md)", chinese.read_text())
-            self.assertIn("0.1.0-dev.12", english.read_text())
-            self.assertIn("0.1.0-dev.12", chinese.read_text())
+            self.assertIn("0.1.0-dev.15", english.read_text())
+            self.assertIn("0.1.0-dev.15", chinese.read_text())
 
     def test_repository_local_links_are_valid(self):
         for file in (

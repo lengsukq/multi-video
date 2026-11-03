@@ -1,7 +1,7 @@
 # Flutter Realtime SDK：第三方房间 UI、弹窗与退出生命周期
 
 > 面向把 SDK 嵌入已有 Flutter App 的开发者。说明以本仓库 SDK 源码为准。
-> **版本边界：** pub.dev 单包 dev.12 已包含
+> **版本边界：** pub.dev 单包 dev.15 已包含
 > `showRealtimeRoomUiBottomSheet`、`showRealtimeRoomUiDialog`
 > 与 Scope/退出修复。后续源码修改仍需**单独发布新版本**，
 > 第三方 App 才能通过升级获得，不应把本地测试通过等同于已发布。
@@ -105,7 +105,7 @@ Controller 注入新 Scope 时由**调用方**负责最终 `close()`。
 RealtimeRoomUiScope is required above this widget
 ```
 
-**SDK dev.12 已发布 API：**
+**SDK dev.15 已发布 API：**
 
 ```dart
 // controller 来自会议页面 Scope 内的 Builder，而非 State.context。
