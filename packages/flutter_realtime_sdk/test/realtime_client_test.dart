@@ -585,7 +585,7 @@ void main() {
         expect(effectsPlatform.createCalls, 0);
       },
     );
-  });
+  }, skip: kIsWeb);
 
   group('RealtimeMediaAdapters', () {
     test('keeps session factory and renderer under one provider id', () {

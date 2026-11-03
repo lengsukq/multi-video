@@ -228,32 +228,6 @@ jobs:
         working-directory: flutter_aws_chime/example
         run: flutter pub get
 
-      - name: Materialize Agora plugin for Windows SDK extraction
-        working-directory: flutter_aws_chime/example
-        shell: pwsh
-        run: |
-          $pluginPath = "windows/flutter/ephemeral/.plugin_symlinks/agora_rtc_engine"
-          if (-not (Test-Path -LiteralPath $pluginPath)) {
-            throw "Expected Flutter's Agora plugin link at $pluginPath"
-          }
-
-          $pluginItem = Get-Item -LiteralPath $pluginPath -Force
-          if (-not $pluginItem.Target) {
-            Write-Host "Agora plugin is already a real directory."
-            exit 0
-          }
-
-          $pluginTarget = @($pluginItem.Target)[0]
-          if (-not [System.IO.Path]::IsPathRooted($pluginTarget)) {
-            $pluginTarget = Join-Path $pluginItem.Parent.FullName $pluginTarget
-          }
-          $pluginSource = (Resolve-Path -LiteralPath $pluginTarget).Path
-
-          Remove-Item -LiteralPath $pluginPath -Force
-          New-Item -ItemType Directory -Path $pluginPath | Out-Null
-          Get-ChildItem -LiteralPath $pluginSource -Force |
-            Copy-Item -Destination $pluginPath -Recurse -Force
-
       - name: Build Windows example
         working-directory: flutter_aws_chime/example
         run: flutter build windows --release
@@ -269,6 +243,9 @@ jobs:
           cache-dependency-path: demo-server/package-lock.json
       - name: Install declared backend dependencies
         working-directory: demo-server
+        run: npm ci
+      - name: Install Web bridge test dependencies
+        working-directory: tool/provider_web_assets
         run: npm ci
       - name: Check backend contracts
         working-directory: demo-server

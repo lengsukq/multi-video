@@ -31,8 +31,8 @@ Expressions below are copied from source. Runtime probes, role conditions and pl
 
 Processed-video sink in adapter source: **yes**.
 
-- `canBlurBackground`: `!isViewer && (kIsWeb || defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.macOS)`
-- `canReplaceBackgroundImage`: `!isViewer && (kIsWeb || defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.macOS)`
+- `canBlurBackground`: `!isViewer && (kIsWeb || defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.windows)`
+- `canReplaceBackgroundImage`: `!isViewer && (kIsWeb || defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.windows)`
 - `canScreenShare`: `!isViewer && (!kIsWeb || !lk.lkPlatformIsWebMobile())`
 - `canReportNetworkStats`: `true`
 
@@ -40,8 +40,8 @@ Processed-video sink in adapter source: **yes**.
 
 Processed-video sink in adapter source: **yes**.
 
-- `canBlurBackground`: `!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.macOS)`
-- `canReplaceBackgroundImage`: `!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.macOS)`
+- `canBlurBackground`: `!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.windows)`
+- `canReplaceBackgroundImage`: `!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.windows)`
 - `canScreenShare`: `!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.windows)`
 - `canReportNetworkStats`: `true`
 
@@ -49,8 +49,8 @@ Processed-video sink in adapter source: **yes**.
 
 Processed-video sink in adapter source: **yes**.
 
-- `canBlurBackground`: `!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.macOS)`
-- `canReplaceBackgroundImage`: `!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.macOS)`
+- `canBlurBackground`: `!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.windows)`
+- `canReplaceBackgroundImage`: `!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.windows)`
 - `canScreenShare`: `!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.windows)`
 - `canReportNetworkStats`: `true`
 
@@ -89,14 +89,14 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_chat_core/lib/src/model/chat_role.dart`: `9b92f5cea74f4d02`
 - `packages/flutter_realtime_chat_ivs/lib/src/ivs_chat_join_info.dart`: `e6a17278c17c422e`
 - `packages/flutter_realtime_chat_tencent/lib/src/tencent_chat_join_info.dart`: `3884ff1e25b5fa03`
-- `packages/flutter_realtime_media_agora/lib/src/agora_capabilities.dart`: `78c23d70c3ab69f5`
+- `packages/flutter_realtime_media_agora/lib/src/agora_capabilities.dart`: `b618738283104eab`
 - `packages/flutter_realtime_media_agora/lib/src/agora_data_stream.dart`: `d6ea74592f257147`
 - `packages/flutter_realtime_media_agora/lib/src/agora_event_adapter.dart`: `a84dc3833fb815ba`
 - `packages/flutter_realtime_media_agora/lib/src/agora_failures.dart`: `03043f8ecd8cec0a`
 - `packages/flutter_realtime_media_agora/lib/src/agora_host_session.dart`: `6c580ee08ff3cf20`
 - `packages/flutter_realtime_media_agora/lib/src/agora_interactive_session.dart`: `a6becdffe4d1e4de`
 - `packages/flutter_realtime_media_agora/lib/src/agora_media_session.dart`: `da520f33f5c0c53a`
-- `packages/flutter_realtime_media_agora/lib/src/agora_publishing.dart`: `28bc8c28b0dab311`
+- `packages/flutter_realtime_media_agora/lib/src/agora_publishing.dart`: `f77cecb63bbb13b8`
 - `packages/flutter_realtime_media_agora/lib/src/agora_session_factory.dart`: `3aa6d565e8f46d7c`
 - `packages/flutter_realtime_media_agora/lib/src/agora_snapshot_mapper.dart`: `fdb61a0c18b45a83`
 - `packages/flutter_realtime_media_agora/lib/src/agora_viewer_session.dart`: `66a6084ceebe04ae`
@@ -122,32 +122,32 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_session_factory.dart`: `0313e54a89b103ba`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_snapshot_mapper.dart`: `055c449e5e113946`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_statistics.dart`: `f3d94cb05a2b89b9`
-- `packages/flutter_realtime_media_livekit/lib/src/livekit_capabilities.dart`: `c8bf47b075a4aad5`
+- `packages/flutter_realtime_media_livekit/lib/src/livekit_capabilities.dart`: `8c2a6ce7df32ad0d`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_data_messenger.dart`: `3a47bbde56d14b68`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_event_adapter.dart`: `16b4b505430459e7`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_failures.dart`: `22e2362c19f025fd`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_host_session.dart`: `6b436595fb4d0d14`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_interactive_session.dart`: `a1301ba926951903`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_media_session.dart`: `0dfa561aa0c4c308`
-- `packages/flutter_realtime_media_livekit/lib/src/livekit_publishing.dart`: `97228b99d2858782`
+- `packages/flutter_realtime_media_livekit/lib/src/livekit_publishing.dart`: `b86973a4e5b903a0`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_screen_share.dart`: `47f5a9ab1d9cca0c`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_session_factory.dart`: `17bea6a36df94f9d`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_snapshot_mapper.dart`: `1382e25e2966db69`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_viewer_session.dart`: `b700eca27eabe65f`
-- `packages/flutter_realtime_media_trtc/lib/src/trtc_capabilities.dart`: `3877622efc0e0c08`
+- `packages/flutter_realtime_media_trtc/lib/src/trtc_capabilities.dart`: `d916894c9d5ff45a`
 - `packages/flutter_realtime_media_trtc/lib/src/trtc_credential_refresh.dart`: `e7676e67361ca60c`
 - `packages/flutter_realtime_media_trtc/lib/src/trtc_data_messenger.dart`: `cc26baf35741c7b5`
 - `packages/flutter_realtime_media_trtc/lib/src/trtc_host_session.dart`: `6da8673a8fc3700a`
 - `packages/flutter_realtime_media_trtc/lib/src/trtc_interactive_session.dart`: `c222094a67f4ba06`
 - `packages/flutter_realtime_media_trtc/lib/src/trtc_media_session.dart`: `79df4b2a144591c1`
 - `packages/flutter_realtime_media_trtc/lib/src/trtc_participant_session.dart`: `10bbea88de739a0f`
-- `packages/flutter_realtime_media_trtc/lib/src/trtc_publishing.dart`: `2786412ddb9e5370`
+- `packages/flutter_realtime_media_trtc/lib/src/trtc_publishing.dart`: `5eec22d70c5a0913`
 - `packages/flutter_realtime_media_trtc/lib/src/trtc_session_factory.dart`: `0725426dd935202e`
 - `packages/flutter_realtime_media_trtc/lib/src/trtc_snapshot_mapper.dart`: `6ab052c0233ea1a3`
 - `packages/flutter_realtime_media_trtc/lib/src/trtc_viewer_session.dart`: `a3962250ad983979`
 - `packages/flutter_realtime_media_web/lib/src/provider_web_profile.dart`: `767eba65b2f9f5ea`
 - `packages/flutter_realtime_media_web/lib/src/provider_web_session_factory.dart`: `209ed9f6a0846624`
-- `packages/flutter_realtime_provider_agora/lib/src/drivers_native.dart`: `e1b9b49fa520a269`
+- `packages/flutter_realtime_provider_agora/lib/src/drivers_native.dart`: `2c208f9a627d1cad`
 - `packages/flutter_realtime_provider_agora/lib/src/drivers_web.dart`: `bd81a8d666ea0441`
 - `packages/flutter_realtime_provider_agora_chat/lib/src/drivers_native.dart`: `d08d482cbe94ac72`
 - `packages/flutter_realtime_provider_agora_chat/lib/src/drivers_web.dart`: `ea37a522e2246302`
@@ -157,12 +157,12 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_provider_aws/lib/src/drivers_web.dart`: `8ebcb8186e43b6ef`
 - `packages/flutter_realtime_provider_ivs_chat/lib/src/drivers_native.dart`: `1fcf7e18de32be5d`
 - `packages/flutter_realtime_provider_ivs_chat/lib/src/drivers_web.dart`: `ef1e144fa3e3f879`
-- `packages/flutter_realtime_provider_livekit/lib/src/drivers_native.dart`: `133da921d7b64523`
+- `packages/flutter_realtime_provider_livekit/lib/src/drivers_native.dart`: `cb07e880bf1de859`
 - `packages/flutter_realtime_provider_livekit/lib/src/drivers_web.dart`: `caf4095823a79672`
 - `packages/flutter_realtime_provider_tencent_chat/lib/src/drivers_native.dart`: `5862c1fea875fdfb`
 - `packages/flutter_realtime_provider_tencent_chat/lib/src/drivers_web.dart`: `83276f7af33054a5`
-- `packages/flutter_realtime_provider_trtc/lib/src/drivers_native.dart`: `1b8dcacf17325abe`
+- `packages/flutter_realtime_provider_trtc/lib/src/drivers_native.dart`: `578e9790ecde26a9`
 - `packages/flutter_realtime_provider_trtc/lib/src/drivers_web.dart`: `fe51dd06f5757189`
-- `packages/flutter_realtime_sdk/pubspec.yaml`: `a815f8e7eca7cae6`
+- `packages/flutter_realtime_sdk/pubspec.yaml`: `e6ae8e6ae3779bcb`
 - `packages/flutter_realtime_sdk_runtime/lib/src/provider_web_session_wrapper.dart`: `da906bcbf530dfe3`
-- `packages/flutter_realtime_video_effects/pubspec.yaml`: `67a2f7272941e8ae`
+- `packages/flutter_realtime_video_effects/pubspec.yaml`: `8c87ab635bc39e86`

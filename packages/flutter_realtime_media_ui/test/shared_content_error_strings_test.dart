@@ -52,15 +52,18 @@ void main() {
     );
   });
 
-  test('unclassified shared content failures never print implementation keys', () {
-    expect(
-      strings.displayRealtimeError(
-        const RealtimeException(
-          code: RealtimeErrorCode.invalidState,
-          message: 'sharedContent.commitAfterCaptureStop',
+  test(
+    'unclassified shared content failures never print implementation keys',
+    () {
+      expect(
+        strings.displayRealtimeError(
+          const RealtimeException(
+            code: RealtimeErrorCode.invalidState,
+            message: 'sharedContent.commitAfterCaptureStop',
+          ),
         ),
-      ),
-      contains('切换白板'),
-    );
-  });
+        contains('切换白板'),
+      );
+    },
+  );
 }

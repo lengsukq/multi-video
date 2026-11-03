@@ -95,7 +95,10 @@ void main() {
       );
       expect(host.capabilities.canBlurBackground, isTrue);
       expect(host.capabilities.canReplaceBackgroundImage, isTrue);
-      expect((host as ProcessedVideoSink).supportsProcessedVideoSource(source), isTrue);
+      expect(
+        (host as ProcessedVideoSink).supportsProcessedVideoSource(source),
+        isTrue,
+      );
       await host.dispose();
     });
     test('iOS host supports Vision processed frame publishing', () async {
@@ -114,7 +117,10 @@ void main() {
       expect(host.capabilities.canBlurBackground, isTrue);
       expect(host.capabilities.canReplaceBackgroundImage, isTrue);
       expect(host.capabilities.canSelectCamera, isTrue);
-      expect((host as ProcessedVideoSink).supportsProcessedVideoSource(source), isTrue);
+      expect(
+        (host as ProcessedVideoSink).supportsProcessedVideoSource(source),
+        isTrue,
+      );
       await host.dispose();
     });
     test(

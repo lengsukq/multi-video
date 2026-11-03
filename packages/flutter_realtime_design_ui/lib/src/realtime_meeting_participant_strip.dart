@@ -130,7 +130,8 @@ class _RealtimeMeetingParticipantStripState
                   child: AnimatedBuilder(
                     animation: _scrollController,
                     builder: (context, _) {
-                      final position = _scrollController.hasClients &&
+                      final position =
+                          _scrollController.hasClients &&
                               _scrollController.position.hasContentDimensions
                           ? _scrollController.position
                           : null;

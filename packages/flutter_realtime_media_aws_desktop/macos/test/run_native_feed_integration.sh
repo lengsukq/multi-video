@@ -7,7 +7,7 @@ build_dir=$(mktemp -d "${TMPDIR:-/tmp}/aws-processed-frame-integration.XXXXXX")
 trap 'rm -rf "$build_dir"' EXIT INT TERM
 
 swiftc \
-  "$package_dir/macos/Classes/AwsProcessedFrameFeed.swift" \
+  "$package_dir/macos/flutter_realtime_media_aws_desktop/Sources/flutter_realtime_media_aws_desktop/AwsProcessedFrameFeed.swift" \
   "$test_dir/AwsProcessedFrameFeedIntegration.swift" \
   -framework AppKit \
   -framework CoreImage \

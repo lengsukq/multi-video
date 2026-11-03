@@ -41,10 +41,10 @@ void main() {
     addTearDown(repo.close);
     for (var i = 0; i < 5; i++) {
       final state = await repo.action(
-        ClassroomCommand.tool(
-          ClassroomToolAction.contentMode,
-          {'mode': 'whiteboard', 'expectedRevision': i},
-        ),
+        ClassroomCommand.tool(ClassroomToolAction.contentMode, {
+          'mode': 'whiteboard',
+          'expectedRevision': i,
+        }),
       );
       expect(state.revision, i + 1);
     }

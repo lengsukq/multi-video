@@ -422,8 +422,7 @@ class SharedContentController {
             },
             details: {
               'captureActive': false,
-              if (failure.details is Map)
-                ...(failure.details as Map),
+              if (failure.details is Map) ...(failure.details as Map),
             },
           );
         }

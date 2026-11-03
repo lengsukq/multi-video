@@ -416,8 +416,7 @@ class CloudRecordingBlueprints {
         'Authorization': 'Bearer <User_Or_Service_Token>',
       },
       payload: basePayload,
-      documentationUrl:
-          'https://github.com/lengsukq/multi-video',
+      documentationUrl: 'https://github.com/lengsukq/multi-video',
       description: 'Generic Realtime Cloud Recording Proxy Descriptor',
     );
   }
