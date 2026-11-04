@@ -12,6 +12,13 @@ async function createChimeHarness(browserGlobals = {}) {
   let dataObserver;
 
   const audioVideo = {
+    bindAudioElement(element) {
+      assert.equal(element.autoplay, true);
+      calls.push('bindRemoteAudio');
+    },
+    unbindAudioElement() {
+      calls.push('unbindRemoteAudio');
+    },
     addObserver(value) {
       observer = value;
       calls.push('addObserver');
@@ -103,6 +110,17 @@ async function createChimeHarness(browserGlobals = {}) {
     console,
     TextDecoder,
     Blob,
+    document: {
+      createElement: (tag) => {
+        assert.equal(tag, 'audio');
+        return {
+          style: {},
+          play: async () => { calls.push('playRemoteAudio'); },
+          remove: () => { calls.push('removeRemoteAudio'); },
+        };
+      },
+      body: { append: () => { calls.push('appendRemoteAudio'); } },
+    },
     setTimeout,
     clearTimeout,
     setInterval: () => 1,
@@ -163,6 +181,9 @@ test('Chime bridge uses the current 3.32 media input APIs', async () => {
   await bridge.join('chime', 'meeting-1');
 
   assert.ok(calls.includes('startAudioInput:mic-1'));
+  assert.ok(calls.includes('bindRemoteAudio'));
+  assert.ok(calls.includes('playRemoteAudio'));
+  assert.ok(calls.includes('mute'));
   assert.ok(!calls.includes('startVideoInput:cam-1'));
   assert.ok(calls.includes('start'));
   assert.ok(!calls.includes('startLocalVideoTile'));
@@ -198,6 +219,23 @@ test('Chime bridge uses the current 3.32 media input APIs', async () => {
   assert.ok(calls.includes('unsubscribePresence'));
   assert.ok(calls.includes('unsubscribeData'));
   assert.ok(calls.includes('destroyDeviceController'));
+  assert.ok(calls.includes('unbindRemoteAudio'));
+  assert.ok(calls.includes('removeRemoteAudio'));
+});
+
+test('Chime Web does not claim an unmuted microphone when capture is blocked', async () => {
+  const { bridge, audioVideo, events } = await createChimeHarness();
+  audioVideo.listAudioInputDevices = async () => {
+    throw new Error('Microphone permission denied');
+  };
+  await bridge.create('chime', 'blocked-mic', JSON.stringify(chimePayload));
+  await bridge.join('chime', 'blocked-mic');
+  assert.equal(events.filter(({ event }) => event.type === 'snapshot').at(-1).event.localMuted, true);
+  await assert.rejects(
+    bridge.command('chime', 'blocked-mic', 'setMuted', JSON.stringify({ muted: false })),
+    /Microphone permission denied/,
+  );
+  await bridge.dispose('chime', 'blocked-mic');
 });
 
 test('Chime bridge rejects an unsuccessful signaling handshake instead of reporting connected', async () => {
@@ -443,6 +481,16 @@ test('IVS bridge publishes only with publisher credentials and refreshes strateg
   await bridge.join('ivs', 'stage-1');
   assert.ok(calls.some((call) => call.startsWith('getUserMedia:')));
   assert.ok(calls.includes('stage.join'));
+  assert.ok(calls.some((call) => call.startsWith('mute:audio-') && call.endsWith(':true')),
+    'IVS joins with muted microphone, matching the iOS adapter');
+
+  await bridge.command(
+    'ivs',
+    'stage-1',
+    'setMuted',
+    JSON.stringify({ muted: false }),
+  );
+  assert.ok(calls.some((call) => call.startsWith('mute:audio-') && call.endsWith(':false')));
 
   await bridge.command(
     'ivs',
@@ -690,8 +738,12 @@ async function createAgoraHarness() {
     document: {
       baseURI: 'https://example.test/',
       createElement(tag) {
+        if (tag === 'audio') {
+          return {autoplay: false, playsInline: false, style: {}, play: async () => {}, remove() {}};
+        }
         return tag === 'video' ? createVideo() : createCanvas();
       },
+      body: {append() {}},
       getElementById: () => null,
     },
     ImageData: class {
@@ -1024,10 +1076,12 @@ test('all five Web suppliers consume clones of one processed source and camera s
   h.context.setTimeout = setTimeout;
   h.context.clearTimeout = clearTimeout;
   const inputs = [];
+  const audioActions = [];
   h.context.supplierInputs = inputs;
   const receive = (provider, track) => { if (track) inputs.push({provider,track}); };
   const trtc = {
     on(){}, async enterRoom(){}, async startLocalAudio(){}, async stopLocalVideo(){},
+    async updateLocalAudio({mute}){ audioActions.push(`trtc:${mute}`); },
     async startLocalVideo({option}){assert.ok(option.videoTrack); receive('trtc', option.videoTrack);},
     getVideoTrack(){return inputs.find(i=>i.provider==='trtc')?.track;},
     async updateLocalVideo({option}){assert.ok(option.videoTrack);receive('trtc',option.videoTrack);},
@@ -1037,7 +1091,8 @@ test('all five Web suppliers consume clones of one processed source and camera s
   const artc = {
     publisher:{streamManager:{cameraCaptureDisabled:true}}, on(){}, setChannelProfile(){},
     async enableLocalVideo(enabled){assert.equal(enabled,false,'ARTC must never open its own raw camera'); this.publisher.streamManager.cameraCaptureDisabled=true;},
-    async publishLocalVideoStream(){}, async joinChannel(){}, async muteLocalCamera(){},
+    async publishLocalVideoStream(){}, async publishLocalAudioStream(enabled){audioActions.push(`artc:${enabled}`);return 0;}, async joinChannel(){}, async muteLocalCamera(){},
+    async muteLocalMic(){},
     async switchCamera(deviceId, track){assert.equal(deviceId,undefined); assert.equal(this.publisher.streamManager.cameraCaptureDisabled,false);receive('artc',track);},
     async leaveChannel(){}, async destroy(){},
   };
@@ -1049,6 +1104,7 @@ test('all five Web suppliers consume clones of one processed source and camera s
     StageConnectionState:{},StreamType:{AUDIO:'audio',VIDEO:'video'},SubscribeType:{NONE:0,AUDIO_VIDEO:1},
   };
   const audioVideo = {addObserver(observer){this.observer=observer;},removeObserver(){}, realtimeSubscribeToAttendeeIdPresence(){},realtimeUnsubscribeToAttendeeIdPresence(){},
+    bindAudioElement(){},unbindAudioElement(){},realtimeMuteLocalAudio(){},
     realtimeSubscribeToReceiveDataMessage(){},realtimeUnsubscribeFromReceiveDataMessage(){},
     async listAudioInputDevices(){return [];},async listVideoInputDevices(){return [];},
     async startVideoInput(stream){assert.ok(stream.tracks);receive('chime',stream.tracks[0]);},async stopVideoInput(){},
@@ -1063,6 +1119,13 @@ test('all five Web suppliers consume clones of one processed source and camera s
       artc:{authInfo:'test',userId:'publisher'},ivs:{token:'test',capabilities:['PUBLISH','SUBSCRIBE']},
       meeting:chimePayload.meeting,attendee:chimePayload.attendee};
     await h.bridge.create(provider,provider,payload);await h.bridge.join(provider,provider);
+    if (provider === 'trtc' || provider === 'artc') {
+      assert.ok(audioActions.includes(`${provider}:${provider === 'trtc'}`),
+        `${provider} must join muted like its native iOS adapter`);
+      await h.bridge.command(provider,provider,'setMuted',{muted:false});
+      assert.ok(audioActions.includes(`${provider}:${provider !== 'trtc'}`),
+        `${provider} must actually enable audio publication on unmute`);
+    }
     await h.bridge.command(provider,provider,'attachProcessedVideoSource',{sourceId:'shared-output'});
     await h.bridge.command(provider,provider,'setVideoEnabled',{enabled:true});
     const input = inputs.find(i=>i.provider===provider)?.track;

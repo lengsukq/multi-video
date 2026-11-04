@@ -108,7 +108,26 @@ class _LiveKitPublishing {
     _session._ensureActive();
     if (!capabilities.canPublishAudio) _unsupported('microphone publishing');
     try {
-      await _session._requireLocalParticipant().setMicrophoneEnabled(!muted);
+      final local = _session._requireLocalParticipant();
+      await local.setMicrophoneEnabled(!muted);
+      if (!muted) {
+        // A successful method call alone is not proof that a microphone track
+        // exists on the LiveKit participant. Never advertise an unmuted mic
+        // when nothing can reach a remote Web/iOS subscriber.
+        final microphone = local.getTrackPublicationBySource(
+          lk.TrackSource.microphone,
+        );
+        if (microphone == null || microphone.muted || microphone.track == null) {
+          throw const RealtimeException(
+            code: RealtimeErrorCode.providerError,
+            message: 'LiveKit did not publish an active microphone track.',
+            providerId: LiveKitJoinInfo.providerIdValue,
+            operation: 'setMuted',
+            recoverable: true,
+            suggestedAction: 'check-microphone-permission',
+          );
+        }
+      }
       _session._mapper._refreshSnapshot();
       _session._emit(MediaLocalMediaChanged(muted: muted));
     } catch (error, stack) {

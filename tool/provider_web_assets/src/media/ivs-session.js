@@ -35,14 +35,26 @@ export function createIvsSession(session, context) {
           audio.srcObject = new MediaStream([stream.mediaStreamTrack]);
           document.body.append(audio);
           stream.__audioElement = audio;
-          audio.play().catch(() => {});
+          audio.play().catch((error) => {
+            // Browser autoplay permission is separate from a successfully
+            // subscribed remote IVS audio track. Do not silently lose sound.
+            reportError(session, new Error(`IVS remote audio playback blocked: ${error.message}. Tap the page to allow sound.`));
+            const retry = () => {
+              stream.__audioRetry = null;
+              audio.play().catch((retryError) => reportError(session, retryError));
+            };
+            stream.__audioRetry = retry;
+            global.document.addEventListener('pointerdown', retry, { once: true });
+          });
         }
       }
     });
     stage.on(StageEvents.STREAMS_REMOVED, (_participant, streams) => {
       for (const stream of streams) {
         removeVideoTrack(session, [...session.tracks.values()].find((track) => track.native === stream)?.id);
+        if (stream.__audioRetry) global.document.removeEventListener('pointerdown', stream.__audioRetry);
         stream.__audioElement?.remove();
+        stream.__audioRetry = null;
         remoteStreams.delete(stream.id);
       }
     });
@@ -58,6 +70,7 @@ export function createIvsSession(session, context) {
           const media = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
           for (const track of media.getTracks()) {
             const localStream = new sdk.LocalStageStream(track);
+            if (track.kind === 'audio') localStream.setMuted(true);
             localStreams.push(localStream);
             if (track.kind === 'video') {
               session.localVideoStream = localStream;
@@ -65,14 +78,18 @@ export function createIvsSession(session, context) {
               addVideoTrack(session, { id: `ivs:local:${track.id}`, participantId: session.localParticipantId, isLocal: true, native: localStream });
             } else session.localAudioStream = localStream;
           }
-          session.localMuted = false;
+          session.localMuted = true;
         }
         await stage.join();
       },
       async command(name, args) {
         if (name === 'setMuted') {
-          session.localMuted = Boolean(args.muted);
-          if (session.localAudioStream) session.localAudioStream.setMuted(session.localMuted);
+          const muted = Boolean(args.muted);
+          if (!session.localAudioStream && !muted) {
+            throw new Error('No IVS microphone stream is available.');
+          }
+          session.localAudioStream?.setMuted(muted);
+          session.localMuted = muted;
           return;
         }
         if (name === 'setVideoEnabled') {
@@ -169,6 +186,9 @@ export function createIvsSession(session, context) {
             localStreams.push(replacement);
             addVideoTrack(session, { id: `ivs:local:${track.id}`, participantId: session.localParticipantId, isLocal: true, native: replacement });
           } else {
+            // Switching input devices must not publish a muted participant
+            // accidentally, nor silently mute an already-speaking one.
+            replacement.setMuted(session.localMuted);
             session.localAudioStream = replacement;
             localStreams.push(replacement);
           }

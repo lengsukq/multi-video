@@ -131,8 +131,9 @@ class _LiveKitEventAdapter {
         for (final participant in _session._snapshot.participants)
           participant.id: participant.isSpeaking,
       };
-      _session._mapper._refreshSnapshot();
       final speakerIds = event.speakers.map((item) => item.identity).toSet();
+      _session._mapper._activeSpeakerIds = speakerIds;
+      _session._mapper._refreshSnapshot();
       for (final participant in _session._snapshot.participants) {
         final speaking = speakerIds.contains(participant.id);
         if ((before[participant.id] ?? false) != speaking) {

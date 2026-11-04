@@ -49,7 +49,10 @@ export function createTrtcSession(session, context) {
         });
         if (session.role !== 'viewer') {
           await trtc.startLocalAudio();
-          session.localMuted = false;
+          // iOS joins muted; Web must not transmit microphone audio before
+          // the participant explicitly unmutes via Pre-Join or room controls.
+          await trtc.updateLocalAudio({ mute: true });
+          session.localMuted = true;
           session.localVideoEnabled = false;
         }
       },

@@ -473,7 +473,8 @@
         });
         if (session.role !== "viewer") {
           await trtc.startLocalAudio();
-          session.localMuted = false;
+          await trtc.updateLocalAudio({ mute: true });
+          session.localMuted = true;
           session.localVideoEnabled = false;
         }
       },
@@ -618,16 +619,27 @@
         }
         await engine.enableLocalVideo(false);
         await engine.publishLocalVideoStream(false);
+        if (session.role !== "viewer") {
+          await engine.publishLocalAudioStream(false);
+        }
         await engine.joinChannel(info.authInfo, session.payload.displayName || info.userId);
         if (session.role !== "viewer") {
-          session.localMuted = false;
+          session.localMuted = true;
           session.localVideoEnabled = false;
         }
       },
       async command(name, args) {
         if (name === "setMuted") {
-          engine.muteLocalMic(Boolean(args.muted));
-          session.localMuted = Boolean(args.muted);
+          const muted = Boolean(args.muted);
+          if (session.role === "viewer" && !muted) {
+            throw new Error("ARTC viewer sessions cannot publish microphone audio.");
+          }
+          const publishResult = await engine.publishLocalAudioStream(!muted);
+          if (typeof publishResult === "number" && publishResult !== 0) {
+            throw new Error(`ARTC failed to update microphone publication (${publishResult}).`);
+          }
+          await engine.muteLocalMic(muted);
+          session.localMuted = muted;
           return;
         }
         if (name === "setVideoEnabled") {
@@ -772,7 +784,14 @@
           audio.srcObject = new MediaStream([stream.mediaStreamTrack]);
           document.body.append(audio);
           stream.__audioElement = audio;
-          audio.play().catch(() => {
+          audio.play().catch((error) => {
+            reportError(session, new Error(`IVS remote audio playback blocked: ${error.message}. Tap the page to allow sound.`));
+            const retry = () => {
+              stream.__audioRetry = null;
+              audio.play().catch((retryError) => reportError(session, retryError));
+            };
+            stream.__audioRetry = retry;
+            global.document.addEventListener("pointerdown", retry, { once: true });
           });
         }
       }
@@ -780,7 +799,9 @@
     stage.on(StageEvents.STREAMS_REMOVED, (_participant, streams) => {
       for (const stream of streams) {
         removeVideoTrack(session, [...session.tracks.values()].find((track) => track.native === stream)?.id);
+        if (stream.__audioRetry) global.document.removeEventListener("pointerdown", stream.__audioRetry);
         stream.__audioElement?.remove();
+        stream.__audioRetry = null;
         remoteStreams.delete(stream.id);
       }
     });
@@ -796,6 +817,7 @@
           const media = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
           for (const track of media.getTracks()) {
             const localStream = new sdk.LocalStageStream(track);
+            if (track.kind === "audio") localStream.setMuted(true);
             localStreams.push(localStream);
             if (track.kind === "video") {
               session.localVideoStream = localStream;
@@ -803,14 +825,18 @@
               addVideoTrack(session, { id: `ivs:local:${track.id}`, participantId: session.localParticipantId, isLocal: true, native: localStream });
             } else session.localAudioStream = localStream;
           }
-          session.localMuted = false;
+          session.localMuted = true;
         }
         await stage.join();
       },
       async command(name, args) {
         if (name === "setMuted") {
-          session.localMuted = Boolean(args.muted);
-          if (session.localAudioStream) session.localAudioStream.setMuted(session.localMuted);
+          const muted = Boolean(args.muted);
+          if (!session.localAudioStream && !muted) {
+            throw new Error("No IVS microphone stream is available.");
+          }
+          session.localAudioStream?.setMuted(muted);
+          session.localMuted = muted;
           return;
         }
         if (name === "setVideoEnabled") {
@@ -911,6 +937,7 @@
             localStreams.push(replacement);
             addVideoTrack(session, { id: `ivs:local:${track.id}`, participantId: session.localParticipantId, isLocal: true, native: replacement });
           } else {
+            replacement.setMuted(session.localMuted);
             session.localAudioStream = replacement;
             localStreams.push(replacement);
           }
@@ -990,6 +1017,23 @@
     const configuration = new ChimeSDK.MeetingSessionConfiguration(meeting, attendee);
     const meetingSession = new ChimeSDK.DefaultMeetingSession(configuration, logger, deviceController);
     const audioVideo = meetingSession.audioVideo;
+    let remoteAudioElement = null;
+    let microphones = [];
+    let pendingAudioUnlock = null;
+    const playRemoteAudio = () => {
+      const audio = remoteAudioElement;
+      if (!audio) return;
+      audio.play().catch((error) => {
+        reportError(session, new Error(`Chime remote audio playback blocked: ${error.message}. Tap the page to allow sound.`));
+        if (!pendingAudioUnlock) {
+          pendingAudioUnlock = () => {
+            pendingAudioUnlock = null;
+            playRemoteAudio();
+          };
+          global.document.addEventListener("pointerdown", pendingAudioUnlock, { once: true });
+        }
+      });
+    };
     const tiles = /* @__PURE__ */ new Map();
     const tileIdFor = (tile) => `chime:tile:${tile.tileId}`;
     let settleStart = null;
@@ -1059,7 +1103,21 @@
     session.meetingSession = meetingSession;
     session.driver = {
       async join() {
-        let microphones = [];
+        if (!remoteAudioElement) {
+          const audio = global.document.createElement("audio");
+          audio.autoplay = true;
+          audio.playsInline = true;
+          audio.style.display = "none";
+          global.document.body.append(audio);
+          try {
+            audioVideo.bindAudioElement(audio);
+            remoteAudioElement = audio;
+          } catch (error) {
+            audio.remove();
+            throw error;
+          }
+        }
+        microphones = [];
         try {
           microphones = await audioVideo.listAudioInputDevices();
         } catch (_) {
@@ -1088,14 +1146,26 @@
           settleStart?.(error);
         }
         await connected;
-        session.localMuted = microphones.length === 0;
+        audioVideo.realtimeMuteLocalAudio();
+        session.localMuted = true;
         session.localVideoEnabled = false;
+        playRemoteAudio();
         for (const tile of audioVideo.getAllVideoTiles()) observer.videoTileDidUpdate(tile.state());
       },
       async command(name, args) {
         if (name === "setMuted") {
-          if (args.muted) audioVideo.realtimeMuteLocalAudio();
-          else await audioVideo.realtimeUnmuteLocalAudio();
+          if (args.muted) {
+            audioVideo.realtimeMuteLocalAudio();
+          } else {
+            if (!microphones.length) {
+              const available = await audioVideo.listAudioInputDevices();
+              if (!available.length) throw new Error("No Chime microphone is available.");
+              await audioVideo.startAudioInput(available[0].deviceId);
+              microphones = available;
+            }
+            const unmuted = await audioVideo.realtimeUnmuteLocalAudio();
+            if (unmuted === false) throw new Error("Chime failed to unmute local audio.");
+          }
           session.localMuted = Boolean(args.muted);
           return;
         }
@@ -1124,8 +1194,8 @@
           return;
         }
         if (name === "listDevices") {
-          const [microphones, cameras, outputs] = await Promise.all([audioVideo.listAudioInputDevices(), audioVideo.listVideoInputDevices(), audioVideo.listAudioOutputDevices()]);
-          return [...microphones.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: "microphone" })), ...cameras.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: "camera" })), ...outputs.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: "audioOutput" }))];
+          const [microphones2, cameras, outputs] = await Promise.all([audioVideo.listAudioInputDevices(), audioVideo.listVideoInputDevices(), audioVideo.listAudioOutputDevices()]);
+          return [...microphones2.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: "microphone" })), ...cameras.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: "camera" })), ...outputs.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: "audioOutput" }))];
         }
         if (name === "sendMessage") {
           const topic = String(args.topic || dataTopic);
@@ -1154,6 +1224,13 @@
       },
       async leave() {
         audioVideo.stop();
+        if (pendingAudioUnlock) {
+          global.document.removeEventListener("pointerdown", pendingAudioUnlock);
+          pendingAudioUnlock = null;
+        }
+        audioVideo.unbindAudioElement?.();
+        remoteAudioElement?.remove();
+        remoteAudioElement = null;
         await deviceController.destroy?.();
       },
       async dispose() {

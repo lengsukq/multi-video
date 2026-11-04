@@ -9,6 +9,23 @@ export function createChimeSession(session, context) {
     const configuration = new ChimeSDK.MeetingSessionConfiguration(meeting, attendee);
     const meetingSession = new ChimeSDK.DefaultMeetingSession(configuration, logger, deviceController);
     const audioVideo = meetingSession.audioVideo;
+    let remoteAudioElement = null;
+    let microphones = [];
+    let pendingAudioUnlock = null;
+    const playRemoteAudio = () => {
+      const audio = remoteAudioElement;
+      if (!audio) return;
+      audio.play().catch((error) => {
+        reportError(session, new Error(`Chime remote audio playback blocked: ${error.message}. Tap the page to allow sound.`));
+        if (!pendingAudioUnlock) {
+          pendingAudioUnlock = () => {
+            pendingAudioUnlock = null;
+            playRemoteAudio();
+          };
+          global.document.addEventListener('pointerdown', pendingAudioUnlock, { once: true });
+        }
+      });
+    };
     const tiles = new Map();
     const tileIdFor = (tile) => `chime:tile:${tile.tileId}`;
     let settleStart = null;
@@ -77,10 +94,26 @@ export function createChimeSession(session, context) {
     session.meetingSession = meetingSession;
     session.driver = {
       async join() {
+        // Chime Web never plays remote participants unless an HTMLAudioElement
+        // is bound. Video tiles do not carry the mixed remote audio stream.
+        if (!remoteAudioElement) {
+          const audio = global.document.createElement('audio');
+          audio.autoplay = true;
+          audio.playsInline = true;
+          audio.style.display = 'none';
+          global.document.body.append(audio);
+          try {
+            audioVideo.bindAudioElement(audio);
+            remoteAudioElement = audio;
+          } catch (error) {
+            audio.remove();
+            throw error;
+          }
+        }
         // Device enumeration can reject on macOS WKWebView when the OS has not
         // granted TCC permission or no physical input exists. Connecting to
         // Chime is independent of capture; join muted and enable it later.
-        let microphones = [];
+        microphones = [];
         try { microphones = await audioVideo.listAudioInputDevices(); }
         catch (_) { /* Continue to the meeting without microphone access. */ }
         if (microphones.length) {
@@ -105,14 +138,29 @@ export function createChimeSession(session, context) {
         try { audioVideo.start(); }
         catch (error) { settleStart?.(error); }
         await connected;
-
-        session.localMuted = microphones.length === 0;
+        // Keep the actual local SDK state aligned with the initial muted UI.
+        audioVideo.realtimeMuteLocalAudio();
+        session.localMuted = true;
         session.localVideoEnabled = false;
+        playRemoteAudio();
         for (const tile of audioVideo.getAllVideoTiles()) observer.videoTileDidUpdate(tile.state());
       },
       async command(name, args) {
         if (name === 'setMuted') {
-          if (args.muted) audioVideo.realtimeMuteLocalAudio(); else await audioVideo.realtimeUnmuteLocalAudio();
+          if (args.muted) {
+            audioVideo.realtimeMuteLocalAudio();
+          } else {
+            // Joining as a listener is allowed without microphone permission;
+            // an explicit unmute must obtain a usable input or fail visibly.
+            if (!microphones.length) {
+              const available = await audioVideo.listAudioInputDevices();
+              if (!available.length) throw new Error('No Chime microphone is available.');
+              await audioVideo.startAudioInput(available[0].deviceId);
+              microphones = available;
+            }
+            const unmuted = await audioVideo.realtimeUnmuteLocalAudio();
+            if (unmuted === false) throw new Error('Chime failed to unmute local audio.');
+          }
           session.localMuted = Boolean(args.muted);
           return;
         }
@@ -163,7 +211,17 @@ export function createChimeSession(session, context) {
         audioVideo.bindVideoElement(tile.tileId, video);
       },
       detachVideo(track) { audioVideo.unbindVideoElement(track.native.tileId); },
-      async leave() { audioVideo.stop(); await deviceController.destroy?.(); },
+      async leave() {
+        audioVideo.stop();
+        if (pendingAudioUnlock) {
+          global.document.removeEventListener('pointerdown', pendingAudioUnlock);
+          pendingAudioUnlock = null;
+        }
+        audioVideo.unbindAudioElement?.();
+        remoteAudioElement?.remove();
+        remoteAudioElement = null;
+        await deviceController.destroy?.();
+      },
       async dispose() {
         audioVideo.removeObserver(observer);
         audioVideo.realtimeUnsubscribeToAttendeeIdPresence(presenceObserver);

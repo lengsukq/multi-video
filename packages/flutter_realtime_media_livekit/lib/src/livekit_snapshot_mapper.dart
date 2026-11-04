@@ -3,6 +3,9 @@ part of 'livekit_media_session.dart';
 class _LiveKitSnapshotMapper {
   _LiveKitSnapshotMapper(this._session);
   final LiveKitMediaSessionBase _session;
+  // Use the authoritative room event rather than relying on the timing of
+  // individual Participant.isSpeaking updates on different native platforms.
+  Set<String>? _activeSpeakerIds;
   String get providerId => _session.providerId;
   MediaCapabilities get capabilities => _session.capabilities;
   MediaRole get role => _session.role;
@@ -53,7 +56,9 @@ class _LiveKitSnapshotMapper {
       isLocal: true,
       isMuted: participant.isMuted,
       isVideoEnabled: participant.isCameraEnabled(),
-      isSpeaking: participant.isSpeaking,
+      isSpeaking:
+          _activeSpeakerIds?.contains(participant.identity) ??
+          participant.isSpeaking,
       videoTrack: _cameraTrackLocal(participant),
       joinedAt: participant.joinedAt,
     );
@@ -67,7 +72,9 @@ class _LiveKitSnapshotMapper {
             : participant.name,
         isMuted: participant.isMuted,
         isVideoEnabled: participant.isCameraEnabled(),
-        isSpeaking: participant.isSpeaking,
+        isSpeaking:
+            _activeSpeakerIds?.contains(participant.identity) ??
+            participant.isSpeaking,
         videoTrack: _cameraTrackRemote(participant),
         joinedAt: participant.joinedAt,
       );

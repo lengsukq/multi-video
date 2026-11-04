@@ -39,16 +39,29 @@ export function createArtcSession(session, context) {
         }
         await engine.enableLocalVideo(false);
         await engine.publishLocalVideoStream(false);
+        if (session.role !== 'viewer') {
+          await engine.publishLocalAudioStream(false);
+        }
         await engine.joinChannel(info.authInfo, session.payload.displayName || info.userId);
         if (session.role !== 'viewer') {
-
-          session.localMuted = false;
+          session.localMuted = true;
           session.localVideoEnabled = false;
-
         }
       },
       async command(name, args) {
-        if (name === 'setMuted') { engine.muteLocalMic(Boolean(args.muted)); session.localMuted = Boolean(args.muted); return; }
+        if (name === 'setMuted') {
+          const muted = Boolean(args.muted);
+          if (session.role === 'viewer' && !muted) {
+            throw new Error('ARTC viewer sessions cannot publish microphone audio.');
+          }
+          const publishResult = await engine.publishLocalAudioStream(!muted);
+          if (typeof publishResult === 'number' && publishResult !== 0) {
+            throw new Error(`ARTC failed to update microphone publication (${publishResult}).`);
+          }
+          await engine.muteLocalMic(muted);
+          session.localMuted = muted;
+          return;
+        }
         if (name === 'setVideoEnabled') {
           const enabled = Boolean(args.enabled);
           if (session.processedTrack) {

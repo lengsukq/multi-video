@@ -202,6 +202,13 @@ abstract class LiveKitMediaSessionBase
     _eventAdapter._attachRoomEvents(room);
     _setState(MediaSessionState.connecting);
     try {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        // A playAndRecord call can route remote audio to the quiet receiver
+        // instead of the loudspeaker. Prefer speaker for meeting audio while
+        // leaving wired and Bluetooth headsets higher priority. LiveKit owns
+        // AVAudioSession; do not configure it independently via flutter_webrtc.
+        await lk.AudioManager.instance.setSpeakerOutputPreferred(true);
+      }
       await room.connect(
         rawJoinInfo.url,
         rawJoinInfo.token,

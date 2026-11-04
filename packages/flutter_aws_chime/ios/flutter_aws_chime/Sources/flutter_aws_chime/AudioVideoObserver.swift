@@ -23,6 +23,12 @@ class MyAudioVideoObserver: AudioVideoObserver {
     }
 
     func audioSessionDidStart(reconnecting: Bool) {
+        // Dart initializes the local attendee as muted. The native Chime
+        // session must match on its first connection, otherwise iOS may
+        // transmit before the user explicitly enables the microphone.
+        if !reconnecting {
+            _ = MeetingSession.shared.meetingSession?.audioVideo.realtimeLocalMute()
+        }
         methodChannel.callFlutterEvent("audioSessionStarted", args: ["reconnecting": reconnecting])
     }
 

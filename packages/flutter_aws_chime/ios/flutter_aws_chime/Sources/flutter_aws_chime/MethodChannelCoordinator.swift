@@ -262,7 +262,7 @@ class MethodChannelCoordinator {
         if unmuted {
             return MethodChannelResponse(result: true, arguments: Response.unmute_successful.rawValue)
         } else {
-            return MethodChannelResponse(result: false, arguments: Response.unmute_successful.rawValue)
+            return MethodChannelResponse(result: false, arguments: Response.unmute_failed.rawValue)
         }
     }
 
@@ -415,11 +415,11 @@ class MethodChannelCoordinator {
     private func configureAudioSession() {
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            if audioSession.category != .playAndRecord {
-                try audioSession.setCategory(AVAudioSession.Category.playAndRecord,
-                                             options: AVAudioSession.CategoryOptions.allowBluetoothHFP)
-                try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-            }
+            // A call with playAndRecord but without defaultToSpeaker routes
+            // mixed remote audio to the earpiece on iPhone.
+            try audioSession.setCategory(AVAudioSession.Category.playAndRecord,
+                                         options: [.allowBluetoothHFP, .defaultToSpeaker])
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
             if audioSession.mode != .voiceChat {
                 try audioSession.setMode(.voiceChat)
             }
