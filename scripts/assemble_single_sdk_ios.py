@@ -95,6 +95,20 @@ def run() -> dict:
         ROOT / "scripts/templates/single_sdk_ios_podfile.rb",
         OUT / "ios" / "podfile.rb",
     )
+    # Ship the host-side ReplayKit Broadcast Upload Extension source and
+    # idempotent Xcode project installer with the published single SDK.
+    # These are templates, NOT an extra CocoaPods target: Apple requires the
+    # consuming application's signing team and App Group entitlements.
+    extension_template = OUT / "ios" / "BroadcastExtensionTemplate"
+    if extension_template.exists():
+        shutil.rmtree(extension_template)
+    shutil.copytree(
+        ROOT / "scripts/templates/ios_broadcast_extension",
+        extension_template,
+    )
+    tools = OUT / "tool"
+    tools.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "scripts/setup_ios_broadcast_extension.rb", tools / "setup_ios_broadcast_extension.rb")
     registrations = "\n".join(f"    {classname}.register(with: registrar)" for _, classname in native)
     classes.mkdir(parents=True, exist_ok=True)
     (classes / "FlutterRealtimeSdkPlugin.swift").write_text(

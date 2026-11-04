@@ -62,6 +62,45 @@ class SingleSdkDistributionTest(unittest.TestCase):
         self.assertIn("if (_pinchUsed || details.pointerCount > 1) return;", surface)
         self.assertNotIn("_previousGestureScale", surface)
 
+    def test_ios_replaykit_broadcast_template_is_shipped_in_published_sdk(self):
+        extension = self.root / "ios/BroadcastExtensionTemplate"
+        for name in (
+            "SampleHandler.swift", "SampleUploader.swift",
+            "SocketConnection.swift", "DarwinNotificationCenter.swift",
+            "Atomic.swift", "NOTICE.md",
+        ):
+            self.assertTrue((extension / name).is_file(), name)
+        source = (extension / "SampleHandler.swift").read_text()
+        self.assertIn('RTCAppGroupIdentifier', source)
+        self.assertNotIn('group.io.livekit.example.flutter', source)
+        installer = self.root / "tool/setup_ios_broadcast_extension.rb"
+        self.assertTrue(installer.is_file())
+        self.assertIn("Embed App Extensions", installer.read_text())
+        pubignore = (self.root / ".pubignore").read_text()
+        self.assertNotIn("tool/", pubignore.splitlines())
+        self.assertIn("/tool/single_import_smoke.dart", pubignore)
+        ios_host_bridge = (
+            self.root / "ios/Classes/flutter_realtime_media_livekit/"
+            "flutter_realtime_media_livekit/Sources/flutter_realtime_media_livekit/"
+            "FlutterRealtimeMediaLivekitPlugin.m"
+        ).read_text()
+        self.assertIn("flutter_realtime_media_livekit/ios_broadcast", ios_host_bridge)
+
+    def test_ios_27_system_screen_capture_sources_ship_with_six_providers(self):
+        native = self.root / "ios/Classes"
+        for package, relative in (
+            ("flutter_realtime_processed_video", "flutter_realtime_processed_video/Sources/flutter_realtime_processed_video/IosSystemScreenCaptureKitSource.swift"),
+            ("flutter_realtime_media_artc", "Classes/ArtcIosExternalScreenSink.swift"),
+            ("flutter_aws_chime", "flutter_aws_chime/Sources/flutter_aws_chime/ChimeIosSystemScreenSource.swift"),
+            ("flutter_realtime_media_ivs", "flutter_realtime_media_ivs/Sources/flutter_realtime_media_ivs/IvsIosSystemScreenSource.swift"),
+        ):
+            path = native / package / relative
+            self.assertTrue(path.is_file(), str(path))
+            self.assertIn("Screen", path.read_text())
+        capture_api = self.root / "lib/src/_bundled/flutter_realtime_processed_video/src/ios_system_screen_capture.dart"
+        self.assertTrue(capture_api.is_file())
+        self.assertIn("IosSystemScreenCapture", capture_api.read_text())
+
     def test_distribution_exposes_current_pages_without_legacy_templates(self):
         # Validate the supported surface; removing obsolete pages legitimately
         # lowers the library count and must not require keeping dead modules.

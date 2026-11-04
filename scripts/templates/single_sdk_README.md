@@ -187,6 +187,77 @@ presets require trusted backend state and permission enforcement.
 
 ## iOS setup
 
+### Entire-screen sharing across iPhone apps (iOS 27+)
+
+Use the provider-neutral `setScreenShareEnabled(true/false)`. On **iOS 27+**,
+LiveKit, Agora, TRTC, ARTC, AWS Chime and Amazon IVS use a shared native ScreenCaptureKit
+`SCContentSharingPicker` / `SCStream` video source with provider-specific
+publishing sinks. Choose the **entire display** in the system picker to keep
+capturing after opening Safari or other apps. No Broadcast Upload Extension
+or App Group is required on this path, but the iPhone host app must be signed.
+Add these keys to the host app's `Info.plist`:
+
+```xml
+<key>NSScreenCaptureUsageDescription</key>
+<string>Share the entire iPhone screen during a meeting</string>
+<key>UIBackgroundModes</key>
+<array>
+  <string>screen-capture</string>
+  <string>audio</string>
+</array>
+```
+
+The `screen-capture` background mode keeps full-display capture alive when
+the app is not frontmost; `audio` is for meetings that keep the microphone
+active in the background. Compile success is not a substitute for a physical
+two-device validation of the incoming stream, picker cancellation and stop.
+
+Chime publishes an independent Content Share. Amazon IVS uses its single
+Stage video stream to publish the screen **instead of** the camera, restoring
+the camera on stop. Simultaneous camera and screen video on IVS requires a
+second Stage token/participant and is not implemented here. Remote IVS
+screen-vs-camera classification still needs trusted signalling and real-device
+acceptance.
+
+### iOS 15–26: LiveKit ReplayKit fallback
+
+LiveKit defaults to `IosScreenShareMode.system` and falls back to the
+**ReplayKit Broadcast Upload Extension** on older iOS releases. This requires
+the same **App Group entitlement** on the main app and extension; the Flutter
+plugin cannot register Apple Developer signing capabilities for the host.
+This older-OS fallback is implemented only for LiveKit. The extension-free
+Agora, TRTC, ARTC, Chime and IVS capture paths require iOS 27+.
+
+Once the package is resolved by `flutter pub get`, run this installer from
+your Flutter host root (or supply a different path to your hosted pub cache):
+
+```bash
+ruby "$HOME/.pub-cache/hosted/pub.dev/flutter_realtime_sdk-@VERSION@/tool/setup_ios_broadcast_extension.rb" ios
+```
+
+It adds an `BroadcastUpload.appex` Xcode target, copies the ReplayKit sample
+handler and socket transport, configures `RTCAppGroupIdentifier` /
+`RTCScreenSharingExtension`, and creates entitlements for both targets.
+It does **not** register App IDs or provision a signing account.
+Before building, register the explicit main-app and extension Bundle IDs with
+your Apple Developer team, enable App Groups on **both** IDs, register/assign
+the shared group, and refresh both provisioning profiles in Xcode.
+Replace `com.example.*` Bundle IDs with identifiers belonging to your
+organization if the sample app still uses Flutter's defaults.
+
+On the ReplayKit fallback, the SDK verifies the embedded extension and App Group container
+before opening Apple's broadcast picker. The user must explicitly tap
+**Start Broadcast**. Only a real `screenShareVideo` publication is treated
+as success; a dismissed picker, missing track or session teardown fails
+without committing shared-content mode. Stopping or leaving requests the
+broadcast to end. Validate that remote video keeps moving while the iPhone
+is in another app; build success alone is not sufficient.
+
+Apps that intentionally need **in-app-only** sharing can create
+`LiveKitInteractiveSession(iosScreenShareMode: IosScreenShareMode.application)`.
+That mode does not capture Safari, notifications or other applications.
+This ReplayKit integration does not guarantee system audio sharing.
+
 Use iOS 15+. This preview bundles the native providers into a single
 CocoaPods plugin and currently needs a **CocoaPods-only iOS host**.
 Flutter's SwiftPM resolution skips Agora RTC's local CocoaPods plugin, while

@@ -67,7 +67,8 @@ class ReleasePreparationTest(unittest.TestCase):
                 "ios/Frameworks/AmazonIVS.xcframework/Info.plist": "vendor binary metadata",
                 ".dart_tool/package_config.json": "local paths",
                 ".git/config": "local repository",
-                "tool/smoke.dart": "// local tooling",
+                "tool/single_import_smoke.dart": "// internal assembly-only smoke test",
+                "tool/setup_ios_broadcast_extension.rb": "# public ReplayKit installer",
                 "pubspec.lock": "local resolution",
             }
             for name, contents in files.items():
@@ -86,12 +87,18 @@ class ReleasePreparationTest(unittest.TestCase):
             self.assertIn("version: 0.1.0-dev.1", (release / "pubspec.yaml").read_text())
             self.assertEqual((release / "README.md").read_text(), "Preview 0.1.0-dev.1")
             self.assertIn("预览版 0.1.0-dev.1", (release / "README.zh-CN.md").read_text())
-            for excluded in ("ios/Frameworks", ".dart_tool", "tool", "pubspec.lock"):
+            for excluded in ("ios/Frameworks", ".dart_tool",
+                             "tool/single_import_smoke.dart", "pubspec.lock"):
                 self.assertFalse((release / excluded).exists(), excluded)
+            self.assertEqual(
+                (release / "tool/setup_ios_broadcast_extension.rb").read_text(),
+                "# public ReplayKit installer",
+            )
             inventory = json.loads((release.parent / "FILES.sha256.json").read_text())
             self.assertIn("ios/vendor_frameworks.json", inventory)
             self.assertIn("README.md", inventory)
             self.assertIn("README.zh-CN.md", inventory)
+            self.assertIn("tool/setup_ios_broadcast_extension.rb", inventory)
             self.assertNotIn(".git/config", inventory)
             self.assertFalse(any(name.startswith("ios/Frameworks/") for name in inventory))
             with self.assertRaises(FileExistsError):

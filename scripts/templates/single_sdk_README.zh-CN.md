@@ -178,6 +178,73 @@ SDK 会停止故障发布；显式重设效果成功后才能重新开启摄像�
 
 ## 五、iOS 配置（发布单包）
 
+### 跨 App 全系统屏幕共享（iOS 27+）
+
+SDK 使用统一的 `setScreenShareEnabled(true/false)`。在 **iOS 27+**，
+LiveKit、Agora、TRTC、阿里 ARTC、AWS Chime 和 AWS IVS 的原生适配器接入共享的
+`SCContentSharingPicker` + `SCStream` + Native FrameHub 视频源。
+选择系统弹窗中的**整个屏幕**后，可以在切换到 Safari、微信等 App 时
+继续采集，而不只是录制 Flutter 当前界面。无需额外的 Broadcast
+Extension / App Group（但仍必须对 App 本身签名）。宿主必须包含：
+
+~~~xml
+<key>NSScreenCaptureUsageDescription</key>
+<string>用于会议中共享整个 iPhone 屏幕</string>
+<key>UIBackgroundModes</key>
+<array>
+  <string>screen-capture</string>
+  <string>audio</string>
+</array>
+~~~
+
+`screen-capture` 是切换到其他 App 后继续传输所必需的后台模式；
+`audio` 用于需要持续麦克风音频的会议。缺少后台模式可能导致共享停止，
+没有真机双端画面验收时不能将编译成功视为功能通过。
+
+Chime 发布至独立的 Content Share，AWS IVS 在单 Stage Token 下只允许一路
+视频，当前通过替换摄像头视频发布屏幕，停止后恢复摄像头。
+要摄像头和屏幕双路并行，IVS 必须使用第二个 Stage Token 和参与者，
+当前 SDK 未自动创建。IVS 远端屏幕类型标记仍需额外的可信信令与真机验收。
+
+### iOS 15–26：LiveKit ReplayKit 兼容路径
+
+SDK 默认使用 `IosScreenShareMode.system`；在较旧的 iOS 上，LiveKit
+回退到 **ReplayKit Broadcast Upload Extension**，主 App 和扩展必须
+拥有**相同的 App Group 权限**。此兼容路径目前仅为 LiveKit 接入；
+Agora、TRTC、ARTC、Chime 和 IVS 的免扩展共享仅支持 iOS 27+。
+Flutter 插件不能替宿主自动获得 Apple Developer 签名授权。
+
+宿主完成 `flutter pub get` 后，在 Flutter 工程根目录运行（如 pub 缓存
+不在默认位置，请替换路径）：
+
+~~~bash
+ruby "$HOME/.pub-cache/hosted/pub.dev/flutter_realtime_sdk-@VERSION@/tool/setup_ios_broadcast_extension.rb" ios
+~~~
+
+安装器会在 Xcode 创建 `BroadcastUpload.appex`、复制已验证的 LiveKit
+ReplayKit SampleHandler/Socket 通信代码，更新 `Runner/Info.plist`、
+两个 Target 的 `entitlements`、App Group、Extension Bundle ID 和嵌入阶段。
+它可以反复运行，不会自动注册 Apple Developer App ID，也不会覆盖已存在
+的宿主自定义 Swift 源码。
+
+**必须在 Apple Developer / Xcode 中完成一次授权：** 主 App 与
+`<主 App Bundle ID>.broadcast` 扩展需要显式 App ID；在两个 Target
+的 Signing & Capabilities 中启用 App Groups，并注册/分配同一
+`group.<主 App Bundle ID>`；再刷新两个 Provisioning Profile。
+不要用未注册 App Groups 的旧通配符 Profile。如果 Demo 还采用
+`com.example.*`，建议先换成自己有权注册的唯一 Bundle ID。
+
+在 ReplayKit 兼容路径上，用户点击共享后，还必须在苹果系统弹窗选择本扩展并点击**开始直播**。
+SDK 现在会先检查扩展是否实际嵌入、App Group 是否可用，并等待真正的
+`screenShareVideo` 轨道发布；取消、超时或离会均不应误认为成功。
+停止共享/退出房间会请求停止系统广播。完成签名后请用两台设备实测
+切换 Safari/微信的持续画面、取消、系统录屏停止及离会清理。
+**Xcode 无签名构建通过并不等于全系统屏幕共享已在真机验收通过。**
+
+如果业务只允许共享当前应用而绝不能采集其他 App，可显式创建
+`LiveKitInteractiveSession(iosScreenShareMode: IosScreenShareMode.application)`。
+当前方案不承诺捕获跨应用系统音频。
+
 iOS 最低版本为 **15.0**。当前预览包把原生 Provider 聚合到一个
 CocoaPods 插件中，因此 iOS 宿主需要**只使用 CocoaPods**。
 默认 SwiftPM 会将 Agora RTC 注册到 SwiftPM，却不会提供聚合 Podspec

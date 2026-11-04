@@ -37,7 +37,7 @@ def build() -> dict:
         ".flutter-plugins\n"
         ".flutter-plugins-dependencies\n"
         "pubspec.lock\n"
-        "tool/\n"
+        "/tool/single_import_smoke.dart\n"
         "ASSEMBLY_REPORT.json\n"
         "/ios/Frameworks/\n"
     )

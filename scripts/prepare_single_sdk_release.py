@@ -174,7 +174,11 @@ def prepare(version: str, root: Path = ROOT) -> Path:
         relative = Path(folder).relative_to(source)
         if relative == Path("."):
             return set(names) & {".git", ".dart_tool", ".flutter-plugins", "pubspec.lock",
-                                  ".flutter-plugins-dependencies", "tool", "ASSEMBLY_REPORT.json"}
+                                  ".flutter-plugins-dependencies", "ASSEMBLY_REPORT.json"}
+        if relative == Path("tool"):
+            # Ship the supported ReplayKit host installer, not internal
+            # assembly smoke tests.
+            return set(names) & {"single_import_smoke.dart"}
         if relative == Path("ios"):
             return set(names) & {"Frameworks"}
         return set()
@@ -332,6 +336,43 @@ def prepare(version: str, root: Path = ROOT) -> Path:
             "sharing needs a signed ReplayKit Broadcast Upload Extension "
             "and App Group in the host app.\n"
             "- Retain dev.16 lifecycle and mobile overflow fixes.\n"
+        )
+    elif version in ("0.1.0-dev.18", "0.1.0-dev.19"):
+        notes = (
+            "- Add full-system iOS screen sharing for LiveKit using ReplayKit "
+            "Broadcast Upload Extension and App Group IPC. Default iOS screen "
+            "sharing now targets the entire display, including other apps.\n"
+            "- Package reusable Swift ReplayKit sample handlers and an "
+            "idempotent Xcode host installer under ios/BroadcastExtensionTemplate "
+            "and tool/setup_ios_broadcast_extension.rb.\n"
+            "- Validate that the signed host has the App Group entitlement and "
+            "an embedded .appex before opening Apple's broadcast picker. Wait "
+            "for an actual LiveKit screen video publication before marking "
+            "sharing active; add cancellation and missing-track timeouts.\n"
+            "- Preserve explicit IosScreenShareMode.application for capturing "
+            "the Flutter app alone; stop system broadcasts when ending a room.\n"
+            "- Host signing requires registered Apple Developer App IDs, a "
+            "shared App Group and matching provisioning profiles. Unsigned "
+            "builds alone do not validate cross-app broadcast runtime.\n"
+        )
+    elif version in ("0.1.0-dev.20", "0.1.0-dev.21"):
+        notes = (
+            "- Add experimental iOS 27 ScreenCaptureKit whole-display capture "
+            "without a Broadcast Upload Extension or App Group, backed by a "
+            "shared native FrameHub and adapters for LiveKit, Agora, TRTC, "
+            "Alibaba ARTC, AWS Chime Content Share and Amazon IVS Stage.\n"
+            "- Amazon IVS uses camera-to-screen video replacement on its "
+            "single Stage token; simultaneous camera and screen video "
+            "requires a second token/participant and is not provided.\n"
+            "- Await real ScreenCaptureKit video frames before publishing, and "
+            "handle picker cancellation, start failures, changes of selected "
+            "content, stale native stop events and room teardown.\n"
+            "- Keep the ReplayKit Broadcast Upload Extension path for older "
+            "iOS versions on LiveKit and the explicit application-only mode.\n"
+            "- Requires iOS 27+ and an iOS 27 SDK; the host must set the "
+            "screen-capture background mode to keep sharing other apps. "
+            "Two-device real screen playback, Chime Content Tile and IVS "
+            "remote screen classification remain unverified.\n"
         )
     else:
         notes = (
