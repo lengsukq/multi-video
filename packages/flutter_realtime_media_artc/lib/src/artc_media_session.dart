@@ -197,7 +197,8 @@ abstract class _ArtcMediaSession
     }
     if (role != MediaRole.viewer &&
         !kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.android) {
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS)) {
       _capabilities = _capabilities.copyWith(canScreenShare: true);
     }
     _setState(MediaSessionState.joining);
@@ -334,8 +335,12 @@ abstract class _ArtcMediaSession
     final engine = _engine;
     final cleanup = Cleanup(timeout: cleanupTimeout);
     await cleanup.run('processed.input', _publishing._processedSink.detach);
+    if (_publishing._iosScreenCaptureSource != null) {
+      await cleanup.run('screen.ios', _publishing._stopIosSystemScreenCapture);
+    }
     if (engine != null) {
-      if (_publishing._screenShareEnabled) {
+      if (_publishing._screenShareEnabled &&
+          !(defaultTargetPlatform == TargetPlatform.iOS && !kIsWeb)) {
         await cleanup.run(
           'screen.stop',
           () => engine.setScreenShareEnabled(false),

@@ -8,8 +8,9 @@ import 'package:web/web.dart' as web;
 @JS('RealtimeProcessedVideoBridge')
 external JSObject get _bridge;
 Future<lk.LocalVideoTrack> createProcessedLiveKitTrack(
-  ProcessedVideoSource source,
-) async {
+  ProcessedVideoSource source, {
+  bool screenShare = false,
+}) async {
   final track = _bridge
       .callMethod<web.MediaStreamTrack>('getTrack'.toJS, source.id.toJS)
       .clone();

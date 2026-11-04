@@ -44,11 +44,12 @@ MediaCapabilities _capabilitiesForRole(MediaRole role) {
             defaultTargetPlatform == TargetPlatform.macOS ||
             defaultTargetPlatform == TargetPlatform.windows),
     canSwitchCamera: canSwitchCamera,
-    // iOS cross-app sharing requires a separate ReplayKit Broadcast Extension.
-    // Android uses MediaProjection; desktop capture selects a display.
+    // iOS 27+ uses the shared ScreenCaptureKit custom video track; older
+    // iOS releases fail with an explicit unsupported-feature exception.
     canScreenShare:
         !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS ||
             defaultTargetPlatform == TargetPlatform.macOS ||
             defaultTargetPlatform == TargetPlatform.windows),
     canSendData: true,

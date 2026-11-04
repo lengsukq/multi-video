@@ -24,6 +24,9 @@ class MethodChannelCoordinator {
 
     var dataMessageObserver: DataMessageObserver?
 
+    private var iosScreenSource: ChimeIosSystemScreenSource?
+    private var iosContentSource: ContentShareSource?
+
     var currentVolumeValue = AVAudioSession.sharedInstance().outputVolume
 
 
@@ -69,6 +72,11 @@ class MethodChannelCoordinator {
                 response = self.startLocalVideo()
             case .stopLocalVideo:
                 response = self.stopLocalVideo()
+            case .attachIosScreenCaptureKitSource:
+                response = self.attachIosScreenCaptureKitSource(call: call)
+            case .detachIosScreenCaptureKitSource:
+                self.detachIosScreenCaptureKitSource()
+                response = MethodChannelResponse(result: true, arguments: nil)
             case .initialAudioSelection:
                 response = self.initialAudioSelection()
             case .listAudioDevices:
@@ -183,11 +191,43 @@ class MethodChannelCoordinator {
         guard let session = MeetingSession.shared.meetingSession else {
             return MethodChannelResponse(result: false, arguments: "No Chime meeting session is active.", code: "session_not_found")
         }
+        detachIosScreenCaptureKitSource()
         stopAudioVideoFacadeObservers()
         session.audioVideo.stop()
         MeetingSession.shared.meetingSession = nil
         MeetingSession.shared.cameraPosition = "front"
         return MethodChannelResponse(result: true, arguments: Response.meeting_stopped_successfully.rawValue)
+    }
+
+    private func attachIosScreenCaptureKitSource(call: FlutterMethodCall) -> MethodChannelResponse {
+        guard let session = MeetingSession.shared.meetingSession,
+              let args = call.arguments as? [String: Any],
+              let sourceId = args["sourceId"] as? String, !sourceId.isEmpty else {
+            return MethodChannelResponse(result: false, arguments: "A joined Chime session and screen source are required.", code: "invalid_state")
+        }
+        detachIosScreenCaptureKitSource()
+        let source = ChimeIosSystemScreenSource(sourceId: sourceId)
+        do {
+            try source.start()
+            let content = ContentShareSource()
+            content.videoSource = source
+            session.audioVideo.startContentShare(source: content)
+            iosScreenSource = source
+            iosContentSource = content
+            return MethodChannelResponse(result: true, arguments: nil)
+        } catch {
+            source.stop()
+            return MethodChannelResponse(result: false, arguments: error.localizedDescription, code: "native_error")
+        }
+    }
+
+    private func detachIosScreenCaptureKitSource() {
+        if iosScreenSource != nil {
+            MeetingSession.shared.meetingSession?.audioVideo.stopContentShare()
+            iosScreenSource?.stop()
+        }
+        iosScreenSource = nil
+        iosContentSource = nil
     }
 
     func toggleVolume(off:Bool) -> MethodChannelResponse {

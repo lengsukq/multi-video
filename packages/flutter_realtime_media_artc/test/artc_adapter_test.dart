@@ -311,7 +311,7 @@ void main() {
   );
 
   test(
-    'ARTC iOS does not advertise cross-app sharing without extension',
+    'ARTC iOS advertises iOS 27 ScreenCaptureKit but gates older runtimes',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -319,7 +319,7 @@ void main() {
         engineFactory: () async => _FakeArtcEngine(),
       ).createSession(joinInfo());
       await session.join(joinInfo());
-      expect(session.capabilities.canScreenShare, isFalse);
+      expect(session.capabilities.canScreenShare, isTrue);
       await expectLater(
         (session as InteractiveMediaSession).setScreenShareEnabled(true),
         throwsA(

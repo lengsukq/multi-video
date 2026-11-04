@@ -69,6 +69,8 @@ class _ChimeSnapshotMapper {
       localParticipantId: providerSnapshot.localAttendeeId,
       localMuted: providerSnapshot.localMuted,
       localVideoEnabled: providerSnapshot.localVideoEnabled,
+      localScreenShareEnabled:
+          _session._controls._iosScreenCaptureSource != null,
       contentShareTrack: providerSnapshot.contentShareTile == null
           ? null
           : ChimeMediaVideoTrack(providerSnapshot.contentShareTile!),

@@ -19,6 +19,8 @@ enum MethodCall: String {
     case unmute
     case startLocalVideo
     case stopLocalVideo
+    case attachIosScreenCaptureKitSource
+    case detachIosScreenCaptureKitSource
     case videoTileAdd
     case videoTileRemove
     case listAudioDevices

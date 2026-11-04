@@ -277,6 +277,13 @@ abstract class _TrtcSessionBase
   }
 
   Future<void> _exitCloudRoom() async {
+    if (_publishing._iosScreenCaptureSource != null) {
+      try {
+        await _publishing._stopIosScreenCapture();
+      } catch (error, stack) {
+        _reportFailure(_mapError(error, 'screenShare.ios.stop', stack: stack));
+      }
+    }
     try {
       await _publishing._processedSink.detach();
     } catch (error, stack) {

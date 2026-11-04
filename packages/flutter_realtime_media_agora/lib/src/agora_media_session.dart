@@ -363,6 +363,7 @@ abstract class _AgoraMediaSession
     final handler = _eventHandler;
     final customTrackId = _publishing._customVideoTrackId;
     final hadScreenCapture = _publishing._localScreenShareEnabled;
+    final hadIosScreenCapture = _publishing._iosScreenCaptureSource != null;
     _publishing._localScreenShareEnabled = false;
     _publishing._localScreenTrack = null;
     _engine = null;
@@ -373,7 +374,12 @@ abstract class _AgoraMediaSession
     final cleanup = Cleanup(timeout: cleanupTimeout);
     await cleanup.run('processed.input', _publishing._processedSink.detach);
     if (engine != null) {
-      if (hadScreenCapture) {
+      if (hadIosScreenCapture) {
+        await cleanup.run(
+          'screenCapture.ios',
+          () => _publishing._stopIosScreenCapture(engine),
+        );
+      } else if (hadScreenCapture) {
         await cleanup.run('engine.stopScreenCapture', engine.stopScreenCapture);
       }
       if (handler != null) {

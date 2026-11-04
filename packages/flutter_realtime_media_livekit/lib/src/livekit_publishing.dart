@@ -165,11 +165,14 @@ class _LiveKitPublishing {
         await _session._screenShare._prepareMacOsScreenShare();
       }
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-        // setScreenShareEnabled(true) silently calls BroadcastManager and
-        // returns null on iOS without a Broadcast Upload Extension, even
-        // with useiOSBroadcastExtension: false. Publish the app-only track
-        // explicitly until LiveKit restores the in-app capture option.
-        await _session._screenShare._setIosInAppScreenShareEnabled(enabled);
+        // Capture the ENTIRE iPhone display using a signed ReplayKit Broadcast
+        // Upload Extension. Wait for LiveKit's real screen video publication,
+        // not the picker request returning, before committing content mode.
+        if (_session.iosScreenShareMode == IosScreenShareMode.system) {
+          await _session._screenShare._setIosSystemScreenShareEnabled(enabled);
+        } else {
+          await _session._screenShare._setIosInAppScreenShareEnabled(enabled);
+        }
       } else {
         await _session._requireLocalParticipant().setScreenShareEnabled(
           enabled,

@@ -106,6 +106,56 @@ void main() {
   });
 
   group('ChimeMediaSession', () {
+    test(
+      'iOS ScreenCaptureKit delegates actual content sharing to native Chime',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        const capture = MethodChannel(
+          'flutter_realtime_processed_video/ios_system_screen_capture',
+        );
+        const chimeChannel = MethodChannel(
+          'com.oneplusdream.aws.chime.methodChannel',
+        );
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        final calls = <String>[];
+        messenger.setMockMethodCallHandler(capture, (call) async {
+          calls.add(call.method);
+          if (call.method == 'iosScreenCaptureKitAvailable') return true;
+          if (call.method == 'iosScreenCaptureKitStart') {
+            return {
+              'id': 'screen-1',
+              'kind': 'nativeFrameHub',
+              'platform': 'ios',
+              'width': 1170,
+              'height': 2532,
+              'frameRate': 30.0,
+            };
+          }
+          return null;
+        });
+        messenger.setMockMethodCallHandler(chimeChannel, (call) async {
+          calls.add(call.method);
+          return {'success': true, 'data': null};
+        });
+        addTearDown(() {
+          messenger.setMockMethodCallHandler(capture, null);
+          messenger.setMockMethodCallHandler(chimeChannel, null);
+        });
+        final adapter = ChimeMediaSession(session: FakeChimeMeetingSession());
+        await adapter.join(ChimeJoinInfo.fromBackendResponse(backendJson()));
+        expect(adapter.capabilities.canScreenShare, isTrue);
+        await adapter.setScreenShareEnabled(true);
+        expect(adapter.snapshot.localScreenShareEnabled, isTrue);
+        expect(calls, contains('attachIosScreenCaptureKitSource'));
+        await adapter.setScreenShareEnabled(false);
+        expect(adapter.snapshot.localScreenShareEnabled, isFalse);
+        expect(calls, contains('detachIosScreenCaptureKitSource'));
+        await adapter.dispose();
+      },
+    );
+
     test('repeated leave and dispose release Chime exactly once', () async {
       final provider = FakeChimeMeetingSession();
       final adapter = ChimeMediaSession(session: provider);

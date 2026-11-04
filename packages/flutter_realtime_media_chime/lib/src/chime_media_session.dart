@@ -15,6 +15,7 @@ part 'chime_snapshot_mapper.dart';
 MediaCapabilities get _chimeCapabilities => MediaCapabilities(
   canPublishAudio: true,
   canPublishVideo: true,
+  canScreenShare: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
   canSwitchCamera: defaultTargetPlatform != TargetPlatform.macOS,
   canSendData: true,
   canReceiveData: true,
@@ -230,6 +231,7 @@ class ChimeMediaSession
     if (_joinFuture != null) _joinCancelled = true;
     try {
       try {
+        await _controls._stopIosSystemScreenCapture();
         await _controls.detachProcessedVideoSource();
       } finally {
         await _session.leave();
@@ -250,6 +252,7 @@ class ChimeMediaSession
     await cleanup.run('processedVideo', () async {
       await _controls.detachProcessedVideoSource();
     });
+    await cleanup.run('screenCapture', _controls._stopIosSystemScreenCapture);
     await cleanup.run('session', () async {
       await _session.dispose();
     });

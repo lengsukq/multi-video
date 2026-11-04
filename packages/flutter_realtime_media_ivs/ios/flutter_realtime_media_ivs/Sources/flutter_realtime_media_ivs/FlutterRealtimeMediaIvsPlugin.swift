@@ -20,6 +20,8 @@ public final class FlutterRealtimeMediaIvsPlugin:
     private var publishStreams: [IVSLocalStageStream] = []
     private var cameraStream: IVSLocalStageStream?
     private var microphoneStream: IVSLocalStageStream?
+    private var iosScreenStream: IVSLocalStageStream?
+    private var iosScreenSource: IvsIosSystemScreenSource?
     private var remoteVideoStreams: [String: IVSStageStream] = [:]
     private var platformViews: [IvsVideoPlatformView] = []
     private var shouldPublish = false
@@ -74,6 +76,11 @@ public final class FlutterRealtimeMediaIvsPlugin:
                 self.setMuted(call.arguments, result: result)
             case "setVideoEnabled":
                 self.setVideoEnabled(call.arguments, result: result)
+            case "attachIosScreenCaptureKitSource":
+                self.attachIosScreenCaptureKitSource(call.arguments, result: result)
+            case "detachIosScreenCaptureKitSource":
+                self.detachIosScreenCaptureKitSource()
+                result(nil)
             case "switchCamera":
                 self.switchCamera(call.arguments, result: result)
             case "requestStats":
@@ -182,6 +189,7 @@ public final class FlutterRealtimeMediaIvsPlugin:
     }
 
     private func leave() {
+        detachIosScreenCaptureKitSource()
         stage?.leave()
         if let stage {
             stage.remove(stageDelegate)
@@ -196,12 +204,57 @@ public final class FlutterRealtimeMediaIvsPlugin:
         refreshPlatformViews()
     }
 
+    private func attachIosScreenCaptureKitSource(
+        _ arguments: Any?, result: @escaping FlutterResult
+    ) {
+        guard let stage, shouldPublish,
+              let sourceId = (arguments as? [String: Any])?["sourceId"] as? String,
+              !sourceId.isEmpty else {
+            result(FlutterError(code: "invalid_state",
+                                message: "IVS Stage and the native screen source must be active.",
+                                details: nil))
+            return
+        }
+        detachIosScreenCaptureKitSource()
+        // A single IVS Stage participant publishes one video stream. Replace
+        // the camera rather than silently attempting simultaneous video tracks.
+        let device = discovery.createImageSource(withName: "screen-share")
+        let stream = IVSLocalStageStream(device: device)
+        stream.setMuted(false)
+        stream.delegate = stageDelegate
+        let source = IvsIosSystemScreenSource(sourceId: sourceId, output: device)
+        do {
+            try source.start()
+            iosScreenSource = source
+            iosScreenStream = stream
+            stage.refreshStrategy()
+            refreshPlatformViews()
+            result(nil)
+        } catch {
+            source.stop()
+            result(FlutterError(code: "native_error", message: error.localizedDescription,
+                                details: nil))
+        }
+    }
+
+    private func detachIosScreenCaptureKitSource() {
+        guard iosScreenStream != nil || iosScreenSource != nil else { return }
+        iosScreenSource?.stop()
+        iosScreenSource = nil
+        iosScreenStream = nil
+        stage?.refreshStrategy()
+        refreshPlatformViews()
+    }
+
     private func disposeStage() {
         leave()
         platformViews.removeAll()
     }
 
     private func prepareLocalStreams() {
+        iosScreenSource?.stop()
+        iosScreenSource = nil
+        iosScreenStream = nil
         publishStreams.removeAll()
         cameraStream = nil
         microphoneStream = nil
@@ -378,7 +431,10 @@ public final class FlutterRealtimeMediaIvsPlugin:
         _ stage: IVSStage,
         streamsToPublishForParticipant participant: IVSParticipantInfo
     ) -> [IVSLocalStageStream] {
-        publishStreams
+        if let iosScreenStream {
+            return [iosScreenStream, microphoneStream].compactMap { $0 }
+        }
+        return publishStreams
     }
 
     fileprivate func stage(

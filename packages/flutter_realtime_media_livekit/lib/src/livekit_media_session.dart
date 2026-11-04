@@ -1,5 +1,7 @@
 import 'livekit_device_controller.dart';
 import 'ios_in_app_screen_share.dart';
+import 'ios_system_broadcast_wait.dart';
+import 'ios_screen_share_mode.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -9,6 +11,10 @@ import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:livekit_client/livekit_client.dart' as lk;
+// Flutter LiveKit 2.13.x exposes BroadcastManager internally; this is its
+// documented iOS system broadcasting coordinator (shared with LocalParticipant).
+// ignore: implementation_imports
+import 'package:livekit_client/src/managers/broadcast_manager.dart' as lkb;
 
 import 'livekit_join_info.dart';
 import 'livekit_media_track.dart';
@@ -48,7 +54,22 @@ abstract class LiveKitMediaSessionBase
     required this.role,
     required MediaCapabilities capabilities,
     lk.Room Function()? roomFactory,
-  }) : _roomFactory = roomFactory ?? lk.Room.new,
+    this.iosScreenShareMode = IosScreenShareMode.system,
+  }) : _roomFactory =
+           roomFactory ??
+           (() => lk.Room(
+             roomOptions:
+                 !kIsWeb &&
+                     defaultTargetPlatform == TargetPlatform.iOS &&
+                     iosScreenShareMode == IosScreenShareMode.system
+                 ? const lk.RoomOptions(
+                     defaultScreenShareCaptureOptions:
+                         lk.ScreenShareCaptureOptions(
+                           useiOSBroadcastExtension: true,
+                         ),
+                   )
+                 : const lk.RoomOptions(),
+           )),
        _capabilities = capabilities,
        _snapshot = MediaSnapshot(role: role, capabilities: capabilities);
 
@@ -64,6 +85,8 @@ abstract class LiveKitMediaSessionBase
 
   @override
   final MediaRole role;
+
+  final IosScreenShareMode iosScreenShareMode;
 
   MediaCapabilities _capabilities;
   MediaSnapshot _snapshot;
@@ -451,6 +474,10 @@ abstract class LiveKitMediaSessionBase
     await cleanup.run(
       'screenShare.service',
       _screenShare._stopAndroidScreenShareService,
+    );
+    await cleanup.run(
+      'screenShare.iosBroadcast',
+      _screenShare._stopIosBroadcastOnRoomTeardown,
     );
     if (listener != null) await cleanup.run('room.listener', listener.dispose);
     if (room != null && !room.isDisposed) {

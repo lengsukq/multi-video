@@ -74,6 +74,61 @@ Map<String, dynamic> _joinJson({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'IVS iOS screen capture replaces its single video stream and restores camera',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const capture = MethodChannel(
+        'flutter_realtime_processed_video/ios_system_screen_capture',
+      );
+      const ivsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_ivs/methods',
+      );
+      final calls = <String>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(capture, (call) async {
+        calls.add(call.method);
+        if (call.method == 'iosScreenCaptureKitAvailable') return true;
+        if (call.method == 'iosScreenCaptureKitStart') {
+          return {
+            'id': 'ivs-screen',
+            'kind': 'nativeFrameHub',
+            'platform': 'ios',
+            'width': 1170,
+            'height': 2532,
+            'frameRate': 30.0,
+          };
+        }
+        return null;
+      });
+      messenger.setMockMethodCallHandler(ivsChannel, (call) async {
+        calls.add(call.method);
+        return null;
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(capture, null);
+        messenger.setMockMethodCallHandler(ivsChannel, null);
+      });
+      final info = IvsJoinInfo.fromJson(_joinJson());
+      final session =
+          IvsSessionFactory(
+                engineFactory: () async => _FakeIvsEngine(),
+              ).createSession(info)
+              as InteractiveMediaSession;
+      await session.join(info);
+      expect(session.capabilities.canScreenShare, isTrue);
+      await session.setScreenShareEnabled(true);
+      expect(session.snapshot.localScreenShareEnabled, isTrue);
+      expect(calls, contains('attachIosScreenCaptureKitSource'));
+      await session.setScreenShareEnabled(false);
+      expect(session.snapshot.localScreenShareEnabled, isFalse);
+      expect(calls, contains('detachIosScreenCaptureKitSource'));
+      await session.dispose();
+    },
+  );
+
   for (final disposing in [false, true]) {
     test(
       'late IVS refresh preserves the next active owner after $disposing',

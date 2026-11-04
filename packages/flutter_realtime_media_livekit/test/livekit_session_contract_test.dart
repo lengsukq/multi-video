@@ -21,6 +21,15 @@ void main() {
       expect(session.capabilities.canTargetData, isTrue);
       expect(session.capabilities.canSendUnreliableData, isTrue);
       expect(session.capabilities.maxDataMessageBytes, 15 * 1024);
+      expect(session.iosScreenShareMode, IosScreenShareMode.system);
+    });
+
+    test('iOS application-only capture is an explicit opt-in', () async {
+      final session = LiveKitInteractiveSession(
+        iosScreenShareMode: IosScreenShareMode.application,
+      );
+      expect(session.iosScreenShareMode, IosScreenShareMode.application);
+      await session.dispose();
     });
 
     test('viewer is subscribe-only at the Dart type and capability layers', () {

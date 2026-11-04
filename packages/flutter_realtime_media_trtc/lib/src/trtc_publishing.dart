@@ -11,6 +11,52 @@ class _TrtcPublishing {
   Duration get cleanupTimeout => _session.cleanupTimeout;
 
   final _processedSink = NativeProcessedVideoSink(providerId: 'trtc');
+  final _iosScreenSink = NativeProcessedVideoSink(providerId: 'trtc');
+  ProcessedVideoSource? _iosScreenCaptureSource;
+
+  Future<void> _startIosScreenCapture() async {
+    final capture = IosSystemScreenCapture.instance;
+    if (!await capture.isAvailable) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        providerId: TrtcJoinInfo.providerIdValue,
+        message:
+            'TRTC full-screen sharing without an extension requires iOS 27+.',
+      );
+    }
+    ProcessedVideoSource? source;
+    try {
+      source = await capture.start();
+      await _iosScreenSink.attach(
+        source,
+        arguments: const {'screenShare': true},
+      );
+      _iosScreenCaptureSource = source;
+      capture.onSystemStopped(_onIosSystemScreenCaptureStopped);
+    } catch (_) {
+      try {
+        await _iosScreenSink.detach();
+      } finally {
+        await capture.stop();
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _stopIosScreenCapture() async {
+    _iosScreenCaptureSource = null;
+    try {
+      await _iosScreenSink.detach();
+    } finally {
+      await IosSystemScreenCapture.instance.stop();
+    }
+  }
+
+  Future<void> _onIosSystemScreenCaptureStopped() async {
+    if (_iosScreenCaptureSource == null) return;
+    await setScreenShareEnabled(false);
+  }
+
   bool supportsProcessedVideoSource(ProcessedVideoSource source) =>
       role != MediaRole.viewer &&
       capabilities.canBlurBackground &&
@@ -149,9 +195,17 @@ class _TrtcPublishing {
     if (_session._snapshot.localScreenShareEnabled == enabled) return;
     try {
       if (enabled) {
-        _session._engine!.startScreenCapture();
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+          await _startIosScreenCapture();
+        } else {
+          _session._engine!.startScreenCapture();
+        }
       } else {
-        _session._engine!.stopScreenCapture();
+        if (_iosScreenCaptureSource != null) {
+          await _stopIosScreenCapture();
+        } else {
+          _session._engine!.stopScreenCapture();
+        }
       }
       _session._setSnapshot(
         _session._snapshot.copyWith(localScreenShareEnabled: enabled),

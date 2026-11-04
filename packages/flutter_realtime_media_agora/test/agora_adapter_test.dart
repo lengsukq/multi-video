@@ -308,14 +308,14 @@ void main() {
       () async {
         debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
         final session = AgoraHostSession();
-        expect(session.capabilities.canScreenShare, isFalse);
-        expect(
-          () => session.setScreenShareEnabled(true),
+        expect(session.capabilities.canScreenShare, isTrue);
+        await expectLater(
+          session.setScreenShareEnabled(true),
           throwsA(
             isA<RealtimeException>().having(
               (error) => error.code,
               'code',
-              RealtimeErrorCode.unsupportedFeature,
+              RealtimeErrorCode.invalidState,
             ),
           ),
         );

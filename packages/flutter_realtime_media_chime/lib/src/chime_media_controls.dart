@@ -10,6 +10,31 @@ class _ChimeMediaControls {
   MediaSnapshot get snapshot => _session.snapshot;
   Duration get cleanupTimeout => _session.cleanupTimeout;
 
+  static const _iosChannel = MethodChannel(
+    'com.oneplusdream.aws.chime.methodChannel',
+  );
+  ProcessedVideoSource? _iosScreenCaptureSource;
+
+  Future<void> _stopIosSystemScreenCapture() async {
+    if (_iosScreenCaptureSource == null) return;
+    _iosScreenCaptureSource = null;
+    try {
+      await _iosChannel.invokeMethod<Object?>(
+        'detachIosScreenCaptureKitSource',
+      );
+    } finally {
+      await IosSystemScreenCapture.instance.stop();
+      _session._replaceSnapshot(
+        _session._snapshot.copyWith(localScreenShareEnabled: false),
+      );
+    }
+  }
+
+  Future<void> _onIosScreenCaptureStopped() async {
+    if (_iosScreenCaptureSource == null) return;
+    await _stopIosSystemScreenCapture();
+  }
+
   bool _macEffectsInputAvailable = false;
   bool get _effectsPlatform =>
       !kIsWeb &&
@@ -152,11 +177,51 @@ class _ChimeMediaControls {
   }
 
   Future<void> setScreenShareEnabled(bool enabled) async {
-    throw RealtimeException(
-      code: RealtimeErrorCode.unsupportedFeature,
-      message: 'Outgoing screen share is not implemented by flutter_aws_chime.',
-      providerId: providerId,
-    );
+    _session._ensureActive();
+    if (!capabilities.canScreenShare) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        message: 'Native Chime screen capture requires iOS 27+.',
+        providerId: providerId,
+      );
+    }
+    if ((_iosScreenCaptureSource != null) == enabled) return;
+    if (!enabled) {
+      await _stopIosSystemScreenCapture();
+      return;
+    }
+    final capture = IosSystemScreenCapture.instance;
+    if (!await capture.isAvailable) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        message: 'Chime cross-app screen capture requires iOS 27+.',
+        providerId: providerId,
+      );
+    }
+    ProcessedVideoSource? source;
+    try {
+      source = await capture.start();
+      final result = await _iosChannel.invokeMapMethod<String, Object?>(
+        'attachIosScreenCaptureKitSource',
+        {'sourceId': source.id},
+      );
+      if (result?['success'] != true) {
+        throw StateError('Chime rejected the external content-share source.');
+      }
+      _iosScreenCaptureSource = source;
+      capture.onSystemStopped(_onIosScreenCaptureStopped);
+      _session._replaceSnapshot(
+        _session._snapshot.copyWith(localScreenShareEnabled: true),
+      );
+    } catch (_) {
+      if (source != null) {
+        await _iosChannel.invokeMethod<Object?>(
+          'detachIosScreenCaptureKitSource',
+        );
+      }
+      await capture.stop();
+      rethrow;
+    }
   }
 
   Future<void> switchCamera(MediaCameraPosition position) async {

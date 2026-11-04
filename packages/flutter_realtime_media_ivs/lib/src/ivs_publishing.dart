@@ -10,6 +10,75 @@ class _IvsPublishing {
   MediaSnapshot get snapshot => _session.snapshot;
   Duration get cleanupTimeout => _session.cleanupTimeout;
 
+  static const _iosChannel = MethodChannel(
+    'com.oneplusdream.flutter_realtime_media_ivs/methods',
+  );
+  ProcessedVideoSource? _iosScreenSource;
+
+  Future<void> _stopIosScreenCapture() async {
+    if (_iosScreenSource == null) return;
+    _iosScreenSource = null;
+    try {
+      await _iosChannel.invokeMethod<void>('detachIosScreenCaptureKitSource');
+    } finally {
+      await IosSystemScreenCapture.instance.stop();
+      _session._setSnapshot(
+        _session._snapshot.copyWith(
+          localScreenShareEnabled: false,
+          clearContentShareTrack: true,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onIosScreenStopped() async {
+    if (_iosScreenSource != null) await _stopIosScreenCapture();
+  }
+
+  Future<void> _setScreenShareEnabled(bool enabled) async {
+    _session._requireActive();
+    _session._requireCapability(capabilities.canScreenShare, 'screen sharing');
+    if ((_iosScreenSource != null) == enabled) return;
+    if (!enabled) {
+      await _stopIosScreenCapture();
+      return;
+    }
+    final capture = IosSystemScreenCapture.instance;
+    if (!await capture.isAvailable) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        message: 'IVS full-display sharing requires iOS 27+.',
+        providerId: providerId,
+      );
+    }
+    ProcessedVideoSource? source;
+    try {
+      source = await capture.start();
+      await _iosChannel.invokeMethod<void>('attachIosScreenCaptureKitSource', {
+        'sourceId': source.id,
+      });
+      _iosScreenSource = source;
+      capture.onSystemStopped(_onIosScreenStopped);
+      // IVS Stage permits one video stream per token. Screen sharing replaces
+      // camera video; stop restores the existing camera stream/mute setting.
+      _session._setSnapshot(
+        _session._snapshot.copyWith(localScreenShareEnabled: true),
+      );
+    } catch (_) {
+      if (source != null) {
+        try {
+          await _iosChannel.invokeMethod<void>(
+            'detachIosScreenCaptureKitSource',
+          );
+        } catch (_) {
+          // The native start failure remains the primary error.
+        }
+      }
+      await capture.stop();
+      rethrow;
+    }
+  }
+
   MediaCameraPosition _cameraPosition = MediaCameraPosition.front;
   bool _macEffectsInputAvailable = false;
   bool get _effectsPlatform =>

@@ -6,6 +6,7 @@ class LiveKitInteractiveSession extends LiveKitMediaSessionBase
   LiveKitInteractiveSession({
     super.role = MediaRole.participant,
     super.roomFactory,
+    super.iosScreenShareMode,
   }) : assert(role != MediaRole.viewer),
        super(capabilities: _capabilitiesForRole(role));
 

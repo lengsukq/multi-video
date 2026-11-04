@@ -12,6 +12,58 @@ class _ArtcPublishing {
 
   ArtcMediaVideoTrack? _localScreenTrack;
   bool _screenShareEnabled = false;
+  ProcessedVideoSource? _iosScreenCaptureSource;
+  static const _iosNativeChannel = MethodChannel(
+    'com.oneplusdream.flutter_realtime_media_artc/methods',
+  );
+
+  Future<void> _startIosSystemScreenCapture() async {
+    final capture = IosSystemScreenCapture.instance;
+    if (!await capture.isAvailable) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        providerId: providerId,
+        message:
+            'ARTC cross-app screen sharing without an extension requires iOS 27+.',
+      );
+    }
+    ProcessedVideoSource? source;
+    try {
+      source = await capture.start();
+      await _iosNativeChannel.invokeMethod<void>(
+        'attachIosScreenCaptureKitSource',
+        {'sourceId': source.id},
+      );
+      _iosScreenCaptureSource = source;
+      capture.onSystemStopped(_onIosSystemScreenCaptureStopped);
+    } catch (_) {
+      try {
+        await _iosNativeChannel.invokeMethod<void>(
+          'detachIosScreenCaptureKitSource',
+        );
+      } finally {
+        await capture.stop();
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _stopIosSystemScreenCapture() async {
+    _iosScreenCaptureSource = null;
+    try {
+      await _iosNativeChannel.invokeMethod<void>(
+        'detachIosScreenCaptureKitSource',
+      );
+    } finally {
+      await IosSystemScreenCapture.instance.stop();
+    }
+  }
+
+  Future<void> _onIosSystemScreenCaptureStopped() async {
+    if (_iosScreenCaptureSource == null) return;
+    await _setScreenShareEnabled(false);
+  }
+
   MediaCameraPosition _cameraPosition = MediaCameraPosition.front;
   bool _macEffectsInputAvailable = false;
   bool get _effectsPlatform =>
@@ -181,7 +233,15 @@ class _ArtcPublishing {
     _session._requireActive();
     _session._requireCapability(capabilities.canScreenShare, 'screen sharing');
     if (_screenShareEnabled == enabled) return;
-    await _session._engine!.setScreenShareEnabled(enabled);
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      if (enabled) {
+        await _startIosSystemScreenCapture();
+      } else {
+        await _stopIosSystemScreenCapture();
+      }
+    } else {
+      await _session._engine!.setScreenShareEnabled(enabled);
+    }
     // The vendor will also send a publish-state callback. Reconciliation is
     // idempotent whether that callback arrives before or after this response.
     _syncLocalScreenShare(enabled);

@@ -10,8 +10,9 @@ const _channel = MethodChannel(
   'flutter_realtime_media_livekit/processed_video',
 );
 Future<lk.LocalVideoTrack> createProcessedLiveKitTrack(
-  ProcessedVideoSource source,
-) async {
+  ProcessedVideoSource source, {
+  bool screenShare = false,
+}) async {
   final map = await _channel.invokeMapMethod<String, dynamic>('create', {
     'sourceId': source.id,
   });
@@ -20,10 +21,12 @@ Future<lk.LocalVideoTrack> createProcessedLiveKitTrack(
   // Externally supplied tracks must not invoke camera capture.
   // ignore: invalid_use_of_internal_member
   return lk.LocalVideoTrack(
-    lk.TrackSource.camera,
+    screenShare ? lk.TrackSource.screenShareVideo : lk.TrackSource.camera,
     stream,
     stream.getVideoTracks().single,
-    const lk.CameraCaptureOptions(),
+    screenShare
+        ? const lk.ScreenShareCaptureOptions(useiOSBroadcastExtension: false)
+        : const lk.CameraCaptureOptions(),
   );
 }
 

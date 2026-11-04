@@ -19,6 +19,7 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
     private var pendingLeaveResult: FlutterResult?
     private var leaveTimeout: DispatchWorkItem?
     private var videoViews: [ArtcVideoPlatformView] = []
+    private var iosScreenSink: ArtcIosExternalScreenSink?
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = FlutterRealtimeMediaArtcPlugin()
@@ -28,6 +29,27 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
         registrar.addMethodCallDelegate(instance, channel: methods)
         events.setStreamHandler(instance)
         registrar.register(ArtcVideoPlatformViewFactory(plugin: instance), withId: viewType)
+    }
+
+    private func attachIosScreenCaptureKitSource(
+        _ arguments: Any?, result: @escaping FlutterResult
+    ) {
+        guard requirePublisher(result) else { return }
+        guard let sourceId = (arguments as? [String: Any])?["sourceId"] as? String,
+              !sourceId.isEmpty, let engine else {
+            fail(result, code: "invalid_argument", message: "The ScreenCaptureKit native source ID is missing.")
+            return
+        }
+        iosScreenSink?.stop()
+        let sink = ArtcIosExternalScreenSink(sourceId: sourceId, engine: engine)
+        do {
+            try sink.start()
+            iosScreenSink = sink
+            result(nil)
+        } catch {
+            fail(result, code: "native_error",
+                 message: "ARTC rejected the external iOS screen video source: \(error.localizedDescription)")
+        }
     }
 
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
@@ -49,6 +71,12 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
             case "setVideoEnabled": self.setVideoEnabled(call.arguments, result: result)
             case "switchCamera": self.switchCamera(call.arguments, result: result)
             case "sendMessage": self.sendMessage(call.arguments, result: result)
+            case "attachIosScreenCaptureKitSource":
+                self.attachIosScreenCaptureKitSource(call.arguments, result: result)
+            case "detachIosScreenCaptureKitSource":
+                self.iosScreenSink?.stop()
+                self.iosScreenSink = nil
+                result(nil)
             case "dispose": self.disposeEngine(); result(nil)
             default: result(FlutterMethodNotImplemented)
             }
@@ -107,6 +135,8 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
     }
 
     private func leave(result: @escaping FlutterResult) {
+        iosScreenSink?.stop()
+        iosScreenSink = nil
         guard let engine, inChannel else { result(nil); return }
         if pendingLeaveResult != nil {
             fail(result, code: "invalid_state", message: "ARTC leave is already in progress.")
@@ -230,6 +260,8 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
     }
 
     private func disposeEngine() {
+        iosScreenSink?.stop()
+        iosScreenSink = nil
         disposed = true
         if let pendingJoinResult { fail(pendingJoinResult, code: "invalid_state", message: "ARTC engine was disposed during join.") }
         pendingJoinResult = nil

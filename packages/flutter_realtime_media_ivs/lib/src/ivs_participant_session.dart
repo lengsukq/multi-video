@@ -17,7 +17,7 @@ class IvsParticipantSession extends _IvsMediaSession
       _publishing._switchCamera(position);
   @override
   Future<void> setScreenShareEnabled(bool enabled) =>
-      _unsupported('screen sharing');
+      _publishing._setScreenShareEnabled(enabled);
   @override
   Future<List<MediaAudioDevice>> listAudioDevices() async {
     await _unsupported('audio-output enumeration');

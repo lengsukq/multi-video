@@ -67,6 +67,8 @@ abstract class _IvsMediaSession
     return MediaCapabilities(
       canPublishAudio: publisher,
       canPublishVideo: publisher,
+      canScreenShare:
+          publisher && !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
       canSwitchCamera:
           publisher && defaultTargetPlatform != TargetPlatform.macOS,
       canBlurBackground: publisher && _publishing._effectsPlatform,
@@ -352,6 +354,7 @@ abstract class _IvsMediaSession
   Future<void> _releaseEngine({required bool leave}) async {
     final engine = _engine;
     final cleanup = Cleanup(timeout: cleanupTimeout);
+    await cleanup.run('screenCapture', _publishing._stopIosScreenCapture);
     await cleanup.run('processed.input', _publishing._processedSink.detach);
     if (engine != null) {
       if (leave) {

@@ -39,11 +39,38 @@
 @implementation FlutterRealtimeMediaLivekitPlugin
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar> *)registrar {
   FlutterMethodChannel *channel = [FlutterMethodChannel methodChannelWithName:@"flutter_realtime_media_livekit/processed_video" binaryMessenger:registrar.messenger];
+  FlutterMethodChannel *broadcastChannel = [FlutterMethodChannel methodChannelWithName:@"flutter_realtime_media_livekit/ios_broadcast" binaryMessenger:registrar.messenger];
   FlutterRealtimeMediaLivekitPlugin *plugin = [self new];
   plugin.tracks = [NSMutableDictionary new];
   [registrar addMethodCallDelegate:plugin channel:channel];
+  [registrar addMethodCallDelegate:plugin channel:broadcastChannel];
 }
 - (void)handleMethodCall:(FlutterMethodCall *)call result:(FlutterResult)result {
+  if ([call.method isEqualToString:@"configuration"]) {
+    NSString *group = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RTCAppGroupIdentifier"];
+    NSString *extensionId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RTCScreenSharingExtension"];
+    NSURL *container = group.length ? [[NSFileManager defaultManager] containerURLForSecurityApplicationGroupIdentifier:group] : nil;
+    NSURL *plugins = [[NSBundle mainBundle] builtInPlugInsURL];
+    BOOL installed = NO;
+    if (extensionId.length && plugins) {
+      NSArray<NSURL *> *entries = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:plugins includingPropertiesForKeys:nil options:0 error:nil];
+      for (NSURL *entry in entries) {
+        NSBundle *bundle = [NSBundle bundleWithURL:entry];
+        if ([bundle.bundleIdentifier isEqualToString:extensionId]) {
+          installed = YES;
+          break;
+        }
+      }
+    }
+    result(@{
+      @"configured": @(group.length && extensionId.length && container != nil && installed),
+      @"hasAppGroup": @(container != nil),
+      @"hasExtension": @(installed),
+      @"appGroup": group ?: @"",
+      @"extensionId": extensionId ?: @""
+    });
+    return;
+  }
   NSString *sourceId = call.arguments[@"sourceId"];
   if ([call.method isEqualToString:@"dispose"]) {
     [_tracks[sourceId] dispose]; [_tracks removeObjectForKey:sourceId]; result(nil); return;
@@ -78,5 +105,7 @@
   [NSClassFromString(@"FlutterRealtimeProcessedVideoFrameHub") registerWithSourceId:sourceId sink:sink];
   result([rtc mediaStreamToMap:stream ownerTag:@"local"]);
 }
-- (void)dealloc { for (ProcessedWebRtcTrack *sink in _tracks.allValues) [sink dispose]; }
+- (void)dealloc {
+  for (ProcessedWebRtcTrack *sink in _tracks.allValues) [sink dispose];
+}
 @end

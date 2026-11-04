@@ -16,6 +16,9 @@ class _AgoraPublishing {
   bool _localVideoEnabled = false;
   bool _localMuted = true;
   final AgoraScreenCapture _screenCapture = const AgoraScreenCapture();
+  final _iosScreenSink = NativeProcessedVideoSink(providerId: 'agora');
+  ProcessedVideoSource? _iosScreenCaptureSource;
+  int? _iosScreenTrackId;
   int? _customVideoTrackId;
   final _processedSink = NativeProcessedVideoSink(providerId: 'agora');
   bool supportsProcessedVideoSource(ProcessedVideoSource source) =>
@@ -50,6 +53,69 @@ class _AgoraPublishing {
       },
     );
     await _updatePublishOptions();
+  }
+
+  Future<void> _startIosScreenCapture(agora.RtcEngine engine) async {
+    final capture = IosSystemScreenCapture.instance;
+    if (!await capture.isAvailable) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        providerId: _agoraProviderId,
+        message:
+            'Agora screen sharing without a Broadcast Extension needs iOS 27+.',
+      );
+    }
+    ProcessedVideoSource? source;
+    int? videoTrackId;
+    try {
+      source = await capture.start();
+      videoTrackId = await engine.createCustomVideoTrack();
+      await _iosScreenSink.attach(
+        source,
+        arguments: {
+          'engineHandle': await engine.getNativeHandle(),
+          'trackId': videoTrackId,
+        },
+      );
+      _iosScreenCaptureSource = source;
+      _iosScreenTrackId = videoTrackId;
+      capture.onSystemStopped(_onIosSystemCaptureEnded);
+    } catch (_) {
+      try {
+        await _iosScreenSink.detach();
+      } finally {
+        try {
+          if (videoTrackId != null) {
+            await engine.destroyCustomVideoTrack(videoTrackId);
+          }
+        } finally {
+          await capture.stop();
+        }
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _stopIosScreenCapture(agora.RtcEngine engine) async {
+    final videoTrackId = _iosScreenTrackId;
+    _iosScreenTrackId = null;
+    _iosScreenCaptureSource = null;
+    try {
+      await _iosScreenSink.detach();
+    } finally {
+      try {
+        if (videoTrackId != null) {
+          await engine.destroyCustomVideoTrack(videoTrackId);
+        }
+      } finally {
+        await IosSystemScreenCapture.instance.stop();
+      }
+    }
+  }
+
+  Future<void> _onIosSystemCaptureEnded() async {
+    if (!_localScreenShareEnabled || _session._engine == null) return;
+    await setScreenShareEnabledInternal(false);
   }
 
   Future<void> detachProcessedVideoSource() => _processedSink.detach();
@@ -107,12 +173,18 @@ class _AgoraPublishing {
         _processedSink.source == null,
     publishCustomVideoTrack:
         _session._canPublish &&
-        _localVideoEnabled &&
-        !_localScreenShareEnabled &&
-        _processedSink.source != null,
-    customVideoTrackId: _customVideoTrackId,
+        ((_localScreenShareEnabled && _iosScreenTrackId != null) ||
+            (_localVideoEnabled &&
+                !_localScreenShareEnabled &&
+                _processedSink.source != null)),
+    customVideoTrackId: _localScreenShareEnabled && _iosScreenTrackId != null
+        ? _iosScreenTrackId
+        : _customVideoTrackId,
     publishScreenCaptureAudio: false,
-    publishScreenCaptureVideo: _session._canPublish && _localScreenShareEnabled,
+    publishScreenCaptureVideo:
+        _session._canPublish &&
+        _localScreenShareEnabled &&
+        _iosScreenTrackId == null,
     enableAudioRecordingOrPlayout: true,
   );
 
@@ -201,9 +273,7 @@ class _AgoraPublishing {
     if (!capabilities.canScreenShare) {
       throw const RealtimeException(
         code: RealtimeErrorCode.unsupportedFeature,
-        message:
-            'Agora sharing is supported on Android, macOS and Windows. '
-            'iOS requires a ReplayKit Broadcast Extension.',
+        message: 'Screen sharing is unavailable on this Agora platform.',
         providerId: _agoraProviderId,
       );
     }
@@ -212,13 +282,21 @@ class _AgoraPublishing {
     final engine = _session._requireEngine();
     try {
       if (enabled) {
-        await _screenCapture.start(engine, defaultTargetPlatform);
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+          await _startIosScreenCapture(engine);
+        } else {
+          await _screenCapture.start(engine, defaultTargetPlatform);
+        }
         _localScreenShareEnabled = true;
         try {
           await _updatePublishOptions();
         } catch (_) {
           _localScreenShareEnabled = false;
-          await _screenCapture.stop(engine);
+          if (_iosScreenCaptureSource != null) {
+            await _stopIosScreenCapture(engine);
+          } else {
+            await _screenCapture.stop(engine);
+          }
           rethrow;
         }
         final uid = _session._localUid;
@@ -237,7 +315,11 @@ class _AgoraPublishing {
         // Announce while screen video is still published. Agora can reject
         // data-stream packets after the last AV track is unpublished.
         await _session._data._announceScreenShareState(false);
-        await _screenCapture.stop(engine);
+        if (_iosScreenCaptureSource != null) {
+          await _stopIosScreenCapture(engine);
+        } else {
+          await _screenCapture.stop(engine);
+        }
         _localScreenShareEnabled = false;
         final track = _localScreenTrack;
         _localScreenTrack = null;
