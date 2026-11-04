@@ -61,10 +61,34 @@ for name in names:
         assert not re.search(r'^  (agora_rtc_engine|livekit_client|tencent_rtc_sdk|tencent_cloud_chat_sdk|aliyun_rtc|flutter_aws_chime|flutter_webrtc):', dependencies, re.M), name
 assert not (ROOT/'lib/flutter_aws_chime.dart').exists(), 'Root Chime implementation still exists'
 assert not (ROOT/'packages/flutter_realtime_sdk_base').exists(), 'Obsolete base package still exists'
-allowed={'flutter_realtime_media_livekit/lib/src/livekit_processed_video_native.dart'}
+# Vendor integration APIs that are intentionally unavailable from their public
+# package entrypoints. Keep each exception scoped to both the owning file and
+# the exact imported SDK implementation path; do not permit arbitrary /src/
+# imports from these files.
+allowed_internal_imports = {
+    (
+        'flutter_realtime_media_livekit/lib/src/livekit_processed_video_native.dart',
+        'flutter_webrtc/src/native/media_stream_impl.dart',
+    ),
+    (
+        'flutter_realtime_media_livekit/lib/src/livekit_media_session.dart',
+        'livekit_client/src/managers/broadcast_manager.dart',
+    ),
+}
+
+
+def allows_private_import(owner: str, source_path: str, imported_path: str) -> bool:
+    imported_package = imported_path.split('/', 1)[0]
+    return imported_package == owner or (source_path, imported_path) in allowed_internal_imports
+
+
 for name in names:
     for source in (ROOT/'packages'/name/'lib').rglob('*.dart'):
         text=source.read_text()
-        for match in re.finditer(r"(?:import|export) 'package:([^/]+)/src/",text):
-            assert match[1] == name or source.relative_to(ROOT/'packages').as_posix() in allowed, source
+        for match in re.finditer(r"(?:import|export) 'package:([^/]+)/src/([^']+)'",text):
+            source_path = source.relative_to(ROOT/'packages').as_posix()
+            imported_path = f'{match[1]}/src/{match[2]}'
+            assert allows_private_import(name, source_path, imported_path), (
+                f'{source_path} must not import private SDK implementation {imported_path}'
+            )
 print(f'{len(names)} packages: acyclic graph, lean SDK, UI/provider-free Runtime, Runtime-owned members, public boundaries passed')
