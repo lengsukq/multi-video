@@ -355,6 +355,16 @@ def prepare(version: str, root: Path = ROOT) -> Path:
             "shared App Group and matching provisioning profiles. Unsigned "
             "builds alone do not validate cross-app broadcast runtime.\n"
         )
+    elif version == "0.1.0-dev.22":
+        notes = (
+            "- Fix microphone and remote speaker interoperability between Flutter Web and iOS across LiveKit, Chime, TRTC, Alibaba ARTC and Amazon IVS.\n"
+            "- Prefer the iPhone speaker for LiveKit and Chime calls while retaining wired and Bluetooth headset routing.\n"
+            "- Require an active LiveKit microphone publication after unmute and synchronize speaking indicators with active-speaker events.\n"
+            "- Bind Chime Web remote audio to an HTML audio element, retry playback after user interaction, and surface microphone input failures.\n"
+            "- Align initial muted state and explicit microphone publication for TRTC, ARTC and IVS Web, preserving IVS mute state when changing devices.\n"
+            "- Add cross-provider Web microphone tests and document remaining duplicate iOS WebRTC Objective-C class risks.\n"
+            "- This is a preview; cross-device audio acceptance, native binary conflicts and other provider/platform combinations remain unverified.\n"
+        )
     elif version in ("0.1.0-dev.20", "0.1.0-dev.21"):
         notes = (
             "- Add experimental iOS 27 ScreenCaptureKit whole-display capture "
