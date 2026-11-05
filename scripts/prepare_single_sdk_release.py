@@ -363,7 +363,12 @@ def prepare(version: str, root: Path = ROOT) -> Path:
             "- Bind Chime Web remote audio to an HTML audio element, retry playback after user interaction, and surface microphone input failures.\n"
             "- Align initial muted state and explicit microphone publication for TRTC, ARTC and IVS Web, preserving IVS mute state when changing devices.\n"
             "- Add cross-provider Web microphone tests and document remaining duplicate iOS WebRTC Objective-C class risks.\n"
-            "- This is a preview; cross-device audio acceptance, native binary conflicts and other provider/platform combinations remain unverified.\n"
+            "- Apply vendor-documentation audit fixes: TRTC Web 5.19.x screen-share API, delayed native/Web microphone capture, and native speaker volume callbacks.\n"
+            "- Make Chime Web camera permission lazy and release capture on video-off; make IVS Web camera/audio capture lazy with device-switch rollback and full remote audio cleanup.\n"
+            "- Track IVS Stage stream mute events, check Alibaba ARTC Web nonzero media error codes, and add provider/platform regression coverage.\n"
+            "- Add opt-in iOS CocoaPods native vendor isolation: exclude Chime and/or ARTC SDK frameworks with Podfile flags and matching Swift plugin registration guards.\n"
+            "- Match Chime Web local screen-share state to a real content-share video track and SDK start/stop events; await IVS Web Stage teardown and always release captured devices on errors.\n"
+            "- This is a preview; cross-device audio acceptance, default all-provider binary co-loading and other platform combinations remain unverified.\n"
         )
     elif version in ("0.1.0-dev.20", "0.1.0-dev.21"):
         notes = (
@@ -383,6 +388,16 @@ def prepare(version: str, root: Path = ROOT) -> Path:
             "screen-capture background mode to keep sharing other apps. "
             "Two-device real screen playback, Chime Content Tile and IVS "
             "remote screen classification remain unverified.\n"
+        )
+    elif version == "0.1.0-dev.24":
+        notes = (
+            "- Fix iOS microphone capture being interrupted by Amazon IVS plugin registration: defer IVSDeviceDiscovery and audio-session access until IVS media publishing is actually requested.\n"
+            "- Use AVFoundation device enumeration for IVS pre-join checks without initializing the IVS audio engine, and release discovery on leave.\n"
+            "- Fix the iOS combined Podspec's CocoaPods exclude_files setter and strengthen its compatibility regression tests.\n"
+            "- Keep AWS Chime and Alibaba ARTC enabled by default in the iOS one-package SDK; retain explicit opt-out flags for host-side vendor isolation when required.\n"
+            "- Stabilize LiveKit iOS microphone mute/unmute and remote speaker routing; include cross-vendor audio and media lifecycle fixes from this development cycle.\n"
+            "- Validate the full-vendor iOS dependency resolution/build and native microphone capture separately from real bidirectional media tests.\n"
+            "- Real-provider end-to-end audio, vendor binary class co-loading in all routes and external-device acceptance require additional testing.\n"
         )
     else:
         notes = (

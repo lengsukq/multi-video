@@ -288,6 +288,28 @@ Agora RTC 与 Chat 分别通过 `AgoraInfra_iOS` 和 `ShengwangInfra_iOS`
 这些修复不代表所有厂商的真实设备通话已经完成验收。
 当前 ARTC 框架仅支持真机，因此该合并包不支持 iOS Simulator。
 
+### iOS 原生 WebRTC 框架冲突隔离
+
+如果同时链接 LiveKit 所用的 WebRTC、Amazon Chime Media、AliVCSDK_ARTC，
+iOS 可能报告 `RTCAudioSession` 等 Objective-C 类重复定义。**运行时加载的是哪一份
+实现不确定，会影响麦克风/音频路由甚至导致崩溃。**不要依靠删除或重命名第三方
+二进制解决冲突。单包 SDK 现支持宿主在 **ios/Podfile 最顶部**
+（在安装 Flutter Pods 之前）配置：
+
+~~~ruby
+# 仅使用 LiveKit / Agora / TRTC / IVS 时，省略 Chime、ARTC 原生库：
+ENV['FRSDK_IOS_DISABLE_CHIME'] = '1'
+ENV['FRSDK_IOS_DISABLE_ARTC'] = '1'
+~~~
+
+执行 `cd ios && pod install` 使排除生效。SDK Podspec 将跳过这两家
+原生 Swift 插件及其 CocoaPods 依赖，自动注册也会同步关闭对应插件。
+这些选项**不影响 Android/Web**，但会令 iOS 上的 Chime 或 ARTC 功能
+不可用；若要使用它们，需要针对具体厂商构建不同 iOS 宿主版本，并
+单独验证同一宿主里的其他 WebRTC 依赖。默认不设置时仍加载全部厂商，
+不代表多框架运行时冲突已解决。更改开关后请重新运行 `pod install`，
+不要在多个构建配置间混用不同设置。
+
 如需受控或离线安装，可设置 `FLUTTER_REALTIME_SDK_IOS_OFFLINE=1`；
 也可以设置 `FLUTTER_REALTIME_SDK_IOS_ARCHIVE_CACHE` 指向包含两个
 `<sha256>.zip` 官方缓存包的文件夹。离线模式下缺失或校验失败会直接报错，

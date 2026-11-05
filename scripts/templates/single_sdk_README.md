@@ -306,6 +306,32 @@ Actual Agora RTC/Chat behavior still requires real-device testing.
 ARTC's current framework is device-only; this combined package does not
 support the iOS Simulator.
 
+### Isolating conflicting iOS WebRTC vendor binaries
+
+Bundling LiveKit's WebRTC framework, Amazon Chime Media and AliVCSDK_ARTC
+may produce duplicate Objective-C `RTC*` classes. This is a real runtime
+compatibility risk, not just a console warning. Do not strip or rename
+official vendor binaries.
+
+To ship an iOS host using LiveKit, Agora, TRTC and IVS **without** Chime or
+ARTC native binaries, add these lines at the very beginning of the
+application's `ios/Podfile` (before Flutter installs the Pods):
+
+```ruby
+ENV['FRSDK_IOS_DISABLE_CHIME'] = '1'
+ENV['FRSDK_IOS_DISABLE_ARTC'] = '1'
+```
+
+Run `cd ios && pod install` after changing these settings. The bundled
+Podspec then excludes those Swift plugin sources and CocoaPods dependencies,
+and Swift plugin registration skips their classes. **Chime and ARTC will no
+longer work on iOS in that host**; neither Android nor Web is affected.
+Hosts requiring Chime or ARTC should use distinct iOS build variants and
+validate other loaded WebRTC vendors separately. The default build retains
+all providers for backwards compatibility and is **not** proof that their
+Objective-C runtimes safely coexist. Keep flags consistent across all
+configurations.
+
 For controlled/offline builds, set `FLUTTER_REALTIME_SDK_IOS_OFFLINE=1`.
 Optionally set `FLUTTER_REALTIME_SDK_IOS_ARCHIVE_CACHE` to a directory containing
 the two official archives named `<sha256>.zip` using the manifest checksums.

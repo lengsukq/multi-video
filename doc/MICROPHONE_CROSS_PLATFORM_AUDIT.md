@@ -13,6 +13,44 @@
 | AWS Chime | **修复缺少 bindAudioElement 导致混音音频无法播放**；播放权限失败可在下次用户操作重试；未获得音频输入时明确报错 | playAndRecord 使用 defaultToSpeaker，首次连通时同步初始静音；修正取消静音失败消息 | 原生 Android / 桌面实际路由仍需设备回归 |
 | AWS IVS Real-Time | 默认静音与原生一致；设备切换保留原静音状态；远端自动播放被浏览器阻断后上报错误，并在用户手势后重试 | IVS Stage 原生麦克风 stream 默认静音，无可用麦克风时拒绝假开启 | 其他平台需检查原生 Stage 实现及音频路由 |
 
+## 2026-11-04 P0 根因：未使用 IVS 时插件注册抢占 iOS 音频会话
+
+### 现象与定位证据
+
+- 完整聚合 SDK 的 iPhone 12 Demo：尚未使用 Amazon IVS，仅进行原生 `AVAudioEngine` 录音诊断，就出现约 **0.28 秒后停止采集**（5 个缓冲区、24,000 帧，测试结束时 `engineRunning=false`）。本应维持的 `AVAudioSessionModeMeasurement` 被改成 `AVAudioSessionModeDefault`。
+- 最初通过 `FRSDK_IOS_DISABLE_CHIME=1`、`FRSDK_IOS_DISABLE_ARTC=1` 排除 Chime/ARTC 原生依赖，问题**仍可复现**。所以 Objective-C WebRTC 类重名虽然是独立高风险事项，却**不能直接当作这次 0.28 秒中断的已证实原因**。
+- 在 **仅用于定位的 Demo Debug 构建**中记录 `AVAudioSession` 的 `setActive`、`setCategory:mode:options:` 等 setter 调用栈，定位到：
+
+```text
+FlutterRealtimeMediaIvsPlugin.init
+  → IVSDeviceDiscovery.init
+  → AmazonIVSBroadcast
+  → AVAudioSession.setActive / setCategory:mode:options:
+```
+
+聚合包的 `FlutterRealtimeSdkPlugin.register` 会在 App 启动时注册多个厂商插件。旧 IVS 实现使用 `private var discovery = IVSDeviceDiscovery()`，**插件实例一创建，就会初始化 IVS 设备发现并重配置 App 进程全局共享的 `AVAudioSession`**，即使当前房间使用的是 LiveKit。这会干扰其他厂商的录音/播放引擎。
+
+### 修复及防回归
+
+1. 在 `packages/flutter_realtime_media_ivs/ios/flutter_realtime_media_ivs/Sources/flutter_realtime_media_ivs/FlutterRealtimeMediaIvsPlugin.swift` 中，将 `discovery` 改为可选成员，通过 `deviceDiscovery()` **首次真正需要 IVS 本地发布设备/屏幕源时才创建**；`leave()` 时置空。
+2. IVS `probeDevices`（入会前检查）使用 `AVCaptureDevice.devices(for: .video/.audio)` 获取数量，不再为了检查设备就初始化 IVS 音频会话。
+3. 通过 `scripts/tests/test_ios_ivs_audio_session_lifecycle.py` 限制注册、预检查不得提前创建 `IVSDeviceDiscovery`；`scripts/tests/test_ios_vendor_conflict_isolation.py` 同时保护 CocoaPods `exclude_files` setter 兼容性。
+4. 追踪 setter 的临时 Objective-C swizzle 已从最终 Demo 删除，**不可将全局音频拦截作为生产修复方案**。其他供应商仍会注册 Flutter MethodChannel，但不应在插件注册阶段占用共享音频会话。
+
+### 结果与边界
+
+| 测量项 | 修复前（完整插件宿主） | 修复后（完整插件注册、Chime/ARTC 暂隔离时） |
+| --- | --- | --- |
+| 原生 PCM 采集跨度 | 约 0.28 秒 | **约 2.88 秒** |
+| 采集缓冲区 | 5 | **31** |
+| 采样帧数 | 24,000 | **148,800** |
+| 诊断结束时引擎 | 停止 | **运行中** |
+| AVAudioSession mode | `Default` | **`Measurement`** |
+
+另以 LiveKit 自动创建两个参与者，已验证开麦、静音、再次开麦和对端收到**未静音音轨的发布信息**。此结果**不等于**对端扬声器实际出声、PCM/RTP 数据持续发送，也不等于六厂商双向通话全部通过；LiveKit `inputMixer` 入会前配置曾出现 Audio Device Module 尚不可用的日志，仍需用引擎/RTP 统计和两台设备复核。
+
+**正式发布**：`flutter_realtime_sdk 0.1.0-dev.24` 已上传 pub.dev；Demo 已改为从 pub.dev 获取该版本，而非本地 `path` 覆盖。之后恢复 Chime、ARTC 默认启用的完整 iOS 宿主，CocoaPods 安装和无签名编译通过；**由于测试 iPhone 锁屏，恢复后的原生 PCM 和真实双向音频尚未复测**，不能把全供应商共存标为运行时验收成功。
+
 ## iOS 多供应商二进制冲突
 
 同一 App 同时链接独立 `WebRTC.framework`、`AmazonChimeSDKMedia.framework`、`AliVCSDK_ARTC.framework` 时，iOS 日志已经报告 `RTCRtpCapabilities`、`RTCAudioSession` 等 Objective-C 类重名。
@@ -29,4 +67,4 @@
 
 ## 自动验证边界
 
-当前 SDK Web 桥接测试、LiveKit Flutter 单测、iOS 无签名编译已覆盖本轮修改所涉及的 API 结构。尚未完成六家供应商在所有目标平台上的双设备音量、扬声器和录制实测。已发布的 `0.1.0-dev.21` 不会被 Git 修改自动更新，以上音频修复须在新的预览版本发布后才能被外部 Demo 消费。
+SDK 架构/发行工具 94 项测试、44 个内部包逐包检查、Edge 浏览器回归、`0.1.0-dev.24` 发布包分析及 pub.dev dry-run 均已通过。Demo 使用正式 dev.24 依赖完成 iOS 全供应商无签名构建。尚未完成六家供应商在所有目标平台上的双设备音量、扬声器、PCM/RTP 与录制实测；新发布包不会替代这些运行时验收。

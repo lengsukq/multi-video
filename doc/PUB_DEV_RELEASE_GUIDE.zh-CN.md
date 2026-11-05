@@ -1,12 +1,17 @@
 # Flutter Realtime SDK — pub.dev 单包发布清单
 
-> **当前发布形态（2026-11-03）：** 对外唯一发布物是聚合包
-> [`flutter_realtime_sdk 0.1.0-dev.15`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.15)，
-> 已于 2026-11-03 发布。44 个内部源码模块与根目录 tooling workspace
-> 均保持 `publish_to: none`，不逐个发布。dev.15 在既有会议模式、
-> 内容共享及 Web 白板修复的基础上，解决 iOS 单包 CocoaPods/Agora
-> `aosl` 冲突和头文件导出问题，并修复移动端白板双指缩放跳动。
-> Windows/Linux、真实设备/供应商 E2E 和第三方许可审查仍是独立验收项。
+> **当前发布形态（2026-11-05）：** 对外唯一发布物是聚合包
+> [`flutter_realtime_sdk 0.1.0-dev.25`](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.25)，
+> pub.dev 已确认上传成功，独立 Demo 已从正式依赖仓库解析成功。
+> 44 个内部源码模块与根目录 tooling workspace
+> 均保持 `publish_to: none`，不逐个发布。dev.25 优化课堂工具弹窗、
+> 课堂统计卡片、直播无效聊天入口与分段控件窄屏布局；dev.24 修复 Amazon IVS
+> 在插件注册时抢占全局 iOS `AVAudioSession` 的 P0 问题；
+> Chime/ARTC 可在单包中默认启用，完整 iOS 编译通过。
+> Windows/Linux、恢复全部厂商后的 iOS PCM/RTP、真实设备双向声音
+> 和第三方许可审查仍是独立验收项，不可由上传/编译成功替代。
+> 本次发布的架构检查、94 项 Python 测试、内部 Flutter 包质量检查、pub.dev dry-run（0 警告）通过；
+> 当前主机缺少 Chrome，可执行的 VM 回归已通过，Chrome 浏览器测试未执行成功。
 >
 > 以下 dev.4–dev.9 条目是按时间保留的历史记录，不是当前发布状态；
 > 不要对已发布版本目录重新发布。下一个版本必须使用新的显式版本号，
@@ -19,20 +24,24 @@
 
 ```yaml
 dependencies:
-  flutter_realtime_sdk: ^0.1.0-dev.15
+  flutter_realtime_sdk: 0.1.0-dev.25
 ```
 
 只需导入 `package:flutter_realtime_sdk/flutter_realtime_sdk.dart`。
 发布构建由发行脚本聚合源码模块、Provider、可选 UI、Preset 和平台资源，
 开发时仍保留分层的多包结构；这两种形态不可混用。
 
-**dev.15 iOS 配置：** 当前聚合包采用 CocoaPods，请在宿主
+**dev.24 及后续 iOS 配置：** 当前聚合包采用 CocoaPods，请在宿主
 `pubspec.yaml` 禁用该工程的 SwiftPM：
 `flutter.config.enable-swift-package-manager: false`。
 在 `ios/Podfile` 使用 `pre_install` 调用
 `FlutterRealtimeSdk::PodfileIntegration.prepare_agora_infrastructure!(installer)`，
 完整示例见 [第三方接入指南](APP_INTEGRATION_QUICKSTART.zh-CN.md)。
 不再使用 dev.13 的私有头文件重写 workaround。
+若宿主需要在调试时排除 Chime/ARTC，Podfile 可在安装 Pods 前设置
+`FRSDK_IOS_DISABLE_CHIME=1` / `FRSDK_IOS_DISABLE_ARTC=1`；
+**默认全部启用只是构建成功，不代表已解决 Objective-C `RTC*` 符号重名**。
+P0 根因、修复和测试范围见 [麦克风跨平台审查](MICROPHONE_CROSS_PLATFORM_AUDIT.md)。
 
 ---
 
@@ -79,7 +88,7 @@ python3 scripts/verify_single_sdk_web_assets.py \
   --web-build build/single_sdk_web_smoke/build/web
 ```
 
-dev.6 Web 资源修复允许第三方宿主不再复制 SDK 内部的 `web/models`、`web/wasm`；当前接入请使用 **`flutter_realtime_sdk: ^0.1.0-dev.15`**。仍需配置
+dev.6 Web 资源修复允许第三方宿主不再复制 SDK 内部的 `web/models`、`web/wasm`；当前接入请使用 **`flutter_realtime_sdk: 0.1.0-dev.25`**。仍需配置
 `RealtimeRoomServices(videoEffectsFactory: DefaultRealtimeVideoEffects.new)`
 及摄像头权限、HTTPS 或 localhost。此修复仅修改单包的资源组装方式，
 并不改变内部源码包的模型路径。
