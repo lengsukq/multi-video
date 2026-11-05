@@ -118,6 +118,7 @@ void main() {
 
       final host = hostRoom.session as InteractiveMediaSession;
       await host.setMuted(false).timeout(const Duration(seconds: 15));
+      expect(hostRoom.session.snapshot.localMuted, isFalse);
       await host.setVideoEnabled(true).timeout(const Duration(seconds: 15));
       await host
           .switchCamera(MediaCameraPosition.back)
@@ -142,6 +143,9 @@ void main() {
 
       await host.setVideoEnabled(false).timeout(const Duration(seconds: 15));
       await host.setMuted(true).timeout(const Duration(seconds: 15));
+      expect(hostRoom.session.snapshot.localMuted, isTrue);
+      await host.setMuted(false).timeout(const Duration(seconds: 15));
+      expect(hostRoom.session.snapshot.localMuted, isFalse);
     } finally {
       if (viewerRoom != null) {
         await viewerRoom.dispose().timeout(const Duration(seconds: 10));

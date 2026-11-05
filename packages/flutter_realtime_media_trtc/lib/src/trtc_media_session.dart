@@ -202,10 +202,8 @@ abstract class _TrtcSessionBase
           _joinInfo = await _credentials._refreshCredentials(_joinInfo!);
         }
       }
-      if (role.canPublishMedia) {
-        _engine!.startLocalAudio();
-        _engine!.muteLocalAudio(true);
-      }
+      // Microphone capture is deliberately lazy. The participant explicitly
+      // unmutes via InteractiveMediaSession.setMuted(false).
       _setSnapshot(
         _snapshot.copyWith(
           participants: [
@@ -298,6 +296,7 @@ abstract class _TrtcSessionBase
       // refreshed credential. The next enter attempt remains the final check.
     } finally {
       _enterRequested = false;
+      _publishing._audioStarted = false;
     }
   }
 

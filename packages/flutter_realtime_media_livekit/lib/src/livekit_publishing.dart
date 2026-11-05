@@ -109,15 +109,44 @@ class _LiveKitPublishing {
     if (!capabilities.canPublishAudio) _unsupported('microphone publishing');
     try {
       final local = _session._requireLocalParticipant();
-      await local.setMicrophoneEnabled(!muted);
+      // Do not tear down the underlying capture source on every mute. On
+      // Web/iOS, restarting the captured track after a mute can succeed at the
+      // API level while the resumed media source remains silent. Disabling
+      // transmission without stopping capture avoids that restart path.
+      // LiveKit still sends the proper track muted/unmuted notifications.
+      final updatedPublication = await local.setMicrophoneEnabled(
+        !muted,
+        audioCaptureOptions: const lk.AudioCaptureOptions(
+          stopAudioCaptureOnMute: false,
+        ),
+      );
+      // LiveKit's returned LocalTrackPublication is authoritative for the
+      // completed operation. In particular, LocalTrackPublication.track is
+      // nullable and must not be mistaken for a failed publish on iOS.
+      final microphone =
+          local.getTrackPublicationBySource(lk.TrackSource.microphone) ??
+          updatedPublication;
+      final actualMuted = microphone?.track?.muted ?? microphone?.muted ?? true;
+      debugPrint(
+        '[realtime/livekit] microphone operation on iOS='
+        '${!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS}: '
+        'requestedMuted=$muted returned=${updatedPublication != null} '
+        'returnedSid=${updatedPublication?.sid} '
+        'returnedMuted=${updatedPublication?.muted} '
+        'returnedTrackMuted=${updatedPublication?.track?.muted} '
+        'published=${microphone != null} '
+        'sid=${microphone?.sid} source=${microphone?.source} '
+        'muted=${microphone?.muted} '
+        'trackPresent=${microphone?.track != null} '
+        'trackMuted=${microphone?.track?.muted} '
+        'effectiveMuted=$actualMuted '
+        'allAudio=${local.audioTrackPublications.map((p) => "${p.sid}:${p.source}:${p.muted}:${p.track?.muted}").toList()}',
+      );
       if (!muted) {
         // A successful method call alone is not proof that a microphone track
         // exists on the LiveKit participant. Never advertise an unmuted mic
         // when nothing can reach a remote Web/iOS subscriber.
-        final microphone = local.getTrackPublicationBySource(
-          lk.TrackSource.microphone,
-        );
-        if (microphone == null || microphone.muted || microphone.track == null) {
+        if (microphone == null || actualMuted) {
           throw const RealtimeException(
             code: RealtimeErrorCode.providerError,
             message: 'LiveKit did not publish an active microphone track.',
@@ -127,11 +156,44 @@ class _LiveKitPublishing {
             suggestedAction: 'check-microphone-permission',
           );
         }
+      } else {
+        // On some Apple audio-session paths the provider can complete the
+        // command without muting its local microphone publication. Never
+        // report a successful mute while capture is still being transmitted.
+        if (microphone != null && !actualMuted) {
+          throw const RealtimeException(
+            code: RealtimeErrorCode.providerError,
+            message: 'LiveKit microphone remained unmuted after mute.',
+            providerId: LiveKitJoinInfo.providerIdValue,
+            operation: 'setMuted',
+            recoverable: true,
+          );
+        }
       }
       _session._mapper._refreshSnapshot();
       _session._emit(MediaLocalMediaChanged(muted: muted));
+      // Lazily monitors this existing capture track only when a diagnostic
+      // listener subscribes. Never starts a second microphone stream.
+      unawaited(_session._microphoneMeter.refresh());
     } catch (error, stack) {
-      throw _session._mapError(error, 'setMuted', stackTrace: stack);
+      // The provider may have completed a mute-state transition before a
+      // separate validation failed. Reconcile the UI with actual RTC state.
+      _session._mapper._refreshSnapshot();
+      // The UI deliberately presents a short provider-neutral error. Keep
+      // the actual native/browser failure visible in debug logs instead of
+      // reducing every first-unmute problem to `livekit.setMuted failed.`.
+      final publication = _session._room?.localParticipant
+          ?.getTrackPublicationBySource(lk.TrackSource.microphone);
+      debugPrint(
+        '[realtime/livekit] microphone ${muted ? 'mute' : 'unmute'} failed: '
+        '${error.runtimeType}: $error; '
+        'session=${_session.state.name} '
+        'published=${publication != null} '
+        'publicationMuted=${publication?.muted} '
+        'trackPresent=${publication?.track != null}',
+      );
+      final failure = _session._mapError(error, 'setMuted', stackTrace: stack);
+      throw failure;
     }
   }
 

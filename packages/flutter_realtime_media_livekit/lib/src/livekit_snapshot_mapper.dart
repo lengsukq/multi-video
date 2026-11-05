@@ -13,6 +13,16 @@ class _LiveKitSnapshotMapper {
   MediaSnapshot get snapshot => _session.snapshot;
   Duration get cleanupTimeout => _session.cleanupTimeout;
 
+  // On iOS LiveKit's publication.muted is metadata updated by a track event.
+  // The local track's muted value changes synchronously during setMuted().
+  // Reading publication.muted in that same call can return the PREVIOUS value.
+  bool _localMicrophoneMuted(lk.LocalParticipant? participant) {
+    final publication = participant?.getTrackPublicationBySource(
+      lk.TrackSource.microphone,
+    );
+    return publication?.track?.muted ?? publication?.muted ?? true;
+  }
+
   void _refreshSnapshot({bool clearLastError = false}) {
     final room = _session._room;
     if (room == null) return;
@@ -34,7 +44,10 @@ class _LiveKitSnapshotMapper {
         messages: _session._snapshot.messages,
         localParticipantId:
             local?.identity ?? _session._joinInfo?.participantId,
-        localMuted: local?.isMuted ?? true,
+        // Participant.isMuted reads the first audio publication, which can
+        // be screen-share audio rather than the microphone. The room controls
+        // specifically toggle TrackSource.microphone.
+        localMuted: _localMicrophoneMuted(local),
         localVideoEnabled: local?.isCameraEnabled() ?? false,
         localScreenShareEnabled: localScreenShareEnabled,
         contentShareTrack: screenShare,
@@ -54,7 +67,7 @@ class _LiveKitSnapshotMapper {
           ? fallbackName
           : participant.identity,
       isLocal: true,
-      isMuted: participant.isMuted,
+      isMuted: _localMicrophoneMuted(participant),
       isVideoEnabled: participant.isCameraEnabled(),
       isSpeaking:
           _activeSpeakerIds?.contains(participant.identity) ??
@@ -70,7 +83,7 @@ class _LiveKitSnapshotMapper {
         displayName: participant.name.isEmpty
             ? participant.identity
             : participant.name,
-        isMuted: participant.isMuted,
+        isMuted: !participant.isMicrophoneEnabled(),
         isVideoEnabled: participant.isCameraEnabled(),
         isSpeaking:
             _activeSpeakerIds?.contains(participant.identity) ??

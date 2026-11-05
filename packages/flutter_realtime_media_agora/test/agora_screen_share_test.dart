@@ -21,6 +21,8 @@ class _ScreenEngine extends Fake implements agora.RtcEngine {
   int startCount = 0;
   int stopCount = 0;
   int updates = 0;
+  final List<bool> captureEnableCalls = [];
+  final List<bool> audioMuteCalls = [];
   bool failStart = false;
   final List<Uint8List> announcedMessages = [];
   final List<int> selectedDesktopDisplays = [];
@@ -59,6 +61,14 @@ class _ScreenEngine extends Fake implements agora.RtcEngine {
 
   @override
   Future<void> enableAudio() async {}
+  @override
+  Future<void> enableLocalAudio(bool enabled) async {
+    captureEnableCalls.add(enabled);
+  }
+  @override
+  Future<void> muteLocalAudioStream(bool mute) async {
+    audioMuteCalls.add(mute);
+  }
   @override
   Future<void> enableVideo() async {}
   @override
@@ -130,6 +140,21 @@ void main() {
   });
   tearDown(() {
     debugDefaultTargetPlatformOverride = null;
+  });
+
+  test('muting audio never restarts native capture or receiver', () async {
+    final engine = _ScreenEngine();
+    final session = AgoraInteractiveSession(engineFactory: () => engine);
+    await session.join(_credential());
+    await session.setMuted(false);
+    await session.setMuted(true);
+    await session.setMuted(false);
+    expect(engine.audioMuteCalls, [false, true, false]);
+    expect(engine.captureEnableCalls, isEmpty,
+        reason: 'enableLocalAudio restarts the native capture/audio route');
+    expect(session.snapshot.localMuted, isFalse);
+    expect(engine.mediaOptions.last.publishMicrophoneTrack, isTrue);
+    await session.dispose();
   });
 
   test(

@@ -6,7 +6,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+    show TargetPlatform, defaultTargetPlatform, kIsWeb, debugPrint;
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
@@ -24,6 +24,7 @@ import 'package:flutter_realtime_processed_video/flutter_realtime_processed_vide
 part 'livekit_publishing.dart';
 part 'livekit_data_messenger.dart';
 part 'livekit_event_adapter.dart';
+part 'livekit_microphone_levels.dart';
 part 'livekit_snapshot_mapper.dart';
 
 part 'livekit_capabilities.dart';
@@ -49,7 +50,10 @@ abstract class LiveKitMediaSessionBase
         MediaDataMessenger,
         MediaAdvancedDataMessenger,
         MediaDeviceController,
-        MediaStatsProvider {
+        MediaStatsProvider,
+        MediaMicrophoneSignalLevels,
+        MediaAudioEngineDiagnostics,
+        MediaAudioRtpDiagnostics {
   LiveKitMediaSessionBase({
     required this.role,
     required MediaCapabilities capabilities,
@@ -82,6 +86,99 @@ abstract class LiveKitMediaSessionBase
   late final _data = _LiveKitDataMessenger(this);
   late final _eventAdapter = _LiveKitEventAdapter(this);
   late final _mapper = _LiveKitSnapshotMapper(this);
+  late final _microphoneMeter = _LiveKitMicrophoneLevels(this);
+
+  @override
+  Stream<double> get microphoneLevels => _microphoneMeter.levels;
+
+  // LiveKit receives these two flags from actual native iOS audio-engine
+  // lifecycle events; no RTC publication/speaking guess is involved.
+  @override
+  MediaAudioEngineReport get audioEngineReport {
+    final manager = lk.AudioManager.instance;
+    // LiveKit 2.13 exposes native engine lifecycle state as experimental;
+    // this diagnostic deliberately uses it instead of inferring from tracks.
+    // ignore: experimental_member_use
+    final engine = manager.audioEngineState;
+    final remoteAudio = _room?.remoteParticipants.values
+        .expand((participant) => participant.audioTrackPublications)
+        .toList();
+    return MediaAudioEngineReport(
+      recordingEnabled: engine.isRecordingEnabled,
+      playoutEnabled: engine.isPlayoutEnabled,
+      audioSessionMode: manager.managementMode.name,
+      speakerPreferred: manager.isSpeakerOutputPreferred,
+      remoteAudioPublished: remoteAudio?.length ?? 0,
+      remoteAudioSubscribed: remoteAudio
+              ?.where((publication) => publication.subscribed && publication.track != null)
+              .length ??
+          0,
+    );
+  }
+
+  @override
+  Stream<MediaAudioEngineReport> get audioEngineReports =>
+      Stream<MediaAudioEngineReport>.periodic(
+        const Duration(milliseconds: 700),
+        (_) => audioEngineReport,
+      );
+
+  @override
+  Future<MediaAudioRtpReport> readAudioRtpReport() async {
+    final publication = _room?.localParticipant
+        ?.getTrackPublicationBySource(lk.TrackSource.microphone);
+    final microphone = publication?.track;
+    final sender = microphone is lk.LocalAudioTrack
+        ? await microphone.getSenderStats()
+        : null;
+    final captureTrack = microphone is lk.LocalAudioTrack
+        ? microphone.mediaStreamTrack
+        : null;
+    final senderTrack =
+        microphone is lk.LocalAudioTrack ? microphone.sender?.track : null;
+
+    num? receivedPackets;
+    num? receivedBytes;
+    num? receivedEnergy;
+    var remoteTrackCount = 0;
+    for (final participant in _room?.remoteParticipants.values ??
+        <lk.RemoteParticipant>[]) {
+      for (final publication in participant.audioTrackPublications) {
+        final track = publication.track;
+        if (track is! lk.RemoteAudioTrack) continue;
+        remoteTrackCount++;
+        final stats = await track.getReceiverStats();
+        if (stats == null) continue;
+        if (stats.packetsReceived != null) {
+          receivedPackets = (receivedPackets ?? 0) + stats.packetsReceived!;
+        }
+        if (stats.bytesReceived != null) {
+          receivedBytes = (receivedBytes ?? 0) + stats.bytesReceived!;
+        }
+        if (stats.totalAudioEnergy != null) {
+          receivedEnergy = (receivedEnergy ?? 0) + stats.totalAudioEnergy!;
+        }
+      }
+    }
+    return MediaAudioRtpReport(
+      microphoneTrackPresent: microphone is lk.LocalAudioTrack,
+      microphoneTrackMuted: microphone?.muted,
+      captureTrackEnabled: captureTrack?.enabled,
+      senderTrackPresent: senderTrack != null,
+      senderTrackEnabled: senderTrack?.enabled,
+      senderMatchesCapture: captureTrack == null || senderTrack == null
+          ? null
+          : senderTrack.id == captureTrack.id,
+      outboundPackets: sender?.packetsSent,
+      outboundBytes: sender?.bytesSent,
+      inputAudioLevel: sender?.audioSourceStats?.audioLevel,
+      inputAudioEnergy: sender?.audioSourceStats?.totalAudioEnergy,
+      remoteAudioTracks: remoteTrackCount,
+      inboundPackets: receivedPackets,
+      inboundBytes: receivedBytes,
+      receivedAudioEnergy: receivedEnergy,
+    );
+  }
 
   @override
   final MediaRole role;
@@ -203,6 +300,32 @@ abstract class LiveKitMediaSessionBase
     _setState(MediaSessionState.connecting);
     try {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        // LiveKit 2.13's default voiceProcessing mute mode can reconfigure
+        // the Apple voice-processing I/O when the first microphone is
+        // enabled, interrupting otherwise healthy remote playback. Official
+        // guidance pairs inputMixer with stopAudioCaptureOnMute: false to
+        // keep the native engine/session stable through mute toggles.
+        // Must be configured BEFORE the room connects/starts audio.
+        try {
+          final audioManager = lk.AudioManager.instance;
+          final previousMode = await audioManager.getMicrophoneMuteMode();
+          if (previousMode != lk.MicrophoneMuteMode.inputMixer) {
+            await audioManager.setMicrophoneMuteMode(
+              lk.MicrophoneMuteMode.inputMixer,
+            );
+          }
+          final currentMode = await audioManager.getMicrophoneMuteMode();
+          debugPrint(
+            '[IOS_AUDIO_MODE] muteMode=$previousMode -> $currentMode '
+            'sessionManagement=${audioManager.managementMode.name} '
+            'speakerPreferred=${audioManager.isSpeakerOutputPreferred}',
+          );
+        } catch (error, stack) {
+          // An unsupported native mute mode must not block joining. Keep the
+          // failure explicit so real-device diagnostics can distinguish
+          // configured inputMixer from the old voiceProcessing behavior.
+          debugPrint('[IOS_AUDIO_MODE] inputMixer unavailable: $error\n$stack');
+        }
         // A playAndRecord call can route remote audio to the quiet receiver
         // instead of the loudspeaker. Prefer speaker for meeting audio while
         // leaving wired and Bluetooth headsets higher priority. LiveKit owns
@@ -351,6 +474,7 @@ abstract class LiveKitMediaSessionBase
     await cleanup.run('stats', () async {
       await _statsController.close();
     });
+    await cleanup.run('microphone.levels', _microphoneMeter.dispose);
     cleanup.finish(domain: providerId);
   }
 
@@ -469,6 +593,7 @@ abstract class LiveKitMediaSessionBase
   }
 
   Future<void> _tearDownRoom() async {
+    await _microphoneMeter.stop();
     final room = _room;
     final listener = _listener;
     _listener = null;

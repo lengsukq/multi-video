@@ -192,7 +192,10 @@ class _AgoraPublishing {
     _ensurePublisherActive('microphone');
     final engine = _session._requireEngine();
     try {
-      await engine.enableLocalAudio(!muted);
+      // Do not stop/recreate the iOS audio capture engine for ordinary mute.
+      // Agora documents that enableLocalAudio(false/true) can interrupt
+      // remote playout; muteLocalAudioStream only changes publication.
+      // Audio capture is already enabled by the engine's default policy.
       await engine.muteLocalAudioStream(muted);
       _localMuted = muted;
       await _updatePublishOptions();

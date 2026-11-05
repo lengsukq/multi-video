@@ -58,6 +58,9 @@ class _TrtcSnapshotMapper {
       onUserAudioAvailable: (id, available) {
         if (currentLease()) _remoteAudioAvailable(id, available);
       },
+      onAudioLevels: (volumes) {
+        if (currentLease()) _applyAudioLevels(volumes);
+      },
       onRecvCustomCmdMsg: (id, command, message) {
         if (currentLease()) {
           _session._data._messageReceived(id, command, message);
@@ -180,7 +183,43 @@ class _TrtcSnapshotMapper {
       participant = _findParticipant(userId);
     }
     if (participant == null) return;
-    _replaceParticipant(participant.copyWith(isMuted: !available));
+    _replaceParticipant(
+      participant.copyWith(
+        isMuted: !available,
+        isSpeaking: available && participant.isSpeaking,
+      ),
+    );
+    if (!available && participant.isSpeaking) {
+      _session._eventController.add(
+        MediaSpeakingChanged(participantId: userId, isSpeaking: false),
+      );
+    }
+  }
+
+  void _applyAudioLevels(Map<String, int> volumes) {
+    const speakingThreshold = 12;
+    final changed = <String, bool>{};
+    final updated = <MediaParticipant>[
+      for (final participant in _session._snapshot.participants)
+        (() {
+          final key = participant.isLocal ? '' : participant.id;
+          final volume =
+              volumes[key] ??
+              (participant.isLocal ? volumes[participant.id] ?? 0 : 0);
+          final speaking = !participant.isMuted && volume >= speakingThreshold;
+          if (speaking != participant.isSpeaking) {
+            changed[participant.id] = speaking;
+          }
+          return participant.copyWith(isSpeaking: speaking);
+        })(),
+    ];
+    if (changed.isEmpty) return;
+    _session._setSnapshot(_session._snapshot.copyWith(participants: updated));
+    for (final entry in changed.entries) {
+      _session._eventController.add(
+        MediaSpeakingChanged(participantId: entry.key, isSpeaking: entry.value),
+      );
+    }
   }
 
   void _remoteScreenShareAvailable(String userId, bool available) {

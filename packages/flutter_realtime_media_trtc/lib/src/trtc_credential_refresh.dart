@@ -82,8 +82,10 @@ class _TrtcCredentialRefresh {
       }
       if (!currentLease()) return;
       if (role.canPublishMedia) {
-        _session._engine!.startLocalAudio();
-        _session._engine!.muteLocalAudio(_session._snapshot.localMuted);
+        if (!_session._snapshot.localMuted) {
+          _session._publishing._ensureAudioStarted();
+          _session._engine!.muteLocalAudio(false);
+        }
         if (_session._snapshot.localVideoEnabled) {
           _session._engine!.muteLocalVideo(false);
         }

@@ -6,6 +6,7 @@ import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 import 'package:tencent_rtc_sdk/trtc_cloud.dart';
 import 'package:tencent_rtc_sdk/trtc_cloud_def.dart';
 import 'package:tencent_rtc_sdk/trtc_cloud_listener.dart';
+import 'package:tencent_rtc_sdk/tx_device_manager.dart';
 
 import 'trtc_join_info.dart';
 
@@ -45,6 +46,7 @@ class TrtcEngineEvents {
     this.onUserVideoAvailable,
     this.onUserSubStreamAvailable,
     this.onUserAudioAvailable,
+    this.onAudioLevels,
     this.onRecvCustomCmdMsg,
     this.onConnectionLost,
     this.onTryToReconnect,
@@ -58,6 +60,9 @@ class TrtcEngineEvents {
   final void Function(String userId, bool available)? onUserVideoAvailable;
   final void Function(String userId, bool available)? onUserSubStreamAvailable;
   final void Function(String userId, bool available)? onUserAudioAvailable;
+
+  /// Per-user microphone volume, with the local participant identified by ''.
+  final void Function(Map<String, int> volumes)? onAudioLevels;
   final void Function(String userId, int commandId, String data)?
   onRecvCustomCmdMsg;
   final void Function()? onConnectionLost;
@@ -105,6 +110,9 @@ class _NativeTrtcEngine implements TrtcEngine {
         _events.onUserSubStreamAvailable?.call(userId, available),
     onUserAudioAvailable: (userId, available) =>
         _events.onUserAudioAvailable?.call(userId, available),
+    onUserVoiceVolume: (volumes, _) => _events.onAudioLevels?.call({
+      for (final info in volumes) info.userId: info.volume,
+    }),
     onRecvCustomCmdMsg: (userId, commandId, _, data) =>
         _events.onRecvCustomCmdMsg?.call(userId, commandId, data),
     onConnectionLost: () => _events.onConnectionLost?.call(),
@@ -177,6 +185,26 @@ class _NativeTrtcEngine implements TrtcEngine {
       _registered = true;
     }
     cloud.setDefaultStreamRecvMode(true, true);
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      // iOS can switch from the loudspeaker to the quiet receiver when
+      // microphone capture begins. TRTC owns its audio session; use its
+      // device manager rather than mutating AVAudioSession in the host.
+      final routeResult = cloud.getDeviceManager().setAudioRoute(
+        TXAudioRoute.speakerPhone,
+      );
+      if (routeResult != 0) {
+        // A routing failure must not prevent RTC room entry.
+        // The audio route is also reported by the Demo's iOS diagnostics.
+        // ignore: avoid_print
+        print('[TRTC_IOS_AUDIO] speaker route failed: $routeResult');
+      }
+    }
+    // Vendor documentation: enable volume callbacks before starting audio.
+    // This also measures remote speakers when the local microphone is off.
+    cloud.enableAudioVolumeEvaluation(
+      true,
+      TRTCAudioVolumeEvaluateParams(interval: 300),
+    );
     final completer = Completer<int>();
     _enterCompleter = completer;
     _enterRequested = true;
@@ -215,14 +243,28 @@ class _NativeTrtcEngine implements TrtcEngine {
     } on TimeoutException {
       // Permit cleanup and re-entry even when the SDK misses the exit callback.
     } finally {
+      cloud.enableAudioVolumeEvaluation(
+        false,
+        TRTCAudioVolumeEvaluateParams(interval: 0),
+      );
       _enterRequested = false;
       _exitCompleter = null;
     }
   }
 
   @override
-  void startLocalAudio() =>
-      _cloud!.startLocalAudio(TRTCAudioQuality.defaultMode);
+  void startLocalAudio() {
+    _cloud!.startLocalAudio(TRTCAudioQuality.defaultMode);
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      final result = _cloud!.getDeviceManager().setAudioRoute(
+        TXAudioRoute.speakerPhone,
+      );
+      if (result != 0) {
+        // ignore: avoid_print
+        print('[TRTC_IOS_AUDIO] speaker route after start failed: $result');
+      }
+    }
+  }
 
   @override
   void muteLocalAudio(bool muted) => _cloud!.muteLocalAudio(muted);

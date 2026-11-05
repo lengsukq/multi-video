@@ -14,14 +14,23 @@ class _LiveKitEventAdapter {
     final listener = room.createListener();
     _session._listener = listener;
     listener.on<lk.RoomReconnectingEvent>((_) {
-      _session._setState(MediaSessionState.reconnecting);
+      _session._setState(
+        MediaSessionState.reconnecting,
+        reason: 'livekit.transportReconnecting',
+      );
     });
     listener.on<lk.RoomResumingEvent>((_) {
-      _session._setState(MediaSessionState.reconnecting);
+      _session._setState(
+        MediaSessionState.reconnecting,
+        reason: 'livekit.transportResuming',
+      );
     });
     listener.on<lk.RoomReconnectedEvent>((_) {
       _session._mapper._refreshSnapshot();
-      _session._setState(MediaSessionState.connected);
+      _session._setState(
+        MediaSessionState.connected,
+        reason: 'livekit.transportReconnected',
+      );
     });
     listener.on<lk.RoomDisconnectedEvent>((event) {
       if (state == MediaSessionState.leaving ||

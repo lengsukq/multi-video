@@ -217,6 +217,11 @@ abstract class _AgoraMediaSession
       engine.registerEventHandler(handler);
       await engine.enableAudio();
       _ensureJoinNotCancelled();
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        // Agora's voice profiles may default to the quiet receiver. Set the
+        // meeting's default route before join without overriding headsets.
+        await engine.setDefaultAudioRouteToSpeakerphone(true);
+      }
       await engine.enableVideo();
       _ensureJoinNotCancelled();
       await engine.enableAudioVolumeIndication(

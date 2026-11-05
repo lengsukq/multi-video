@@ -116,6 +116,27 @@ void main() {
     },
   );
 
+  test('TRTC microphone captures only after explicit unmute', () async {
+    final engine = _FakeTrtcEngine();
+    final session = TrtcSessionFactory(
+      engineFactory: () async => engine,
+    ).createSession(joinInfo());
+    addTearDown(session.dispose);
+    await session.join(joinInfo());
+    final publishing = session as InteractiveMediaSession;
+    expect(session.snapshot.localMuted, isTrue);
+    expect(engine.calls, isNot(contains('audio:start')));
+    await publishing.setMuted(true);
+    expect(engine.calls, isNot(contains('audio:start')));
+    await publishing.setMuted(false);
+    expect(engine.calls, contains('audio:start'));
+    expect(engine.calls, contains('audio:mute:false'));
+    await publishing.setMuted(true);
+    await publishing.setMuted(false);
+    expect(engine.calls.where((call) => call == 'audio:start'), hasLength(1));
+    await session.leave();
+  });
+
   test(
     'leave cancels a pending TRTC enter without reviving the room',
     () async {
@@ -243,6 +264,11 @@ void main() {
       expect(session.state, MediaSessionState.connected);
       expect(session.snapshot.localParticipantId, 'u-person1');
       expect(engine.enteredRooms, hasLength(1));
+      expect(
+        engine.calls,
+        isNot(contains('audio:start')),
+        reason: 'TRTC must not capture audio while joining muted',
+      );
 
       final interactive = session as InteractiveMediaSession;
       await interactive.setMuted(false);
@@ -298,6 +324,23 @@ void main() {
       expect(remote.isVideoEnabled, isTrue);
       expect(remote.isMuted, isFalse);
       expect(remote.videoTrack, isA<TrtcMediaVideoTrack>());
+
+      // Tencent's onUserVoiceVolume uses an empty userId for local input.
+      // Speaking must reflect real volume callbacks, not the mute button.
+      engineEvents.onAudioLevels?.call({'': 48, 'u-remote': 55});
+      expect(
+        session.snapshot.participants.firstWhere((p) => p.isLocal).isSpeaking,
+        isTrue,
+      );
+      expect(session.snapshot.remoteParticipants.single.isSpeaking, isTrue);
+      engineEvents.onAudioLevels?.call({'': 0, 'u-remote': 0});
+      expect(
+        session.snapshot.participants.firstWhere((p) => p.isLocal).isSpeaking,
+        isFalse,
+      );
+      expect(session.snapshot.remoteParticipants.single.isSpeaking, isFalse);
+      await Future<void>.delayed(Duration.zero);
+      expect(events.whereType<MediaSpeakingChanged>(), hasLength(4));
 
       final remoteTrack = remote.videoTrack! as TrtcMediaVideoTrack;
       remoteTrack.startRendering(77);

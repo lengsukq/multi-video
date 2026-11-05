@@ -3,6 +3,16 @@ part of 'trtc_media_session.dart';
 class _TrtcPublishing {
   _TrtcPublishing(this._session);
   final _TrtcSessionBase _session;
+  bool _audioStarted = false;
+
+  void _ensureAudioStarted() {
+    if (_audioStarted) return;
+    // TRTC startLocalAudio() immediately starts capture and publication.
+    // Do not request microphone permission when entering a muted room.
+    _session._engine!.startLocalAudio();
+    _audioStarted = true;
+  }
+
   String get providerId => _session.providerId;
   MediaCapabilities get capabilities => _session.capabilities;
   MediaRole get role => _session.role;
@@ -124,7 +134,8 @@ class _TrtcPublishing {
   Future<void> setMuted(bool muted) async {
     _session._requireConnected();
     try {
-      _session._engine!.muteLocalAudio(muted);
+      if (!muted) _ensureAudioStarted();
+      if (_audioStarted) _session._engine!.muteLocalAudio(muted);
       final info = _session._joinInfo!;
       final local = _session._mapper._findParticipant(info.userId);
       if (local != null) {
