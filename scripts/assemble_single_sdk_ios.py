@@ -109,7 +109,22 @@ def run() -> dict:
     tools = OUT / "tool"
     tools.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "scripts/setup_ios_broadcast_extension.rb", tools / "setup_ios_broadcast_extension.rb")
-    registrations = "\n".join(f"    {classname}.register(with: registrar)" for _, classname in native)
+    # Swift must not reference the plugin class of a CocoaPods-excluded vendor.
+    # Unlike renaming vendor RTC* Objective-C classes, this isolates the whole
+    # official framework, so a LiveKit-based host can omit conflicting binaries.
+    optional_flags = {
+        "flutter_aws_chime": "FRSDK_DISABLE_CHIME",
+        "flutter_realtime_media_artc": "FRSDK_DISABLE_ARTC",
+    }
+    registrations = "\n".join(
+        (
+            f"    #if !{optional_flags[name]}\n"
+            f"    {classname}.register(with: registrar)\n"
+            "    #endif"
+        ) if name in optional_flags
+        else f"    {classname}.register(with: registrar)"
+        for name, classname in native
+    )
     classes.mkdir(parents=True, exist_ok=True)
     (classes / "FlutterRealtimeSdkPlugin.swift").write_text(
         "import Flutter\nimport Foundation\n\n"
@@ -120,12 +135,23 @@ def run() -> dict:
     )
     pod_lines = []
     for module, constraint in sorted(dependencies.items()):
+        condition = (
+            " unless disable_chime" if module.startswith("AmazonChimeSDK")
+            else " unless disable_artc" if module == "AliVCSDK_ARTC"
+            else ""
+        )
         if constraint:
-            pod_lines.append(f"  s.dependency '{module}', '{constraint}'")
+            pod_lines.append(f"  s.dependency '{module}', '{constraint}'{condition}")
         else:
-            pod_lines.append(f"  s.dependency '{module}'")
+            pod_lines.append(f"  s.dependency '{module}'{condition}")
     spec = """require_relative 'vendor_frameworks'
 FlutterRealtimeSdk::VendorFrameworks.install!(__dir__)
+
+# Set these in the consuming application's ios/Podfile BEFORE
+# flutter_install_all_ios_pods, rather than patching or stripping vendor
+# binaries at build time. These flags must match across all build configs.
+disable_chime = ENV['FRSDK_IOS_DISABLE_CHIME'] == '1'
+disable_artc = ENV['FRSDK_IOS_DISABLE_ARTC'] == '1'
 
 Pod::Spec.new do |s|
   s.name = 'flutter_realtime_sdk'
@@ -144,13 +170,23 @@ Pod::Spec.new do |s|
   # scanner cannot parse as an Objective-C umbrella declaration.
   s.source_files = 'Classes/**/*.{swift,m,mm,c,cc,cpp}', 'Classes/**/include/**/*.h', 'Classes/**/FlutterRealtimeMediaLivekitPlugin.h'
   s.public_header_files = 'Classes/**/include/**/*.h', 'Classes/**/FlutterRealtimeMediaLivekitPlugin.h'
+  excluded_sources = []
+  excluded_sources << 'Classes/flutter_aws_chime/**/*' if disable_chime
+  excluded_sources << 'Classes/flutter_realtime_media_artc/**/*' if disable_artc
+  s.exclude_files = excluded_sources
   s.resources = 'Resources/**/*'
   s.platform = :ios, '15.0'
   s.swift_version = '5.9'
   s.static_framework = true
   s.vendored_frameworks = 'Frameworks/*.xcframework'
   s.preserve_paths = 'vendor_frameworks.rb', 'vendor_frameworks.json', 'podfile.rb'
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
+  conditions = ['$(inherited)']
+  conditions << 'FRSDK_DISABLE_CHIME' if disable_chime
+  conditions << 'FRSDK_DISABLE_ARTC' if disable_artc
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'SWIFT_ACTIVE_COMPILATION_CONDITIONS' => conditions.join(' '),
+  }
 """ + "\n".join(pod_lines) + "\nend\n"
     (OUT / "ios" / "flutter_realtime_sdk.podspec").write_text(spec)
     content = pubspec.read_text()

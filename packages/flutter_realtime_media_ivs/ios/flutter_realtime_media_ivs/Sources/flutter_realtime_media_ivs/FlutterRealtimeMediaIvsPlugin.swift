@@ -1,4 +1,5 @@
 @_implementationOnly import AmazonIVSBroadcast
+import AVFoundation
 import Flutter
 import UIKit
 
@@ -16,7 +17,11 @@ public final class FlutterRealtimeMediaIvsPlugin:
 
     private var eventSink: FlutterEventSink?
     private var stage: IVSStage?
-    private var discovery = IVSDeviceDiscovery()
+    // Creating IVSDeviceDiscovery immediately changes the process-wide
+    // AVAudioSession category/mode and can deactivate the active audio engine.
+    // The combined Flutter SDK registers all vendor plugins at startup, so
+    // this must never run until an IVS publisher actually needs its devices.
+    private var discovery: IVSDeviceDiscovery?
     private var publishStreams: [IVSLocalStageStream] = []
     private var cameraStream: IVSLocalStageStream?
     private var microphoneStream: IVSLocalStageStream?
@@ -96,11 +101,10 @@ public final class FlutterRealtimeMediaIvsPlugin:
     }
 
     private func probeDevices(result: @escaping FlutterResult) {
-        let devices = discovery.listLocalDevices()
-        let cameras = devices.filter { $0.descriptor().type == .camera }.count
-        let microphones = devices.filter {
-            $0.descriptor().type == .microphone
-        }.count
+        // Pre-join checks are read-only. Even a temporary IVSDeviceDiscovery
+        // reconfigures AVAudioSession and can terminate a LiveKit capture.
+        let cameras = AVCaptureDevice.devices(for: .video).count
+        let microphones = AVCaptureDevice.devices(for: .audio).count
         result([
             "cameras": cameras,
             "microphones": microphones,
@@ -201,6 +205,7 @@ public final class FlutterRealtimeMediaIvsPlugin:
         cameraStream = nil
         microphoneStream = nil
         remoteVideoStreams.removeAll()
+        discovery = nil
         refreshPlatformViews()
     }
 
@@ -218,7 +223,7 @@ public final class FlutterRealtimeMediaIvsPlugin:
         detachIosScreenCaptureKitSource()
         // A single IVS Stage participant publishes one video stream. Replace
         // the camera rather than silently attempting simultaneous video tracks.
-        let device = discovery.createImageSource(withName: "screen-share")
+        let device = deviceDiscovery().createImageSource(withName: "screen-share")
         let stream = IVSLocalStageStream(device: device)
         stream.setMuted(false)
         stream.delegate = stageDelegate
@@ -251,6 +256,13 @@ public final class FlutterRealtimeMediaIvsPlugin:
         platformViews.removeAll()
     }
 
+    private func deviceDiscovery() -> IVSDeviceDiscovery {
+        if let discovery { return discovery }
+        let created = IVSDeviceDiscovery()
+        discovery = created
+        return created
+    }
+
     private func prepareLocalStreams() {
         iosScreenSource?.stop()
         iosScreenSource = nil
@@ -263,7 +275,7 @@ public final class FlutterRealtimeMediaIvsPlugin:
             return
         }
 
-        let devices = discovery.listLocalDevices()
+        let devices = deviceDiscovery().listLocalDevices()
         let camera = devices.first {
             let descriptor = $0.descriptor()
             return descriptor.type == .camera && descriptor.position == .front

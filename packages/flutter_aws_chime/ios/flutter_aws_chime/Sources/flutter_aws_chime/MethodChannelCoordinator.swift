@@ -27,7 +27,10 @@ class MethodChannelCoordinator {
     private var iosScreenSource: ChimeIosSystemScreenSource?
     private var iosContentSource: ContentShareSource?
 
-    var currentVolumeValue = AVAudioSession.sharedInstance().outputVolume
+    // Registering every vendor is required by the aggregated Flutter plugin,
+    // but registration must not eagerly touch the process-wide audio session.
+    // Capture volume only when the user actually toggles Chime output.
+    private var currentVolumeValue: Float?
 
 
     init(binaryMessenger: FlutterBinaryMessenger) {
@@ -236,7 +239,7 @@ class MethodChannelCoordinator {
             currentVolumeValue = AVAudioSession.sharedInstance().outputVolume;
             slider?.setValue(0, animated: false)
         }else {
-            slider?.setValue(currentVolumeValue, animated: false)
+            slider?.setValue(currentVolumeValue ?? AVAudioSession.sharedInstance().outputVolume, animated: false)
         }
         return MethodChannelResponse(result: true, arguments:"success")
     }
