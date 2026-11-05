@@ -374,11 +374,13 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(RealtimeManagedParticipantList), findsOneWidget);
-    await tester.tap(
+    // This fixture does not have a ChatSession. Do not expose an empty chat
+    // destination just to make navigation symmetric.
+    expect(
       find.descendant(of: rail, matching: find.byTooltip('Chat')),
+      findsNothing,
     );
-    await tester.pumpAndSettle();
-    expect(find.byType(RealtimeManagedParticipantList), findsNothing);
+    expect(find.byType(RealtimeManagedParticipantList), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

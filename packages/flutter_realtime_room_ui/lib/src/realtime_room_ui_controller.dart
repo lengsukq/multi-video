@@ -422,11 +422,12 @@ class RealtimeRoomUiController extends ChangeNotifier {
           }
           await room.media.closeRoom();
         }
-        // UI subscriptions may still be observing room/media streams while the
-        // host route is mounted. Release them before tearing down those streams;
-        // otherwise an embedded host can be stuck waiting for leave to finish
-        // before it gets a chance to unmount the room UI.
-        await close();
+        // Release provider subscriptions before room teardown, but leave
+        // ChangeNotifier and ChatUiController alive until the host's UI
+        // unmounts. Otherwise a button rebuilding during this final frame
+        // subscribes to a disposed notifier and triggers a red error screen.
+        await _mediaSubscription?.cancel();
+        await _failureSubscription?.cancel();
         await room.dispose();
       });
     } catch (_) {
@@ -468,7 +469,7 @@ class RealtimeRoomUiController extends ChangeNotifier {
     if (_disposed) return;
     _disposed = true;
     super.dispose();
-    _disposal = releaseResources();
+    _disposal ??= releaseResources();
     observeDetached(
       _disposal!,
       onFailure: (error) {

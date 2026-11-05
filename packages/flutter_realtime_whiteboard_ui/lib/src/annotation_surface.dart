@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_realtime_design_ui/flutter_realtime_design_ui.dart';
 import 'package:flutter_realtime_whiteboard_core/flutter_realtime_whiteboard_core.dart';
@@ -83,6 +84,11 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
   final _activePointers = <int>{};
   final _pointerDownPositions = <int, Offset>{};
   final _pointerPositions = <int, Offset>{};
+  // Touch screens use translation-only navigation. Desktop trackpads keep the
+  // existing zoom gesture, but mobile finger-count changes must never zoom.
+  bool get _mobilePanOnly =>
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.android;
   // A two-finger gesture is driven by actual pointer positions. Flutter's
   // ScaleUpdateDetails.scale may rebase when the number of touches changes,
   // which makes incremental ratios jump during a mobile pinch.
@@ -90,12 +96,29 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
   double _pinchStartRadius = 1;
   double _pinchStartScale = 1;
   Offset? _pinchAnchorScene;
+  Offset? _mobilePanAnchorScene;
   Offset? _previousFocal;
   @override
   void dispose() {
     _flushTimer?.cancel();
     _ownedTransform?.dispose();
     super.dispose();
+  }
+
+  Offset _pointerCentroid() => _pinchGeometry().$1;
+
+  // Anchor the current multi-touch center to one fixed scene point. Deriving
+  // every frame from that anchor avoids a jump if the gesture recognizer
+  // starts late or individual iOS pointer moves arrive in a different order.
+  void _panMultiTouch() {
+    final anchor = _mobilePanAnchorScene;
+    if (anchor == null || _pointerPositions.length < 2) return;
+    final center = _pointerCentroid();
+    final scale = _transform.value.getMaxScaleOnAxis();
+    final translation = center - anchor * scale;
+    _transform.value = Matrix4.identity()
+      ..translateByDouble(translation.dx, translation.dy, 0, 1)
+      ..scaleByDouble(scale, scale, 1, 1);
   }
 
   void _eraseAt(Offset offset, Size size) {
@@ -211,30 +234,57 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
         if (_activePointers.length > 1) {
           _pinchUsed = true;
           _finish();
-          _rebasePinch();
+          if (_mobilePanOnly) {
+            _mobilePanAnchorScene = _transform.toScene(_pointerCentroid());
+          } else {
+            _rebasePinch();
+          }
         }
       },
       onPointerMove: (e) {
         if (!_pointerPositions.containsKey(e.pointer)) return;
         _pointerPositions[e.pointer] = e.localPosition;
-        if (_pointerPositions.length > 1) _updatePinch();
+        if (_pointerPositions.length > 1) {
+          if (_mobilePanOnly) {
+            _panMultiTouch();
+          } else {
+            _updatePinch();
+          }
+        }
       },
       onPointerUp: (e) {
         _activePointers.remove(e.pointer);
         _pointerDownPositions.remove(e.pointer);
         _pointerPositions.remove(e.pointer);
-        _rebasePinch();
+        if (_mobilePanOnly) {
+          _mobilePanAnchorScene = _pointerPositions.length > 1
+              ? _transform.toScene(_pointerCentroid())
+              : null;
+        } else {
+          _rebasePinch();
+        }
       },
       onPointerCancel: (e) {
         _activePointers.remove(e.pointer);
         _pointerDownPositions.remove(e.pointer);
         _pointerPositions.remove(e.pointer);
-        _rebasePinch();
+        if (_mobilePanOnly) {
+          _mobilePanAnchorScene = _pointerPositions.length > 1
+              ? _transform.toScene(_pointerCentroid())
+              : null;
+        } else {
+          _rebasePinch();
+        }
       },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onScaleStart: (details) {
-          _previousFocal = details.localFocalPoint;
+          // The listener already captured the exact two-finger centroid.
+          // Flutter's scale recognizer may begin after the first finger moved;
+          // replacing that centroid here causes a one-time 20px+ jump.
+          if (!_mobilePanOnly || _activePointers.length < 2) {
+            _previousFocal = details.localFocalPoint;
+          }
           // Wait for a one-pointer move before starting ink. A second finger
           // can arrive immediately after the first touch; creating a stroke
           // here would leave a phantom mark after every pinch.
@@ -476,7 +526,9 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
                 panEnabled:
                     widget.enableNavigation && (!teacher || !_isEditing),
                 scaleEnabled:
-                    widget.enableNavigation && (!teacher || !_isEditing),
+                    !_mobilePanOnly &&
+                    widget.enableNavigation &&
+                    (!teacher || !_isEditing),
                 child: SizedBox(
                   width: size.width,
                   height: size.height,

@@ -311,7 +311,13 @@ class _ClassroomOverview extends StatelessWidget {
         const SizedBox(height: 10),
         LayoutBuilder(
           builder: (context, constraints) {
-            final columns = constraints.maxWidth >= 260 ? 2 : 1;
+            // Two 145px cards are fine at normal text sizes, but a 200%
+            // accessibility font makes their metrics too cramped.
+            final columns =
+                !RealtimeBreakpoints.textScaleIsLarge(context) &&
+                    constraints.maxWidth >= 260
+                ? 2
+                : 1;
             final width = (constraints.maxWidth - (columns - 1) * 8) / columns;
             return Wrap(
               spacing: 8,
@@ -320,14 +326,16 @@ class _ClassroomOverview extends StatelessWidget {
                 for (final card in cards)
                   SizedBox(
                     width: width,
-                    height: 100,
-                    child: ClassroomSidebarMetric(
-                      label: card.name,
-                      value: card.count,
-                      icon: card.icon,
-                      onTap: card.target == null
-                          ? null
-                          : () => onNavigate(card.target!),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 100),
+                      child: ClassroomSidebarMetric(
+                        label: card.name,
+                        value: card.count,
+                        icon: card.icon,
+                        onTap: card.target == null
+                            ? null
+                            : () => onNavigate(card.target!),
+                      ),
                     ),
                   ),
               ],

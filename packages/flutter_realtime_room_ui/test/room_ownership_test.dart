@@ -158,9 +158,13 @@ void main() {
     gate.complete();
     await Future.wait([first, second]);
     expect(media.disposeCalls, 1);
-    expect(controller.isDisposed, isTrue);
+    // The host still owns the UI until it navigates away. Completing
+    // leave() may not dispose a notifier while its widgets are mounted.
+    expect(controller.isDisposed, isFalse);
     await controller.leave(closeForEveryone: false);
     expect(media.disposeCalls, 1);
+    await controller.close();
+    expect(controller.isDisposed, isTrue);
   });
 
   test(

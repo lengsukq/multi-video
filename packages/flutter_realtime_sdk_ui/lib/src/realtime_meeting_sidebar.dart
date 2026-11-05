@@ -33,6 +33,7 @@ class RealtimeMeetingSidebar extends StatefulWidget {
     this.chatWidget,
     this.membersWidget,
     this.initialTab = 0,
+    this.showChat = true,
     this.onTabChanged,
     this.onClose,
   });
@@ -42,6 +43,9 @@ class RealtimeMeetingSidebar extends StatefulWidget {
   final Widget? chatWidget;
   final Widget? membersWidget;
   final int initialTab;
+
+  /// Hide the chat destination when no chat session is available.
+  final bool showChat;
   final ValueChanged<int>? onTabChanged;
   final VoidCallback? onClose;
 
@@ -57,7 +61,7 @@ class _RealtimeMeetingSidebarState extends State<RealtimeMeetingSidebar> {
   @override
   void initState() {
     super.initState();
-    _selectedTab = widget.initialTab;
+    _selectedTab = widget.showChat ? widget.initialTab : 1;
   }
 
   Widget _buildTab(
@@ -121,7 +125,9 @@ class _RealtimeMeetingSidebarState extends State<RealtimeMeetingSidebar> {
   void didUpdateWidget(covariant RealtimeMeetingSidebar oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialTab != oldWidget.initialTab) {
-      _selectedTab = widget.initialTab;
+      _selectedTab = widget.showChat ? widget.initialTab : 1;
+    } else if (!widget.showChat) {
+      _selectedTab = 1;
     }
   }
 
@@ -152,7 +158,8 @@ class _RealtimeMeetingSidebarState extends State<RealtimeMeetingSidebar> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        _buildTab(context, 0, strings.chat),
+                        if (widget.showChat)
+                          _buildTab(context, 0, strings.chat),
                         _buildTab(
                           context,
                           1,
@@ -181,7 +188,7 @@ class _RealtimeMeetingSidebarState extends State<RealtimeMeetingSidebar> {
             ),
           ),
           Expanded(
-            child: _selectedTab == 0
+            child: widget.showChat && _selectedTab == 0
                 ? (widget.chatWidget ?? const Center(child: Text('Chat Feed')))
                 : widget.membersWidget ?? _buildParticipantsView(context),
           ),

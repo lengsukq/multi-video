@@ -54,7 +54,7 @@ void main() {
   );
 
   testWidgets(
-    'mobile pinch reversal and finger replacement never jump or leave ink',
+    'mobile pinch gestures only pan and never zoom or leave ink',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(390, 760);
@@ -93,14 +93,14 @@ void main() {
       // point at the viewport center must return exactly to their origin.
       await first.moveBy(const Offset(-40, 0));
       await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), closeTo(1.5, .01));
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
       await second.moveBy(const Offset(40, 0));
       await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), closeTo(2, .01));
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
 
       await first.moveBy(const Offset(40, 0));
       await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), closeTo(1.5, .01));
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
       await second.moveBy(const Offset(-40, 0));
       await tester.pump();
       expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .01));
@@ -125,7 +125,7 @@ void main() {
 
       await third.moveBy(const Offset(-25, 0));
       await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), greaterThan(1.2));
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
       await second.up();
       await third.up();
       await tester.pumpAndSettle();
@@ -571,7 +571,7 @@ void main() {
   });
 
   testWidgets(
-    'mobile two-finger zoom and pan keep one-finger drawing aligned',
+    'mobile two-finger pan keeps zoom fixed and one-finger drawing aligned',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(390, 760);
@@ -606,7 +606,7 @@ void main() {
       await tester.pump();
       await second.moveBy(const Offset(75, 0));
       await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), greaterThan(1.2));
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
       final oldCenter = transform.toScene(rect.center - rect.topLeft);
       await first.moveBy(const Offset(0, 65));
       await second.moveBy(const Offset(0, 65));

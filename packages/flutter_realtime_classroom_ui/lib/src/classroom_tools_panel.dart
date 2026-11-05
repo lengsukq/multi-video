@@ -120,7 +120,12 @@ class _ClassroomToolsPanelState extends State<ClassroomToolsPanel> {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Row(
+                    // Both labels must remain available at 200% text size.
+                    // A single Row forced the role pill out of 320px sheets.
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
                           s.t('tools'),
@@ -131,7 +136,6 @@ class _ClassroomToolsPanelState extends State<ClassroomToolsPanel> {
                             letterSpacing: -0.2,
                           ),
                         ),
-                        const SizedBox(width: 8),
                         RealtimePill(
                           label: s.t(
                             state.isTeacher ? 'teacherRole' : 'studentRole',

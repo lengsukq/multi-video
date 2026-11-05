@@ -58,6 +58,46 @@ class Repository implements ClassroomRepository {
 }
 
 void main() {
+  testWidgets('tools sheet header fits 320px at 200% text scaling', (
+    tester,
+  ) async {
+    final repository = Repository(true);
+    final session = ClassroomSession(
+      repository,
+      pollInterval: const Duration(hours: 1),
+    );
+    await session.start();
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 320,
+              height: 460,
+              child: ClassroomToolsPanel(
+                classroom: session,
+                showHeader: true,
+                onClose: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(Wrap), findsWidgets);
+    expect(find.byIcon(Icons.close_rounded), findsWidgets);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await session.dispose();
+  });
+
   testWidgets(
     'teacher publishes tools and student answers without teacher controls',
     (tester) async {

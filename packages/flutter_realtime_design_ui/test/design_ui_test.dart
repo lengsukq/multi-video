@@ -160,6 +160,137 @@ void main() {
     expect(outerRadius.topLeft.x - thumbRadius.topLeft.x, 4);
   });
 
+  testWidgets('meeting sidebar tabs remain horizontal at 300 px', (
+    tester,
+  ) async {
+    var selected = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: RealtimeUiTheme.light(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 300,
+              child: StatefulBuilder(
+                builder: (context, setState) => RealtimeSegmentedTabs<int>(
+                  height: 40,
+                  selectedValue: selected,
+                  onChanged: (value) => setState(() => selected = value),
+                  tabs: const [
+                    RealtimeSegmentTab(value: 0, label: '聊天'),
+                    RealtimeSegmentTab(value: 1, label: '成员'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(ListTile), findsNothing);
+    expect(find.byType(AnimatedPositioned), findsOneWidget);
+    expect(tester.getSize(find.byType(RealtimeSegmentedTabs<int>)).height, 40);
+    expect(
+      tester.getRect(find.text('聊天')).top,
+      closeTo(tester.getRect(find.text('成员')).top, 1),
+    );
+    await tester.tap(find.text('成员'));
+    await tester.pumpAndSettle();
+    expect(selected, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('two short Cupertino segments stay horizontal at 240px', (
+    tester,
+  ) async {
+    var selected = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: RealtimeUiTheme.light(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 240,
+              child: StatefulBuilder(
+                builder: (context, setState) =>
+                    RealtimeCupertinoSegmentedBar<int>(
+                      groupValue: selected,
+                      onValueChanged: (value) =>
+                          setState(() => selected = value),
+                      children: const {0: Text('Audio'), 1: Text('Video')},
+                    ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.byType(ListTile), findsNothing);
+    expect(
+      find.byKey(const ValueKey('realtime-segmented-thumb')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Video'));
+    await tester.pumpAndSettle();
+    expect(selected, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('three long Cupertino segments stack at 280px', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: RealtimeUiTheme.light(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 280,
+              child: RealtimeCupertinoSegmentedBar<int>(
+                groupValue: 0,
+                onValueChanged: (_) {},
+                children: const {
+                  0: Text('No background'),
+                  1: Text('Background blur'),
+                  2: Text('Replace background'),
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.byType(ListTile), findsNWidgets(3));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('segmented tabs keep accessible list on genuinely tiny widths', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: RealtimeUiTheme.light(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 150,
+              child: RealtimeSegmentedTabs<int>(
+                selectedValue: 0,
+                onChanged: (_) {},
+                tabs: const [
+                  RealtimeSegmentTab(value: 0, label: 'Chat'),
+                  RealtimeSegmentTab(value: 1, label: 'People'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.byType(ListTile), findsNWidgets(2));
+    expect(find.byType(AnimatedPositioned), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('segmented preferences stack accessibly on tiny windows', (
     tester,
   ) async {

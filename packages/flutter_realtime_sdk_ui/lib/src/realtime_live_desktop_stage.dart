@@ -107,7 +107,7 @@ class RealtimeLiveDesktopStage extends StatelessWidget {
         final hasChat = showChat && room.chat != null;
 
         final actions = <RealtimeMeetingRailItem>[
-          if (showChat)
+          if (hasChat)
             RealtimeMeetingRailItem(
               icon: Icons.chat_bubble_outline_rounded,
               tooltip: strings.chat,
@@ -307,7 +307,8 @@ class RealtimeLiveDesktopStage extends StatelessWidget {
                   ),
                   child: RealtimeMeetingSidebar(
                     members: members,
-                    initialTab: initialTab,
+                    showChat: hasChat,
+                    initialTab: hasChat ? initialTab : 1,
                     onTabChanged: onSelectedTab,
                     chatWidget:
                         customChatPanel ??

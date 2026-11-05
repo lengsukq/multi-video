@@ -2,9 +2,48 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
 import 'package:flutter_realtime_sdk_ui/flutter_realtime_sdk_ui.dart';
+import 'package:flutter_realtime_sdk_ui/src/classroom_sidebar_visuals.dart';
 
 /// One raise-hand entry per role and a teacher queue that actually opens.
 void main() {
+  testWidgets(
+    'classroom metrics grow at 200% text without fixed-height overflow',
+    (tester) async {
+      final room = await _room(
+        tester,
+        _RaisedHandRepository(ClassroomRole.teacher, 'teacher'),
+      );
+      addTearDown(room.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 320,
+                height: 460,
+                child: RealtimeRoomUiScope(
+                  room: room,
+                  child: const RealtimeClassroomWorkspace(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final metrics = find.byType(ClassroomSidebarMetric);
+      expect(metrics, findsWidgets);
+      expect(tester.getSize(metrics.first).height, greaterThan(100));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'teacher is notified outside panels and student receives speaking permission',
     (tester) async {

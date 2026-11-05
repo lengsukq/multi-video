@@ -56,8 +56,14 @@ class RealtimeCupertinoSegmentedBar<T extends Object> extends StatelessWidget {
     }
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < 260) return fallback();
         if (entries.isEmpty) return const SizedBox.shrink();
+        // Two short options fit comfortably below 260px, while three or
+        // more labelled options need more width. A fixed breakpoint made
+        // simple controls unnecessarily turn into tall list menus.
+        final minimumItemWidth = entries.length <= 2 ? 88.0 : 112.0;
+        final minimumTrackWidth =
+            entries.length * minimumItemWidth + resolvedPadding.horizontal;
+        if (constraints.maxWidth < minimumTrackWidth) return fallback();
         final selectedIndex = entries.indexWhere(
           (entry) => entry.key == groupValue,
         );

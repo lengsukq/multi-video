@@ -10,6 +10,40 @@ import 'support/meeting_sharing_fixture.dart';
 /// Tablets: same shell plus a horizontal tool rail.
 /// Desktop: vertical rail, stage bar and a 340 pt persistent side panel.
 void main() {
+  testWidgets(
+    'live sidebar hides an unavailable chat tab and its empty panel',
+    (tester) async {
+      final chatEnabled = ValueNotifier<bool>(true);
+      addTearDown(chatEnabled.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 340,
+              child: ValueListenableBuilder<bool>(
+                valueListenable: chatEnabled,
+                builder: (context, enabled, _) => RealtimeMeetingSidebar(
+                  members: const [],
+                  showChat: enabled,
+                  chatWidget: const Text('Chat content'),
+                  membersWidget: const Text('Member content'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Chat'), findsOneWidget);
+      chatEnabled.value = false;
+      await tester.pumpAndSettle();
+      expect(find.text('Chat'), findsNothing);
+      expect(find.text('Participants'), findsOneWidget);
+      expect(find.text('Chat content'), findsNothing);
+      expect(find.text('Member content'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   Future<void> pumpPage(
     WidgetTester tester,
     MeetingSharingFixture fixture,

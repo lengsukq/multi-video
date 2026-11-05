@@ -33,7 +33,12 @@ class RealtimeSegmentedTabs<T> extends StatelessWidget {
     );
     return LayoutBuilder(
       builder: (context, outerConstraints) {
-        if (outerConstraints.maxWidth < 420 ||
+        // A two-tab sidebar easily fits at 300–360 px. The old 420 px
+        // breakpoint incorrectly turned Chat / People into a vertical menu
+        // beside the close button. Fall back to the accessible list only
+        // when each tab would have too little horizontal touch space.
+        final minimumTrackWidth = tabs.length * 88.0 + 8;
+        if (outerConstraints.maxWidth < minimumTrackWidth ||
             MediaQuery.textScalerOf(context).scale(17) >= 28) {
           return RealtimeInsetGroup(
             children: tabs

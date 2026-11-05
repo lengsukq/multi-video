@@ -147,6 +147,7 @@ class ClassroomSidebarMetric extends StatelessWidget {
       onTap: onTap,
       padding: const EdgeInsets.fromLTRB(11, 10, 11, 11),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -161,7 +162,9 @@ class ClassroomSidebarMetric extends StatelessWidget {
                 ),
             ],
           ),
-          const Spacer(),
+          // Do not rely on a fixed-height card: scaled numbers and labels
+          // must be allowed to determine the minimum intrinsic height.
+          const SizedBox(height: 12),
           Text(
             value,
             style: TextStyle(
