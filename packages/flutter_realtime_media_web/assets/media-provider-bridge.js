@@ -424,6 +424,8 @@
     const info = providerBlock(session, "trtc");
     const sdk = global.TRTC;
     const trtc = sdk.create({ assetsPath: globalThis.__realtimeTrtcAssetsPath || new URL("assets/packages/flutter_realtime_sdk/assets/provider_web_runtime/vendors/trtc-assets/", document.baseURI).toString() });
+    let audioStarted = false;
+    let selectedMicrophoneId = null;
     const localVideoId = `trtc:video:${session.localParticipantId}`;
     const remoteTracks = /* @__PURE__ */ new Map();
     const refreshLocalTrack = () => {
@@ -444,9 +446,19 @@
       addParticipant(session, event.userId);
       publishSnapshot(session);
     });
-    trtc.on(events.REMOTE_USER_EXIT || "remote-user-exit", (event) => removeParticipant(session, event.userId));
+    trtc.on(events.REMOTE_USER_EXIT || "remote-user-exit", (event) => {
+      const userId = String(event.userId || "");
+      for (const [trackId, track] of remoteTracks) {
+        if (track.userId === userId) remoteTracks.delete(trackId);
+      }
+      removeParticipant(session, userId);
+    });
     trtc.on(events.REMOTE_VIDEO_AVAILABLE || "remote-video-available", attachRemote);
-    trtc.on(events.REMOTE_VIDEO_UNAVAILABLE || "remote-video-unavailable", (event) => removeVideoTrack(session, `trtc:video:${event.userId}:${event.streamType || sdk.TYPE?.STREAM_TYPE_MAIN || "main"}`));
+    trtc.on(events.REMOTE_VIDEO_UNAVAILABLE || "remote-video-unavailable", (event) => {
+      const trackId = `trtc:video:${event.userId}:${event.streamType || sdk.TYPE?.STREAM_TYPE_MAIN || "main"}`;
+      remoteTracks.delete(trackId);
+      removeVideoTrack(session, trackId);
+    });
     trtc.on(events.CONNECTION_STATE_CHANGED || "connection-state-changed", (event) => {
       const value = String(event.state || event.currentState || "").toLowerCase();
       if (value.includes("reconnect")) emitState(session, "reconnecting");
@@ -471,17 +483,26 @@
           autoReceiveAudio: true,
           autoReceiveVideo: true
         });
-        if (session.role !== "viewer") {
-          await trtc.startLocalAudio();
-          await trtc.updateLocalAudio({ mute: true });
-          session.localMuted = true;
-          session.localVideoEnabled = false;
-        }
+        session.localMuted = true;
+        session.localVideoEnabled = false;
       },
       async command(name, args) {
         if (name === "setMuted") {
-          await trtc.updateLocalAudio({ mute: Boolean(args.muted) });
-          session.localMuted = Boolean(args.muted);
+          const muted = Boolean(args.muted);
+          if (session.role === "viewer" && !muted) {
+            throw new Error("TRTC audience members cannot publish microphone audio.");
+          }
+          if (!muted && !audioStarted) {
+            await trtc.startLocalAudio({
+              publish: true,
+              mute: false,
+              ...selectedMicrophoneId ? { option: { microphoneId: selectedMicrophoneId } } : {}
+            });
+            audioStarted = true;
+          } else if (audioStarted) {
+            await trtc.updateLocalAudio({ mute: muted });
+          }
+          session.localMuted = muted;
           return;
         }
         if (name === "setVideoEnabled") {
@@ -503,11 +524,16 @@
         }
         if (name === "setScreenShareEnabled") {
           if (args.enabled && !session.screenTrack) {
-            await trtc.startLocalScreen({ publish: true });
-            session.screenTrack = trtc.getVideoTrack({ streamType: sdk.TYPE.STREAM_TYPE_SUB });
-            if (session.screenTrack) addVideoTrack(session, { id: `trtc:screen:${session.localParticipantId}`, participantId: session.localParticipantId, isLocal: true, isScreenShare: true, native: session.screenTrack });
+            await trtc.startScreenShare({ publish: true });
+            const track = trtc.getVideoTrack({ streamType: sdk.TYPE.STREAM_TYPE_SUB });
+            if (!track) {
+              await trtc.stopScreenShare();
+              throw new Error("TRTC screen capture started without a screen video track.");
+            }
+            session.screenTrack = track;
+            addVideoTrack(session, { id: `trtc:screen:${session.localParticipantId}`, participantId: session.localParticipantId, isLocal: true, isScreenShare: true, native: track });
           } else if (!args.enabled && session.screenTrack) {
-            await trtc.stopLocalScreen();
+            await trtc.stopScreenShare();
             session.screenTrack = null;
             removeVideoTrack(session, `trtc:screen:${session.localParticipantId}`);
           }
@@ -526,7 +552,11 @@
         }
         if (name === "selectDevice") {
           const selected = args.device || args;
-          if (selected.kind === "microphone") await trtc.updateLocalAudio({ option: { microphoneId: selected.id } });
+          if (selected.kind === "microphone") {
+            if (!selected.id) throw new Error("TRTC microphone device id is required.");
+            if (audioStarted) await trtc.updateLocalAudio({ option: { microphoneId: selected.id } });
+            selectedMicrophoneId = selected.id;
+          }
           if (selected.kind === "camera") {
             session.cameraId = selected.id;
             await trtc.updateLocalVideo({ option: { cameraId: selected.id } });
@@ -545,7 +575,7 @@
       async attachVideo(track, container) {
         const native = track.native;
         if (native?.userId) {
-          await trtc.startRemoteVideo({ userId: native.userId, streamType: native.streamType, view: container.id, option: { fillMode: "contain" } });
+          await trtc.startRemoteVideo({ userId: native.userId, streamType: native.streamType, view: container, option: { fillMode: "contain" } });
         } else {
           const mediaTrack = native?.mediaStreamTrack || native;
           if (mediaTrack && mediaTrack.kind === "video") attachStreamTrack(mediaTrack, container);
@@ -556,7 +586,14 @@
         if (native?.userId) await trtc.stopRemoteVideo({ userId: native.userId, streamType: native.streamType });
       },
       async leave() {
-        await trtc.exitRoom();
+        try {
+          if (session.screenTrack) await trtc.stopScreenShare();
+          if (audioStarted) await trtc.stopLocalAudio();
+        } finally {
+          audioStarted = false;
+          session.screenTrack = null;
+          await trtc.exitRoom();
+        }
       },
       async dispose() {
         trtc.destroy?.();
@@ -581,6 +618,12 @@
     const profile = AliRtcEngine.AliRtcSdkChannelProfile;
     const roles = AliRtcEngine.AliRtcSdkClientRole;
     const engine = AliRtcEngine.createInstance ? AliRtcEngine.createInstance() : AliRtcEngine.getInstance();
+    const checked = async (operation, action) => {
+      const result = await action();
+      if (typeof result === "number" && result !== 0) {
+        throw new Error(`ARTC ${operation} failed (${result}).`);
+      }
+    };
     const cameraTrack = AliRtcEngine.AliRtcVideoTrack.AliRtcVideoTrackCamera;
     const screenTrack = AliRtcEngine.AliRtcVideoTrack.AliRtcVideoTrackScreen;
     const remoteVideo = /* @__PURE__ */ new Map();
@@ -617,16 +660,12 @@
           engine.setChannelProfile(profile.AliRtcInteractiveLive);
           await engine.setClientRole(session.role === "viewer" ? roles.AliRtcSdkLive : roles.AliRtcSdkInteractive);
         }
-        await engine.enableLocalVideo(false);
-        await engine.publishLocalVideoStream(false);
-        if (session.role !== "viewer") {
-          await engine.publishLocalAudioStream(false);
-        }
+        await checked("disable camera capture", () => engine.enableLocalVideo(false));
+        await checked("disable camera publication", () => engine.publishLocalVideoStream(false));
+        await checked("disable microphone publication", () => engine.publishLocalAudioStream(false));
         await engine.joinChannel(info.authInfo, session.payload.displayName || info.userId);
-        if (session.role !== "viewer") {
-          session.localMuted = true;
-          session.localVideoEnabled = false;
-        }
+        session.localMuted = true;
+        session.localVideoEnabled = false;
       },
       async command(name, args) {
         if (name === "setMuted") {
@@ -634,22 +673,19 @@
           if (session.role === "viewer" && !muted) {
             throw new Error("ARTC viewer sessions cannot publish microphone audio.");
           }
-          const publishResult = await engine.publishLocalAudioStream(!muted);
-          if (typeof publishResult === "number" && publishResult !== 0) {
-            throw new Error(`ARTC failed to update microphone publication (${publishResult}).`);
-          }
-          await engine.muteLocalMic(muted);
+          await checked("microphone publication", () => engine.publishLocalAudioStream(!muted));
+          await checked("microphone mute", () => engine.muteLocalMic(muted));
           session.localMuted = muted;
           return;
         }
         if (name === "setVideoEnabled") {
           const enabled = Boolean(args.enabled);
           if (session.processedTrack) {
-            await engine.muteLocalCamera(!enabled);
-            await engine.publishLocalVideoStream(enabled);
+            await checked("camera mute", () => engine.muteLocalCamera(!enabled));
+            await checked("camera publication", () => engine.publishLocalVideoStream(enabled));
           } else {
-            await engine.enableLocalVideo(enabled);
-            await engine.publishLocalVideoStream(enabled);
+            await checked("camera capture", () => engine.enableLocalVideo(enabled));
+            await checked("camera publication", () => engine.publishLocalVideoStream(enabled));
           }
           session.localVideoEnabled = enabled;
           if (!enabled) removeVideoTrack(session, `artc:video:${session.localParticipantId}`);
@@ -658,9 +694,9 @@
         }
         if (name === "setScreenShareEnabled") {
           if (args.enabled && !session.screenTrack) {
-            await engine.startPreviewScreen();
+            await checked("start screen preview", () => engine.startPreviewScreen());
             try {
-              await engine.publishLocalScreenShareStream(true);
+              await checked("publish screen", () => engine.publishLocalScreenShareStream(true));
             } catch (error) {
               await engine.stopPreviewScreen();
               throw error;
@@ -668,8 +704,11 @@
             session.screenTrack = { uid: session.localParticipantId, track: screenTrack };
             addVideoTrack(session, { id: `artc:screen:${session.localParticipantId}`, participantId: session.localParticipantId, isLocal: true, isScreenShare: true, native: session.screenTrack });
           } else if (!args.enabled && session.screenTrack) {
-            await engine.publishLocalScreenShareStream(false);
-            await engine.stopPreviewScreen();
+            try {
+              await checked("unpublish screen", () => engine.publishLocalScreenShareStream(false));
+            } finally {
+              await engine.stopPreviewScreen();
+            }
             session.screenTrack = null;
             removeVideoTrack(session, `artc:screen:${session.localParticipantId}`);
           }
@@ -754,6 +793,58 @@
     const canPublish = session.role !== "viewer" && info.capabilities?.includes("PUBLISH");
     const localStreams = [];
     const remoteStreams = /* @__PURE__ */ new Map();
+    let selectedMicrophoneId = null;
+    let selectedCameraId = null;
+    const createLocalStream = async (kind, deviceId) => {
+      if (!canPublish) throw new Error("IVS credentials do not permit publishing media.");
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("This browser cannot access camera or microphone media devices.");
+      }
+      const option = deviceId ? { deviceId: { exact: deviceId } } : true;
+      const media = await navigator.mediaDevices.getUserMedia(
+        kind === "audio" ? { audio: option, video: false } : { audio: false, video: option }
+      );
+      const tracks = media.getTracks();
+      const track = tracks.find((item) => item.kind === kind);
+      for (const extra of tracks) if (extra !== track) extra.stop();
+      if (!track) throw new Error(`No IVS ${kind} device track was returned.`);
+      try {
+        return new sdk.LocalStageStream(track);
+      } catch (error) {
+        track.stop();
+        throw error;
+      }
+    };
+    const replacePublishedStream = (old, replacement) => {
+      const oldIndex = localStreams.indexOf(old);
+      if (oldIndex >= 0) localStreams.splice(oldIndex, 1, replacement);
+      else localStreams.push(replacement);
+      try {
+        stage.refreshStrategy();
+      } catch (error) {
+        const replacementIndex = localStreams.indexOf(replacement);
+        if (replacementIndex >= 0) localStreams.splice(replacementIndex, 1);
+        if (oldIndex >= 0) localStreams.splice(oldIndex, 0, old);
+        replacement.mediaStreamTrack.stop();
+        throw error;
+      }
+      old?.mediaStreamTrack.stop();
+    };
+    const remoteAudioStreams = /* @__PURE__ */ new Set();
+    const releaseRemoteAudio = (stream) => {
+      if (stream.__audioRetry) {
+        global.document.removeEventListener("pointerdown", stream.__audioRetry);
+        stream.__audioRetry = null;
+      }
+      const audio = stream.__audioElement;
+      if (audio) {
+        audio.pause?.();
+        audio.srcObject = null;
+        audio.remove();
+        stream.__audioElement = null;
+      }
+      remoteAudioStreams.delete(stream);
+    };
     const stage = new sdk.Stage(info.token, {
       stageStreamsToPublish: () => localStreams,
       shouldPublishParticipant: () => Boolean(canPublish),
@@ -768,10 +859,17 @@
       addParticipant(session, participant.userId || participant.id, participant.userInfo?.displayName, participant.isLocal);
       publishSnapshot(session);
     });
-    stage.on(StageEvents.LEFT, (participant) => removeParticipant(session, participant.userId || participant.id));
+    stage.on(StageEvents.LEFT, (participant) => {
+      const participantId = String(participant.userId || participant.id);
+      for (const stream of [...remoteAudioStreams]) {
+        if (stream.__participantId === participantId) releaseRemoteAudio(stream);
+      }
+      removeParticipant(session, participantId);
+    });
     stage.on(StageEvents.STREAMS_ADDED, (participant, streams) => {
       const participantId = String(participant.userId || participant.id);
-      addParticipant(session, participantId, participant.userInfo?.displayName, participant.isLocal);
+      const member = addParticipant(session, participantId, participant.userInfo?.displayName, participant.isLocal);
+      if (member && participant.isLocal) member.isMuted = session.localMuted;
       for (const stream of streams) {
         if (stream.streamType !== sdk.StreamType.VIDEO) continue;
         remoteStreams.set(stream.id, stream);
@@ -779,12 +877,20 @@
       }
       for (const stream of streams) {
         if (stream.streamType === sdk.StreamType.AUDIO && !participant.isLocal) {
+          if (member) {
+            member.isMuted = typeof stream.isMuted === "boolean" ? stream.isMuted : Boolean(participant.audioMuted);
+            publishSnapshot(session);
+          }
+          if (stream.__audioElement) continue;
           const audio = document.createElement("audio");
           audio.autoplay = true;
           audio.srcObject = new MediaStream([stream.mediaStreamTrack]);
           document.body.append(audio);
           stream.__audioElement = audio;
+          stream.__participantId = participantId;
+          remoteAudioStreams.add(stream);
           audio.play().catch((error) => {
+            if (stream.__audioElement !== audio) return;
             reportError(session, new Error(`IVS remote audio playback blocked: ${error.message}. Tap the page to allow sound.`));
             const retry = () => {
               stream.__audioRetry = null;
@@ -796,12 +902,24 @@
         }
       }
     });
+    stage.on(StageEvents.STREAM_MUTE_CHANGED, (participant, stream) => {
+      const participantId = String(participant.userId || participant.id || "");
+      if (!participantId) return;
+      const current = session.participants.get(participantId);
+      if (!current) return;
+      if (stream.streamType === sdk.StreamType.AUDIO) {
+        current.isMuted = Boolean(stream.isMuted);
+        if (participant.isLocal) session.localMuted = current.isMuted;
+        publishSnapshot(session);
+      } else if (stream.streamType === sdk.StreamType.VIDEO && !participant.isLocal) {
+        current.isVideoEnabled = !stream.isMuted;
+        publishSnapshot(session);
+      }
+    });
     stage.on(StageEvents.STREAMS_REMOVED, (_participant, streams) => {
       for (const stream of streams) {
         removeVideoTrack(session, [...session.tracks.values()].find((track) => track.native === stream)?.id);
-        if (stream.__audioRetry) global.document.removeEventListener("pointerdown", stream.__audioRetry);
-        stream.__audioElement?.remove();
-        stream.__audioRetry = null;
+        releaseRemoteAudio(stream);
         remoteStreams.delete(stream.id);
       }
     });
@@ -810,38 +928,50 @@
     session.stage = stage;
     session.driver = {
       async join() {
-        if (canPublish) {
-          if (!navigator.mediaDevices?.getUserMedia) {
-            throw new Error("This browser cannot access camera or microphone media devices.");
-          }
-          const media = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-          for (const track of media.getTracks()) {
-            const localStream = new sdk.LocalStageStream(track);
-            if (track.kind === "audio") localStream.setMuted(true);
-            localStreams.push(localStream);
-            if (track.kind === "video") {
-              session.localVideoStream = localStream;
-              session.localVideoEnabled = true;
-              addVideoTrack(session, { id: `ivs:local:${track.id}`, participantId: session.localParticipantId, isLocal: true, native: localStream });
-            } else session.localAudioStream = localStream;
-          }
-          session.localMuted = true;
-        }
+        session.localMuted = true;
+        session.localVideoEnabled = false;
         await stage.join();
       },
       async command(name, args) {
         if (name === "setMuted") {
           const muted = Boolean(args.muted);
-          if (!session.localAudioStream && !muted) {
-            throw new Error("No IVS microphone stream is available.");
+          if (!muted && !session.localAudioStream) {
+            const replacement = await createLocalStream("audio", selectedMicrophoneId);
+            try {
+              replacement.setMuted(false);
+              replacePublishedStream(null, replacement);
+            } catch (error) {
+              replacement.mediaStreamTrack.stop();
+              throw error;
+            }
+            session.localAudioStream = replacement;
+          } else {
+            session.localAudioStream?.setMuted(muted);
           }
-          session.localAudioStream?.setMuted(muted);
           session.localMuted = muted;
           return;
         }
         if (name === "setVideoEnabled") {
-          session.localVideoEnabled = Boolean(args.enabled);
-          if (session.localVideoStream) session.localVideoStream.setMuted(!session.localVideoEnabled);
+          const enabled = Boolean(args.enabled);
+          if (enabled && !session.localVideoStream) {
+            const replacement = await createLocalStream("video", selectedCameraId);
+            try {
+              replacement.setMuted(false);
+              if (session.screenTrack) {
+                session.screenPausedCamera = replacement;
+              } else {
+                replacePublishedStream(null, replacement);
+                addVideoTrack(session, { id: `ivs:local:${replacement.id}`, participantId: session.localParticipantId, isLocal: true, native: replacement });
+              }
+            } catch (error) {
+              replacement.mediaStreamTrack.stop();
+              throw error;
+            }
+            session.localVideoStream = replacement;
+          } else {
+            session.localVideoStream?.setMuted(!enabled);
+          }
+          session.localVideoEnabled = enabled;
           return;
         }
         if (name === "setScreenShareEnabled") {
@@ -918,15 +1048,24 @@
         if (name === "selectDevice") {
           const selected = args.device || args;
           if (selected.kind !== "camera" && selected.kind !== "microphone") return;
-          const media = await navigator.mediaDevices.getUserMedia(selected.kind === "camera" ? { video: { deviceId: { exact: selected.id } } } : { audio: { deviceId: { exact: selected.id } } });
-          const track = media.getTracks()[0];
+          if (!selected.id) throw new Error("IVS media device id is required.");
           const old = selected.kind === "camera" ? session.localVideoStream : session.localAudioStream;
-          if (old) {
-            old.mediaStreamTrack.stop();
-            const index = localStreams.indexOf(old);
-            if (index >= 0) localStreams.splice(index, 1);
+          if (selected.kind === "microphone") selectedMicrophoneId = selected.id;
+          else selectedCameraId = selected.id;
+          if (!old) return;
+          const replacement = await createLocalStream(selected.kind === "camera" ? "video" : "audio", selected.id);
+          try {
+            replacement.setMuted(selected.kind === "camera" ? !session.localVideoEnabled : session.localMuted);
+            if (selected.kind === "camera" && session.screenTrack) {
+              session.screenPausedCamera = replacement;
+              old.mediaStreamTrack.stop();
+            } else {
+              replacePublishedStream(old, replacement);
+            }
+          } catch (error) {
+            replacement.mediaStreamTrack.stop();
+            throw error;
           }
-          const replacement = new sdk.LocalStageStream(track);
           if (selected.kind === "camera") {
             session.localVideoStream = replacement;
             if (old) removeVideoTrack(session, [...session.tracks.values()].find((item) => item.native === old)?.id);
@@ -934,14 +1073,10 @@
               session.screenPausedCamera = replacement;
               return;
             }
-            localStreams.push(replacement);
-            addVideoTrack(session, { id: `ivs:local:${track.id}`, participantId: session.localParticipantId, isLocal: true, native: replacement });
+            addVideoTrack(session, { id: `ivs:local:${replacement.id}`, participantId: session.localParticipantId, isLocal: true, native: replacement });
           } else {
-            replacement.setMuted(session.localMuted);
             session.localAudioStream = replacement;
-            localStreams.push(replacement);
           }
-          stage.refreshStrategy();
           return;
         }
         if (name === "listDevices") return listDevices(session);
@@ -983,15 +1118,22 @@
         container.replaceChildren();
       },
       async leave() {
-        stage.leave();
-        for (const stream of [...localStreams]) stream.mediaStreamTrack.stop();
-        if (session.screenPausedCamera && !localStreams.includes(session.screenPausedCamera)) {
-          session.screenPausedCamera.mediaStreamTrack.stop();
+        try {
+          await stage.leave();
+        } finally {
+          for (const stream of [...remoteAudioStreams]) releaseRemoteAudio(stream);
+          remoteStreams.clear();
+          for (const stream of [...localStreams]) stream.mediaStreamTrack.stop();
+          if (session.screenPausedCamera && !localStreams.includes(session.screenPausedCamera)) {
+            session.screenPausedCamera.mediaStreamTrack.stop();
+          }
+          session.screenPausedCamera = null;
+          localStreams.length = 0;
         }
-        session.screenPausedCamera = null;
-        localStreams.length = 0;
       },
       async dispose() {
+        for (const stream of [...remoteAudioStreams]) releaseRemoteAudio(stream);
+        remoteStreams.clear();
         stage.removeAllListeners?.();
       },
       async getStats() {
@@ -1019,6 +1161,53 @@
     const audioVideo = meetingSession.audioVideo;
     let remoteAudioElement = null;
     let microphones = [];
+    let selectedMicrophoneId = null;
+    let selectedCameraId = null;
+    let contentShareStream = null;
+    let contentShareStarted = false;
+    let contentShareGeneration = 0;
+    const localContentTrackId = `chime:screen:${session.localParticipantId}`;
+    const releaseLocalContentShare = () => {
+      const stream = contentShareStream;
+      contentShareStream = null;
+      contentShareStarted = false;
+      session.screenTrack = null;
+      removeVideoTrack(session, localContentTrackId);
+      stream?.getTracks?.().forEach((track) => track.stop?.());
+    };
+    const publishLocalContentShare = () => {
+      if (!contentShareStarted || !contentShareStream || session.screenTrack) return;
+      const videoTrack = contentShareStream.getVideoTracks?.()[0];
+      if (!videoTrack || videoTrack.readyState === "ended") {
+        reportError(session, new Error("Chime content share started without an active screen video track."));
+        return;
+      }
+      session.screenTrack = videoTrack;
+      addVideoTrack(session, {
+        id: localContentTrackId,
+        participantId: session.localParticipantId,
+        isLocal: true,
+        isScreenShare: true,
+        native: { track: videoTrack }
+      });
+      videoTrack.addEventListener?.("ended", () => {
+        if (session.screenTrack === videoTrack) {
+          audioVideo.stopContentShare();
+          releaseLocalContentShare();
+        }
+      }, { once: true });
+    };
+    const contentObserver = {
+      contentShareDidStart() {
+        contentShareStarted = true;
+        publishLocalContentShare();
+      },
+      contentShareDidStop() {
+        contentShareGeneration += 1;
+        releaseLocalContentShare();
+      }
+    };
+    audioVideo.addContentShareObserver(contentObserver);
     let pendingAudioUnlock = null;
     const playRemoteAudio = () => {
       const audio = remoteAudioElement;
@@ -1118,17 +1307,6 @@
           }
         }
         microphones = [];
-        try {
-          microphones = await audioVideo.listAudioInputDevices();
-        } catch (_) {
-        }
-        if (microphones.length) {
-          try {
-            await audioVideo.startAudioInput(microphones[0].deviceId);
-          } catch (_) {
-            microphones = [];
-          }
-        }
         const connected = new Promise((resolve, reject) => {
           const timeout = global.setTimeout(() => {
             settleStart?.(new Error("Chime signaling timed out after 30 seconds. Check network and AWS media region."));
@@ -1160,7 +1338,8 @@
             if (!microphones.length) {
               const available = await audioVideo.listAudioInputDevices();
               if (!available.length) throw new Error("No Chime microphone is available.");
-              await audioVideo.startAudioInput(available[0].deviceId);
+              const selected = selectedMicrophoneId || available[0].deviceId;
+              await audioVideo.startAudioInput(selected);
               microphones = available;
             }
             const unmuted = await audioVideo.realtimeUnmuteLocalAudio();
@@ -1174,22 +1353,48 @@
             if (session.processedTrack) await audioVideo.startVideoInput(new MediaStream([session.processedTrack]));
             else {
               const cameras = await audioVideo.listVideoInputDevices();
-              if (cameras[0]) await audioVideo.startVideoInput(cameras[0].deviceId);
+              const cameraId = selectedCameraId || cameras[0]?.deviceId;
+              if (!cameraId) throw new Error("No Chime camera is available.");
+              await audioVideo.startVideoInput(cameraId);
             }
             audioVideo.startLocalVideoTile();
-          } else audioVideo.stopLocalVideoTile();
+          } else {
+            audioVideo.stopLocalVideoTile();
+            if (!session.processedTrack) await audioVideo.stopVideoInput?.();
+          }
           session.localVideoEnabled = Boolean(args.enabled);
           return;
         }
         if (name === "setScreenShareEnabled") {
-          if (args.enabled) await audioVideo.startContentShareFromScreenCapture();
-          else audioVideo.stopContentShare();
+          if (args.enabled && !session.screenTrack) {
+            const generation = contentShareGeneration;
+            const stream = await audioVideo.startContentShareFromScreenCapture();
+            if (generation !== contentShareGeneration || session.disposed) {
+              stream?.getTracks?.().forEach((track) => track.stop?.());
+              throw new Error("Chime screen capture ended before content sharing started.");
+            }
+            contentShareStream = stream;
+            publishLocalContentShare();
+          } else if (!args.enabled) {
+            audioVideo.stopContentShare();
+            releaseLocalContentShare();
+          }
           return;
         }
         if (name === "selectDevice" || name === "selectAudioOutput") {
           const selected = args.device || args;
-          if (selected.kind === "microphone") await audioVideo.startAudioInput(selected.id);
-          if (selected.kind === "camera") await audioVideo.startVideoInput(selected.id);
+          if (selected.kind === "microphone") {
+            if (!selected.id) throw new Error("Chime microphone device id is required.");
+            if (!session.localMuted) await audioVideo.startAudioInput(selected.id);
+            selectedMicrophoneId = selected.id;
+          }
+          if (selected.kind === "camera") {
+            if (!selected.id) throw new Error("Chime camera device id is required.");
+            if (session.localVideoEnabled && !session.processedTrack) {
+              await audioVideo.startVideoInput(selected.id);
+            }
+            selectedCameraId = selected.id;
+          }
           if (selected.kind === "audioOutput") await audioVideo.chooseAudioOutput(selected.id);
           return;
         }
@@ -1215,14 +1420,21 @@
         await audioVideo.stopVideoInput?.();
       },
       attachVideo(track, container) {
+        if (track.isLocal && track.isScreenShare && track.native?.track) {
+          attachStreamTrack(track.native.track, container);
+          return;
+        }
         const tile = track.native;
         const video = makeVideoElement(container);
         audioVideo.bindVideoElement(tile.tileId, video);
       },
       detachVideo(track) {
+        if (track.isLocal && track.isScreenShare && track.native?.track) return;
         audioVideo.unbindVideoElement(track.native.tileId);
       },
       async leave() {
+        if (contentShareStream || contentShareStarted) audioVideo.stopContentShare();
+        releaseLocalContentShare();
         audioVideo.stop();
         if (pendingAudioUnlock) {
           global.document.removeEventListener("pointerdown", pendingAudioUnlock);
@@ -1234,6 +1446,7 @@
         await deviceController.destroy?.();
       },
       async dispose() {
+        audioVideo.removeContentShareObserver(contentObserver);
         audioVideo.removeObserver(observer);
         audioVideo.realtimeUnsubscribeToAttendeeIdPresence(presenceObserver);
         audioVideo.realtimeUnsubscribeFromReceiveDataMessage(dataTopic);
@@ -1255,6 +1468,7 @@
       LEFT: "stageParticipantLeft",
       STREAMS_ADDED: "stageParticipantStreamsAdded",
       STREAMS_REMOVED: "stageParticipantStreamsRemoved",
+      STREAM_MUTE_CHANGED: "stageStreamMuteChanged",
       ERROR: "stageError"
     };
     let nextPreviewSource = 0;

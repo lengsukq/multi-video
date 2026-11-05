@@ -14,6 +14,7 @@ import { createChimeSession } from './media/chime-session.js';
     LEFT: 'stageParticipantLeft',
     STREAMS_ADDED: 'stageParticipantStreamsAdded',
     STREAMS_REMOVED: 'stageParticipantStreamsRemoved',
+    STREAM_MUTE_CHANGED: 'stageStreamMuteChanged',
     ERROR: 'stageError',
   };
 

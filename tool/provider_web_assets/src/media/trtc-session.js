@@ -3,6 +3,8 @@ export function createTrtcSession(session, context) {
     const info = providerBlock(session, 'trtc');
     const sdk = global.TRTC;
     const trtc = sdk.create({ assetsPath: (globalThis.__realtimeTrtcAssetsPath || new URL('assets/packages/flutter_realtime_sdk/assets/provider_web_runtime/vendors/trtc-assets/', document.baseURI).toString()) });
+    let audioStarted = false;
+    let selectedMicrophoneId = null;
     const localVideoId = `trtc:video:${session.localParticipantId}`;
     const remoteTracks = new Map();
     const refreshLocalTrack = () => {
@@ -20,9 +22,19 @@ export function createTrtcSession(session, context) {
       addVideoTrack(session, { id: trackId, participantId: userId, isScreenShare: streamType === (sdk.TYPE?.STREAM_TYPE_SUB || 'sub'), native: { userId, streamType } });
     };
     trtc.on(events.REMOTE_USER_ENTER || 'remote-user-enter', (event) => { addParticipant(session, event.userId); publishSnapshot(session); });
-    trtc.on(events.REMOTE_USER_EXIT || 'remote-user-exit', (event) => removeParticipant(session, event.userId));
+    trtc.on(events.REMOTE_USER_EXIT || 'remote-user-exit', (event) => {
+      const userId = String(event.userId || '');
+      for (const [trackId, track] of remoteTracks) {
+        if (track.userId === userId) remoteTracks.delete(trackId);
+      }
+      removeParticipant(session, userId);
+    });
     trtc.on(events.REMOTE_VIDEO_AVAILABLE || 'remote-video-available', attachRemote);
-    trtc.on(events.REMOTE_VIDEO_UNAVAILABLE || 'remote-video-unavailable', (event) => removeVideoTrack(session, `trtc:video:${event.userId}:${event.streamType || sdk.TYPE?.STREAM_TYPE_MAIN || 'main'}`));
+    trtc.on(events.REMOTE_VIDEO_UNAVAILABLE || 'remote-video-unavailable', (event) => {
+      const trackId = `trtc:video:${event.userId}:${event.streamType || sdk.TYPE?.STREAM_TYPE_MAIN || 'main'}`;
+      remoteTracks.delete(trackId);
+      removeVideoTrack(session, trackId);
+    });
     trtc.on(events.CONNECTION_STATE_CHANGED || 'connection-state-changed', (event) => {
       const value = String(event.state || event.currentState || '').toLowerCase();
       if (value.includes('reconnect')) emitState(session, 'reconnecting');
@@ -47,19 +59,29 @@ export function createTrtcSession(session, context) {
           autoReceiveAudio: true,
           autoReceiveVideo: true,
         });
-        if (session.role !== 'viewer') {
-          await trtc.startLocalAudio();
-          // iOS joins muted; Web must not transmit microphone audio before
-          // the participant explicitly unmutes via Pre-Join or room controls.
-          await trtc.updateLocalAudio({ mute: true });
-          session.localMuted = true;
-          session.localVideoEnabled = false;
-        }
+        // startLocalAudio captures and PUBLISHES by default. Never start it
+        // just to mute immediately: that can publish an initial audio frame
+        // and request microphone permission before the user opts in.
+        session.localMuted = true;
+        session.localVideoEnabled = false;
       },
       async command(name, args) {
         if (name === 'setMuted') {
-          await trtc.updateLocalAudio({ mute: Boolean(args.muted) });
-          session.localMuted = Boolean(args.muted);
+          const muted = Boolean(args.muted);
+          if (session.role === 'viewer' && !muted) {
+            throw new Error('TRTC audience members cannot publish microphone audio.');
+          }
+          if (!muted && !audioStarted) {
+            await trtc.startLocalAudio({
+              publish: true,
+              mute: false,
+              ...(selectedMicrophoneId ? { option: { microphoneId: selectedMicrophoneId } } : {}),
+            });
+            audioStarted = true;
+          } else if (audioStarted) {
+            await trtc.updateLocalAudio({ mute: muted });
+          }
+          session.localMuted = muted;
           return;
         }
         if (name === 'setVideoEnabled') {
@@ -80,11 +102,18 @@ export function createTrtcSession(session, context) {
         }
         if (name === 'setScreenShareEnabled') {
           if (args.enabled && !session.screenTrack) {
-            await trtc.startLocalScreen({ publish: true });
-            session.screenTrack = trtc.getVideoTrack({ streamType: sdk.TYPE.STREAM_TYPE_SUB });
-            if (session.screenTrack) addVideoTrack(session, { id: `trtc:screen:${session.localParticipantId}`, participantId: session.localParticipantId, isLocal: true, isScreenShare: true, native: session.screenTrack });
+            // TRTC Web 5.19.x exposes startScreenShare/stopScreenShare, not
+            // the obsolete startLocalScreen/stopLocalScreen methods.
+            await trtc.startScreenShare({ publish: true });
+            const track = trtc.getVideoTrack({ streamType: sdk.TYPE.STREAM_TYPE_SUB });
+            if (!track) {
+              await trtc.stopScreenShare();
+              throw new Error('TRTC screen capture started without a screen video track.');
+            }
+            session.screenTrack = track;
+            addVideoTrack(session, { id: `trtc:screen:${session.localParticipantId}`, participantId: session.localParticipantId, isLocal: true, isScreenShare: true, native: track });
           } else if (!args.enabled && session.screenTrack) {
-            await trtc.stopLocalScreen();
+            await trtc.stopScreenShare();
             session.screenTrack = null;
             removeVideoTrack(session, `trtc:screen:${session.localParticipantId}`);
           }
@@ -100,7 +129,11 @@ export function createTrtcSession(session, context) {
         }
         if (name === 'selectDevice') {
           const selected = args.device || args;
-          if (selected.kind === 'microphone') await trtc.updateLocalAudio({ option: { microphoneId: selected.id } });
+          if (selected.kind === 'microphone') {
+            if (!selected.id) throw new Error('TRTC microphone device id is required.');
+            if (audioStarted) await trtc.updateLocalAudio({ option: { microphoneId: selected.id } });
+            selectedMicrophoneId = selected.id;
+          }
           if (selected.kind === 'camera') { session.cameraId = selected.id; await trtc.updateLocalVideo({ option: { cameraId: selected.id } }); }
           return;
         }
@@ -114,7 +147,9 @@ export function createTrtcSession(session, context) {
       async attachVideo(track, container) {
         const native = track.native;
         if (native?.userId) {
-          await trtc.startRemoteVideo({ userId: native.userId, streamType: native.streamType, view: container.id, option: { fillMode: 'contain' } });
+          // Flutter's platform-view element is often not assigned an HTML id.
+          // TRTC accepts the actual HTMLElement as well as an id string.
+          await trtc.startRemoteVideo({ userId: native.userId, streamType: native.streamType, view: container, option: { fillMode: 'contain' } });
         } else {
           const mediaTrack = native?.mediaStreamTrack || native;
           if (mediaTrack && mediaTrack.kind === 'video') attachStreamTrack(mediaTrack, container);
@@ -124,7 +159,16 @@ export function createTrtcSession(session, context) {
         const native = track.native;
         if (native?.userId) await trtc.stopRemoteVideo({ userId: native.userId, streamType: native.streamType });
       },
-      async leave() { await trtc.exitRoom(); },
+      async leave() {
+        try {
+          if (session.screenTrack) await trtc.stopScreenShare();
+          if (audioStarted) await trtc.stopLocalAudio();
+        } finally {
+          audioStarted = false;
+          session.screenTrack = null;
+          await trtc.exitRoom();
+        }
+      },
       async dispose() { trtc.destroy?.(); },
       async getStats() {
         const statistics = session.lastTrtcStatistics;

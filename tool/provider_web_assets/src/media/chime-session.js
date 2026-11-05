@@ -11,6 +11,53 @@ export function createChimeSession(session, context) {
     const audioVideo = meetingSession.audioVideo;
     let remoteAudioElement = null;
     let microphones = [];
+    let selectedMicrophoneId = null;
+    let selectedCameraId = null;
+    let contentShareStream = null;
+    let contentShareStarted = false;
+    let contentShareGeneration = 0;
+    const localContentTrackId = `chime:screen:${session.localParticipantId}`;
+    const releaseLocalContentShare = () => {
+      const stream = contentShareStream;
+      contentShareStream = null;
+      contentShareStarted = false;
+      session.screenTrack = null;
+      removeVideoTrack(session, localContentTrackId);
+      stream?.getTracks?.().forEach((track) => track.stop?.());
+    };
+    const publishLocalContentShare = () => {
+      if (!contentShareStarted || !contentShareStream || session.screenTrack) return;
+      const videoTrack = contentShareStream.getVideoTracks?.()[0];
+      if (!videoTrack || videoTrack.readyState === 'ended') {
+        reportError(session, new Error('Chime content share started without an active screen video track.'));
+        return;
+      }
+      session.screenTrack = videoTrack;
+      addVideoTrack(session, {
+        id: localContentTrackId,
+        participantId: session.localParticipantId,
+        isLocal: true,
+        isScreenShare: true,
+        native: { track: videoTrack },
+      });
+      videoTrack.addEventListener?.('ended', () => {
+        if (session.screenTrack === videoTrack) {
+          audioVideo.stopContentShare();
+          releaseLocalContentShare();
+        }
+      }, { once: true });
+    };
+    const contentObserver = {
+      contentShareDidStart() {
+        contentShareStarted = true;
+        publishLocalContentShare();
+      },
+      contentShareDidStop() {
+        contentShareGeneration += 1;
+        releaseLocalContentShare();
+      },
+    };
+    audioVideo.addContentShareObserver(contentObserver);
     let pendingAudioUnlock = null;
     const playRemoteAudio = () => {
       const audio = remoteAudioElement;
@@ -110,16 +157,10 @@ export function createChimeSession(session, context) {
             throw error;
           }
         }
-        // Device enumeration can reject on macOS WKWebView when the OS has not
-        // granted TCC permission or no physical input exists. Connecting to
-        // Chime is independent of capture; join muted and enable it later.
+        // Chime can join as a listener with no audio input. Do not request
+        // microphone permission before the participant explicitly unmutes.
+        // Device discovery is deferred too (WKWebView/TCC can reject it).
         microphones = [];
-        try { microphones = await audioVideo.listAudioInputDevices(); }
-        catch (_) { /* Continue to the meeting without microphone access. */ }
-        if (microphones.length) {
-          try { await audioVideo.startAudioInput(microphones[0].deviceId); }
-          catch (_) { microphones = []; /* Capture failures are not join failures. */ }
-        }
 
         // start() begins asynchronous signaling. Do not mark the attendee as
         // connected until Chime actually fires audioVideoDidStart. Otherwise
@@ -155,7 +196,8 @@ export function createChimeSession(session, context) {
             if (!microphones.length) {
               const available = await audioVideo.listAudioInputDevices();
               if (!available.length) throw new Error('No Chime microphone is available.');
-              await audioVideo.startAudioInput(available[0].deviceId);
+              const selected = selectedMicrophoneId || available[0].deviceId;
+              await audioVideo.startAudioInput(selected);
               microphones = available;
             }
             const unmuted = await audioVideo.realtimeUnmuteLocalAudio();
@@ -167,20 +209,57 @@ export function createChimeSession(session, context) {
         if (name === 'setVideoEnabled') {
           if (args.enabled) {
             if (session.processedTrack) await audioVideo.startVideoInput(new MediaStream([session.processedTrack]));
-            else { const cameras = await audioVideo.listVideoInputDevices(); if (cameras[0]) await audioVideo.startVideoInput(cameras[0].deviceId); }
+            else {
+              const cameras = await audioVideo.listVideoInputDevices();
+              const cameraId = selectedCameraId || cameras[0]?.deviceId;
+              if (!cameraId) throw new Error('No Chime camera is available.');
+              await audioVideo.startVideoInput(cameraId);
+            }
             audioVideo.startLocalVideoTile();
-          } else audioVideo.stopLocalVideoTile();
+          } else {
+            audioVideo.stopLocalVideoTile();
+            // Stop the vendor-owned camera capture as well as its video tile;
+            // leaving a black tile is not equivalent to releasing a camera.
+            if (!session.processedTrack) await audioVideo.stopVideoInput?.();
+          }
           session.localVideoEnabled = Boolean(args.enabled);
           return;
         }
         if (name === 'setScreenShareEnabled') {
-          if (args.enabled) await audioVideo.startContentShareFromScreenCapture(); else audioVideo.stopContentShare();
+          if (args.enabled && !session.screenTrack) {
+            // A resolved screen-picker promise alone is not proof that Chime
+            // started content publication. Match the vendor observer's start
+            // event with an actual screen MediaStreamTrack.
+            const generation = contentShareGeneration;
+            const stream = await audioVideo.startContentShareFromScreenCapture();
+            // A content-share rejection/stop can race with the capture
+            // promise settling. Never resurrect a stopped recording.
+            if (generation !== contentShareGeneration || session.disposed) {
+              stream?.getTracks?.().forEach((track) => track.stop?.());
+              throw new Error('Chime screen capture ended before content sharing started.');
+            }
+            contentShareStream = stream;
+            publishLocalContentShare();
+          } else if (!args.enabled) {
+            audioVideo.stopContentShare();
+            releaseLocalContentShare();
+          }
           return;
         }
         if (name === 'selectDevice' || name === 'selectAudioOutput') {
           const selected = args.device || args;
-          if (selected.kind === 'microphone') await audioVideo.startAudioInput(selected.id);
-          if (selected.kind === 'camera') await audioVideo.startVideoInput(selected.id);
+          if (selected.kind === 'microphone') {
+            if (!selected.id) throw new Error('Chime microphone device id is required.');
+            if (!session.localMuted) await audioVideo.startAudioInput(selected.id);
+            selectedMicrophoneId = selected.id;
+          }
+          if (selected.kind === 'camera') {
+            if (!selected.id) throw new Error('Chime camera device id is required.');
+            if (session.localVideoEnabled && !session.processedTrack) {
+              await audioVideo.startVideoInput(selected.id);
+            }
+            selectedCameraId = selected.id;
+          }
           if (selected.kind === 'audioOutput') await audioVideo.chooseAudioOutput(selected.id);
           return;
         }
@@ -206,12 +285,21 @@ export function createChimeSession(session, context) {
         await audioVideo.stopVideoInput?.();
       },
       attachVideo(track, container) {
+        if (track.isLocal && track.isScreenShare && track.native?.track) {
+          attachStreamTrack(track.native.track, container);
+          return;
+        }
         const tile = track.native;
         const video = makeVideoElement(container);
         audioVideo.bindVideoElement(tile.tileId, video);
       },
-      detachVideo(track) { audioVideo.unbindVideoElement(track.native.tileId); },
+      detachVideo(track) {
+        if (track.isLocal && track.isScreenShare && track.native?.track) return;
+        audioVideo.unbindVideoElement(track.native.tileId);
+      },
       async leave() {
+        if (contentShareStream || contentShareStarted) audioVideo.stopContentShare();
+        releaseLocalContentShare();
         audioVideo.stop();
         if (pendingAudioUnlock) {
           global.document.removeEventListener('pointerdown', pendingAudioUnlock);
@@ -223,6 +311,7 @@ export function createChimeSession(session, context) {
         await deviceController.destroy?.();
       },
       async dispose() {
+        audioVideo.removeContentShareObserver(contentObserver);
         audioVideo.removeObserver(observer);
         audioVideo.realtimeUnsubscribeToAttendeeIdPresence(presenceObserver);
         audioVideo.realtimeUnsubscribeFromReceiveDataMessage(dataTopic);

@@ -6,6 +6,14 @@ export function createArtcSession(session, context) {
     const profile = AliRtcEngine.AliRtcSdkChannelProfile;
     const roles = AliRtcEngine.AliRtcSdkClientRole;
     const engine = AliRtcEngine.createInstance ? AliRtcEngine.createInstance() : AliRtcEngine.getInstance();
+    const checked = async (operation, action) => {
+      const result = await action();
+      // AliRTC APIs report synchronous native/SDK failures as non-zero codes
+      // rather than rejected promises on some platforms/SDK versions.
+      if (typeof result === 'number' && result !== 0) {
+        throw new Error(`ARTC ${operation} failed (${result}).`);
+      }
+    };
     const cameraTrack = AliRtcEngine.AliRtcVideoTrack.AliRtcVideoTrackCamera;
     const screenTrack = AliRtcEngine.AliRtcVideoTrack.AliRtcVideoTrackScreen;
     const remoteVideo = new Map();
@@ -37,16 +45,14 @@ export function createArtcSession(session, context) {
           engine.setChannelProfile(profile.AliRtcInteractiveLive);
           await engine.setClientRole(session.role === 'viewer' ? roles.AliRtcSdkLive : roles.AliRtcSdkInteractive);
         }
-        await engine.enableLocalVideo(false);
-        await engine.publishLocalVideoStream(false);
-        if (session.role !== 'viewer') {
-          await engine.publishLocalAudioStream(false);
-        }
+        await checked('disable camera capture', () => engine.enableLocalVideo(false));
+        await checked('disable camera publication', () => engine.publishLocalVideoStream(false));
+        // ARTC enables audio publication by default. Audience members must
+        // also disable it BEFORE joinChannel, even though they cannot unmute.
+        await checked('disable microphone publication', () => engine.publishLocalAudioStream(false));
         await engine.joinChannel(info.authInfo, session.payload.displayName || info.userId);
-        if (session.role !== 'viewer') {
-          session.localMuted = true;
-          session.localVideoEnabled = false;
-        }
+        session.localMuted = true;
+        session.localVideoEnabled = false;
       },
       async command(name, args) {
         if (name === 'setMuted') {
@@ -54,22 +60,19 @@ export function createArtcSession(session, context) {
           if (session.role === 'viewer' && !muted) {
             throw new Error('ARTC viewer sessions cannot publish microphone audio.');
           }
-          const publishResult = await engine.publishLocalAudioStream(!muted);
-          if (typeof publishResult === 'number' && publishResult !== 0) {
-            throw new Error(`ARTC failed to update microphone publication (${publishResult}).`);
-          }
-          await engine.muteLocalMic(muted);
+          await checked('microphone publication', () => engine.publishLocalAudioStream(!muted));
+          await checked('microphone mute', () => engine.muteLocalMic(muted));
           session.localMuted = muted;
           return;
         }
         if (name === 'setVideoEnabled') {
           const enabled = Boolean(args.enabled);
           if (session.processedTrack) {
-            await engine.muteLocalCamera(!enabled);
-            await engine.publishLocalVideoStream(enabled);
+            await checked('camera mute', () => engine.muteLocalCamera(!enabled));
+            await checked('camera publication', () => engine.publishLocalVideoStream(enabled));
           } else {
-            await engine.enableLocalVideo(enabled);
-            await engine.publishLocalVideoStream(enabled);
+            await checked('camera capture', () => engine.enableLocalVideo(enabled));
+            await checked('camera publication', () => engine.publishLocalVideoStream(enabled));
           }
           session.localVideoEnabled = enabled;
           if (!enabled) removeVideoTrack(session, `artc:video:${session.localParticipantId}`);
@@ -78,14 +81,17 @@ export function createArtcSession(session, context) {
         }
         if (name === 'setScreenShareEnabled') {
           if (args.enabled && !session.screenTrack) {
-            await engine.startPreviewScreen();
-            try { await engine.publishLocalScreenShareStream(true); }
+            await checked('start screen preview', () => engine.startPreviewScreen());
+            try { await checked('publish screen', () => engine.publishLocalScreenShareStream(true)); }
             catch (error) { await engine.stopPreviewScreen(); throw error; }
             session.screenTrack = {uid: session.localParticipantId, track: screenTrack};
             addVideoTrack(session, { id: `artc:screen:${session.localParticipantId}`, participantId: session.localParticipantId, isLocal: true, isScreenShare: true, native: session.screenTrack });
           } else if (!args.enabled && session.screenTrack) {
-            await engine.publishLocalScreenShareStream(false);
-            await engine.stopPreviewScreen();
+            try {
+              await checked('unpublish screen', () => engine.publishLocalScreenShareStream(false));
+            } finally {
+              await engine.stopPreviewScreen();
+            }
             session.screenTrack = null;
             removeVideoTrack(session, `artc:screen:${session.localParticipantId}`);
           }

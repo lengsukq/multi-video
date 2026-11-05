@@ -8,6 +8,53 @@ export function createIvsSession(session, context) {
     const canPublish = session.role !== 'viewer' && info.capabilities?.includes('PUBLISH');
     const localStreams = [];
     const remoteStreams = new Map();
+    let selectedMicrophoneId = null;
+    let selectedCameraId = null;
+    const createLocalStream = async (kind, deviceId) => {
+      if (!canPublish) throw new Error('IVS credentials do not permit publishing media.');
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('This browser cannot access camera or microphone media devices.');
+      }
+      const option = deviceId ? { deviceId: { exact: deviceId } } : true;
+      const media = await navigator.mediaDevices.getUserMedia(
+        kind === 'audio' ? { audio: option, video: false } : { audio: false, video: option },
+      );
+      const tracks = media.getTracks();
+      const track = tracks.find(item => item.kind === kind);
+      for (const extra of tracks) if (extra !== track) extra.stop();
+      if (!track) throw new Error(`No IVS ${kind} device track was returned.`);
+      try { return new sdk.LocalStageStream(track); }
+      catch (error) { track.stop(); throw error; }
+    };
+    const replacePublishedStream = (old, replacement) => {
+      const oldIndex = localStreams.indexOf(old);
+      if (oldIndex >= 0) localStreams.splice(oldIndex, 1, replacement);
+      else localStreams.push(replacement);
+      try { stage.refreshStrategy(); }
+      catch (error) {
+        const replacementIndex = localStreams.indexOf(replacement);
+        if (replacementIndex >= 0) localStreams.splice(replacementIndex, 1);
+        if (oldIndex >= 0) localStreams.splice(oldIndex, 0, old);
+        replacement.mediaStreamTrack.stop();
+        throw error;
+      }
+      old?.mediaStreamTrack.stop();
+    };
+    const remoteAudioStreams = new Set();
+    const releaseRemoteAudio = (stream) => {
+      if (stream.__audioRetry) {
+        global.document.removeEventListener('pointerdown', stream.__audioRetry);
+        stream.__audioRetry = null;
+      }
+      const audio = stream.__audioElement;
+      if (audio) {
+        audio.pause?.();
+        audio.srcObject = null;
+        audio.remove();
+        stream.__audioElement = null;
+      }
+      remoteAudioStreams.delete(stream);
+    };
     const stage = new sdk.Stage(info.token, {
       stageStreamsToPublish: () => localStreams,
       shouldPublishParticipant: () => Boolean(canPublish),
@@ -19,10 +66,18 @@ export function createIvsSession(session, context) {
       else if (state === sdk.StageConnectionState.DISCONNECTED) emitState(session, 'disconnected');
     });
     stage.on(StageEvents.JOINED, (participant) => { addParticipant(session, participant.userId || participant.id, participant.userInfo?.displayName, participant.isLocal); publishSnapshot(session); });
-    stage.on(StageEvents.LEFT, (participant) => removeParticipant(session, participant.userId || participant.id));
+    stage.on(StageEvents.LEFT, (participant) => {
+      const participantId = String(participant.userId || participant.id);
+      // Be resilient to an SDK which emits LEFT before STREAMS_REMOVED.
+      for (const stream of [...remoteAudioStreams]) {
+        if (stream.__participantId === participantId) releaseRemoteAudio(stream);
+      }
+      removeParticipant(session, participantId);
+    });
     stage.on(StageEvents.STREAMS_ADDED, (participant, streams) => {
       const participantId = String(participant.userId || participant.id);
-      addParticipant(session, participantId, participant.userInfo?.displayName, participant.isLocal);
+      const member = addParticipant(session, participantId, participant.userInfo?.displayName, participant.isLocal);
+      if (member && participant.isLocal) member.isMuted = session.localMuted;
       for (const stream of streams) {
         if (stream.streamType !== sdk.StreamType.VIDEO) continue;
         remoteStreams.set(stream.id, stream);
@@ -30,12 +85,21 @@ export function createIvsSession(session, context) {
       }
       for (const stream of streams) {
         if (stream.streamType === sdk.StreamType.AUDIO && !participant.isLocal) {
+          if (member) {
+            member.isMuted = typeof stream.isMuted === 'boolean'
+              ? stream.isMuted : Boolean(participant.audioMuted);
+            publishSnapshot(session);
+          }
+          if (stream.__audioElement) continue;
           const audio = document.createElement('audio');
           audio.autoplay = true;
           audio.srcObject = new MediaStream([stream.mediaStreamTrack]);
           document.body.append(audio);
           stream.__audioElement = audio;
+          stream.__participantId = participantId;
+          remoteAudioStreams.add(stream);
           audio.play().catch((error) => {
+            if (stream.__audioElement !== audio) return;
             // Browser autoplay permission is separate from a successfully
             // subscribed remote IVS audio track. Do not silently lose sound.
             reportError(session, new Error(`IVS remote audio playback blocked: ${error.message}. Tap the page to allow sound.`));
@@ -49,12 +113,24 @@ export function createIvsSession(session, context) {
         }
       }
     });
+    stage.on(StageEvents.STREAM_MUTE_CHANGED, (participant, stream) => {
+      const participantId = String(participant.userId || participant.id || '');
+      if (!participantId) return;
+      const current = session.participants.get(participantId);
+      if (!current) return;
+      if (stream.streamType === sdk.StreamType.AUDIO) {
+        current.isMuted = Boolean(stream.isMuted);
+        if (participant.isLocal) session.localMuted = current.isMuted;
+        publishSnapshot(session);
+      } else if (stream.streamType === sdk.StreamType.VIDEO && !participant.isLocal) {
+        current.isVideoEnabled = !stream.isMuted;
+        publishSnapshot(session);
+      }
+    });
     stage.on(StageEvents.STREAMS_REMOVED, (_participant, streams) => {
       for (const stream of streams) {
         removeVideoTrack(session, [...session.tracks.values()].find((track) => track.native === stream)?.id);
-        if (stream.__audioRetry) global.document.removeEventListener('pointerdown', stream.__audioRetry);
-        stream.__audioElement?.remove();
-        stream.__audioRetry = null;
+        releaseRemoteAudio(stream);
         remoteStreams.delete(stream.id);
       }
     });
@@ -63,38 +139,52 @@ export function createIvsSession(session, context) {
     session.stage = stage;
     session.driver = {
       async join() {
-        if (canPublish) {
-          if (!navigator.mediaDevices?.getUserMedia) {
-            throw new Error('This browser cannot access camera or microphone media devices.');
-          }
-          const media = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-          for (const track of media.getTracks()) {
-            const localStream = new sdk.LocalStageStream(track);
-            if (track.kind === 'audio') localStream.setMuted(true);
-            localStreams.push(localStream);
-            if (track.kind === 'video') {
-              session.localVideoStream = localStream;
-              session.localVideoEnabled = true;
-              addVideoTrack(session, { id: `ivs:local:${track.id}`, participantId: session.localParticipantId, isLocal: true, native: localStream });
-            } else session.localAudioStream = localStream;
-          }
-          session.localMuted = true;
-        }
+        // An IVS publisher may join with an empty stageStreamsToPublish list.
+        // Defer the browser permission prompt until microphone/camera enable.
+        session.localMuted = true;
+        session.localVideoEnabled = false;
         await stage.join();
       },
       async command(name, args) {
         if (name === 'setMuted') {
           const muted = Boolean(args.muted);
-          if (!session.localAudioStream && !muted) {
-            throw new Error('No IVS microphone stream is available.');
+          if (!muted && !session.localAudioStream) {
+            const replacement = await createLocalStream('audio', selectedMicrophoneId);
+            try {
+              replacement.setMuted(false);
+              replacePublishedStream(null, replacement);
+            } catch (error) {
+              replacement.mediaStreamTrack.stop();
+              throw error;
+            }
+            session.localAudioStream = replacement;
+          } else {
+            session.localAudioStream?.setMuted(muted);
           }
-          session.localAudioStream?.setMuted(muted);
           session.localMuted = muted;
           return;
         }
         if (name === 'setVideoEnabled') {
-          session.localVideoEnabled = Boolean(args.enabled);
-          if (session.localVideoStream) session.localVideoStream.setMuted(!session.localVideoEnabled);
+          const enabled = Boolean(args.enabled);
+          if (enabled && !session.localVideoStream) {
+            const replacement = await createLocalStream('video', selectedCameraId);
+            try {
+              replacement.setMuted(false);
+              if (session.screenTrack) {
+                session.screenPausedCamera = replacement;
+              } else {
+                replacePublishedStream(null, replacement);
+                addVideoTrack(session, { id: `ivs:local:${replacement.id}`, participantId: session.localParticipantId, isLocal: true, native: replacement });
+              }
+            } catch (error) {
+              replacement.mediaStreamTrack.stop();
+              throw error;
+            }
+            session.localVideoStream = replacement;
+          } else {
+            session.localVideoStream?.setMuted(!enabled);
+          }
+          session.localVideoEnabled = enabled;
           return;
         }
         if (name === 'setScreenShareEnabled') {
@@ -165,15 +255,25 @@ export function createIvsSession(session, context) {
         if (name === 'selectDevice') {
           const selected = args.device || args;
           if (selected.kind !== 'camera' && selected.kind !== 'microphone') return;
-          const media = await navigator.mediaDevices.getUserMedia(selected.kind === 'camera' ? { video: { deviceId: { exact: selected.id } } } : { audio: { deviceId: { exact: selected.id } } });
-          const track = media.getTracks()[0];
+          if (!selected.id) throw new Error('IVS media device id is required.');
           const old = selected.kind === 'camera' ? session.localVideoStream : session.localAudioStream;
-          if (old) {
-            old.mediaStreamTrack.stop();
-            const index = localStreams.indexOf(old);
-            if (index >= 0) localStreams.splice(index, 1);
+          if (selected.kind === 'microphone') selectedMicrophoneId = selected.id;
+          else selectedCameraId = selected.id;
+          // Choosing a device in Pre-Join must not activate its permission.
+          if (!old) return;
+          const replacement = await createLocalStream(selected.kind === 'camera' ? 'video' : 'audio', selected.id);
+          try {
+            replacement.setMuted(selected.kind === 'camera' ? !session.localVideoEnabled : session.localMuted);
+            if (selected.kind === 'camera' && session.screenTrack) {
+              session.screenPausedCamera = replacement;
+              old.mediaStreamTrack.stop();
+            } else {
+              replacePublishedStream(old, replacement);
+            }
+          } catch (error) {
+            replacement.mediaStreamTrack.stop();
+            throw error;
           }
-          const replacement = new sdk.LocalStageStream(track);
           if (selected.kind === 'camera') {
             session.localVideoStream = replacement;
             if (old) removeVideoTrack(session, [...session.tracks.values()].find((item) => item.native === old)?.id);
@@ -183,16 +283,10 @@ export function createIvsSession(session, context) {
               session.screenPausedCamera = replacement;
               return;
             }
-            localStreams.push(replacement);
-            addVideoTrack(session, { id: `ivs:local:${track.id}`, participantId: session.localParticipantId, isLocal: true, native: replacement });
+            addVideoTrack(session, { id: `ivs:local:${replacement.id}`, participantId: session.localParticipantId, isLocal: true, native: replacement });
           } else {
-            // Switching input devices must not publish a muted participant
-            // accidentally, nor silently mute an already-speaking one.
-            replacement.setMuted(session.localMuted);
             session.localAudioStream = replacement;
-            localStreams.push(replacement);
           }
-          stage.refreshStrategy();
           return;
         }
         if (name === 'listDevices') return listDevices(session);
@@ -230,16 +324,30 @@ export function createIvsSession(session, context) {
       async attachVideo(track, container) { attachStreamTrack(track.native.mediaStreamTrack, container); },
       detachVideo(_track, container) { container.replaceChildren(); },
       async leave() {
-        stage.leave();
-        for (const stream of [...localStreams]) stream.mediaStreamTrack.stop();
-        if (session.screenPausedCamera &&
-            !localStreams.includes(session.screenPausedCamera)) {
-          session.screenPausedCamera.mediaStreamTrack.stop();
+        // Some browser SDK versions do not emit per-stream removal callbacks
+        // after a local Stage.leave(); release HTMLAudioElements explicitly.
+        // Stage.leave() is asynchronous. Do not stop tracks while its network
+        // teardown is still in flight, and release every source even if leave
+        // rejects (otherwise the microphone/camera may keep running).
+        try {
+          await stage.leave();
+        } finally {
+          for (const stream of [...remoteAudioStreams]) releaseRemoteAudio(stream);
+          remoteStreams.clear();
+          for (const stream of [...localStreams]) stream.mediaStreamTrack.stop();
+          if (session.screenPausedCamera &&
+              !localStreams.includes(session.screenPausedCamera)) {
+            session.screenPausedCamera.mediaStreamTrack.stop();
+          }
+          session.screenPausedCamera = null;
+          localStreams.length = 0;
         }
-        session.screenPausedCamera = null;
-        localStreams.length = 0;
       },
-      async dispose() { stage.removeAllListeners?.(); },
+      async dispose() {
+        for (const stream of [...remoteAudioStreams]) releaseRemoteAudio(stream);
+        remoteStreams.clear();
+        stage.removeAllListeners?.();
+      },
       async getStats() {
         const stats = await Promise.all(localStreams.map((stream) => stream.requestQualityStats?.()));
         const values = stats.flat().filter(Boolean);

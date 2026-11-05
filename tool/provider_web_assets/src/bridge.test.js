@@ -10,6 +10,7 @@ async function createChimeHarness(browserGlobals = {}) {
   let observer;
   let presenceObserver;
   let dataObserver;
+  let contentObserver;
 
   const audioVideo = {
     bindAudioElement(element) {
@@ -26,6 +27,28 @@ async function createChimeHarness(browserGlobals = {}) {
     removeObserver(value) {
       assert.equal(value, observer);
       calls.push('removeObserver');
+    },
+    addContentShareObserver(value) {
+      contentObserver = value;
+      calls.push('addContentShareObserver');
+    },
+    removeContentShareObserver(value) {
+      assert.equal(value, contentObserver);
+      calls.push('removeContentShareObserver');
+    },
+    async startContentShareFromScreenCapture() {
+      calls.push('startContentShareFromScreenCapture');
+      const track = {
+        id: 'chime-screen-track',kind:'video',readyState:'live',
+        stop() { calls.push('stop:chime-screen-track'); },
+        addEventListener() {},
+      };
+      contentObserver?.contentShareDidStart?.();
+      return {getVideoTracks:()=>[track],getTracks:()=>[track]};
+    },
+    stopContentShare() {
+      calls.push('stopContentShare');
+      contentObserver?.contentShareDidStop?.();
     },
     realtimeSubscribeToAttendeeIdPresence(value) {
       presenceObserver = value;
@@ -61,6 +84,9 @@ async function createChimeHarness(browserGlobals = {}) {
     },
     async startVideoInput(deviceId) {
       calls.push(`startVideoInput:${deviceId}`);
+    },
+    async stopVideoInput() {
+      calls.push('stopVideoInput');
     },
     start() {
       calls.push('start');
@@ -148,6 +174,7 @@ async function createChimeHarness(browserGlobals = {}) {
     calls,
     events,
     stopChime: (status) => observer?.audioVideoDidStop?.(status),
+    stopContentShare: () => contentObserver?.contentShareDidStop?.(),
     getDataObserver: () => dataObserver,
   };
 }
@@ -180,7 +207,8 @@ test('Chime bridge uses the current 3.32 media input APIs', async () => {
   await bridge.create('chime', 'meeting-1', JSON.stringify(chimePayload));
   await bridge.join('chime', 'meeting-1');
 
-  assert.ok(calls.includes('startAudioInput:mic-1'));
+  assert.ok(!calls.some(call => call.startsWith('startAudioInput:')),
+    'Chime must not capture the microphone during a muted join');
   assert.ok(calls.includes('bindRemoteAudio'));
   assert.ok(calls.includes('playRemoteAudio'));
   assert.ok(calls.includes('mute'));
@@ -196,6 +224,10 @@ test('Chime bridge uses the current 3.32 media input APIs', async () => {
       device: { id: 'mic-2', label: 'Mic 2', kind: 'microphone' },
     }),
   );
+  assert.ok(!calls.some(call => call.startsWith('startAudioInput:')),
+    'choosing a microphone while muted is not permission to capture');
+  await bridge.command('chime', 'meeting-1', 'setMuted', JSON.stringify({muted: false}));
+  assert.ok(calls.includes('unmute'));
   await bridge.command(
     'chime',
     'meeting-1',
@@ -212,7 +244,13 @@ test('Chime bridge uses the current 3.32 media input APIs', async () => {
   );
 
   assert.ok(calls.includes('startAudioInput:mic-2'));
+  assert.ok(!calls.includes('startVideoInput:cam-2'),
+    'selecting a Chime camera must not capture before explicit enable');
+  await bridge.command('chime','meeting-1','setVideoEnabled',{enabled:true});
   assert.ok(calls.includes('startVideoInput:cam-2'));
+  await bridge.command('chime','meeting-1','setVideoEnabled',{enabled:false});
+  assert.ok(calls.includes('stopVideoInput'),
+    'disabling Chime camera must stop capture, not merely hide the tile');
   assert.ok(calls.includes('chooseAudioOutput:speaker-2'));
 
   await bridge.dispose('chime', 'meeting-1');
@@ -221,6 +259,101 @@ test('Chime bridge uses the current 3.32 media input APIs', async () => {
   assert.ok(calls.includes('destroyDeviceController'));
   assert.ok(calls.includes('unbindRemoteAudio'));
   assert.ok(calls.includes('removeRemoteAudio'));
+});
+
+test('Chime Web cannot resurrect a screen share stopped before capture resolves', async () => {
+  const {bridge, audioVideo, events, calls} = await createChimeHarness();
+  const start = audioVideo.startContentShareFromScreenCapture;
+  audioVideo.startContentShareFromScreenCapture = async () => {
+    const stream = await start();
+    audioVideo.stopContentShare();
+    return stream;
+  };
+  await bridge.create('chime','content-race',chimePayload);
+  await bridge.join('chime','content-race');
+  await assert.rejects(
+    bridge.command('chime','content-race','setScreenShareEnabled',{enabled:true}),
+    /capture ended before content sharing started/,
+  );
+  const snapshot = events.filter(({event}) => event.type === 'snapshot').at(-1).event;
+  assert.equal(snapshot.tracks.some(track => track.isLocal && track.isScreenShare),false);
+  assert.ok(calls.includes('stop:chime-screen-track'),
+    'late screen stream must release capture after an asynchronous stop');
+  await bridge.dispose('chime','content-race');
+});
+
+test('Chime Web only shows active local screen after content share starts and has a track', async () => {
+  const {bridge, calls, events, stopContentShare} = await createChimeHarness();
+  await bridge.create('chime','content-1',chimePayload);
+  await bridge.join('chime','content-1');
+  const localScreen = () => events.filter(({event}) => event.type === 'snapshot')
+    .at(-1).event.tracks.find(track => track.isLocal && track.isScreenShare);
+  assert.equal(localScreen(),undefined);
+  await bridge.command('chime','content-1','setScreenShareEnabled',{enabled:true});
+  assert.equal(localScreen()?.id,'chime:screen:attendee-1');
+  stopContentShare();
+  assert.equal(localScreen(),undefined,
+    'a system/content-share stop must remove the local shared screen');
+  assert.ok(calls.includes('stop:chime-screen-track'));
+  await bridge.dispose('chime','content-1');
+  assert.ok(calls.includes('removeContentShareObserver'));
+});
+
+test('IVS Web awaits the Stage leave handshake before releasing local capture', async () => {
+  const {bridge, calls, getStage} = await createIvsHarness();
+  const payload = {participantId:'host',role:'host',
+    ivs:{token:'publisher-token',capabilities:['PUBLISH','SUBSCRIBE']}};
+  await bridge.create('ivs','wait-for-leave',payload);
+  await bridge.join('ivs','wait-for-leave');
+  await bridge.command('ivs','wait-for-leave','setMuted',{muted:false});
+  let finishLeave;
+  getStage().leave=()=>new Promise(resolve=>{finishLeave=resolve;});
+  const disposing=bridge.dispose('ivs','wait-for-leave');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(typeof finishLeave,'function');
+  assert.ok(!calls.includes('stop:audio-1'),
+    'the microphone must remain owned until Stage.leave resolves');
+  finishLeave();
+  await disposing;
+  assert.ok(calls.includes('stop:audio-1'));
+});
+
+test('IVS Web always releases local capture if Stage.leave fails', async () => {
+  const {bridge, calls, getStage} = await createIvsHarness();
+  const payload = {participantId:'host',role:'host',
+    ivs:{token:'publisher-token',capabilities:['PUBLISH','SUBSCRIBE']}};
+  await bridge.create('ivs','failed-leave',payload);
+  await bridge.join('ivs','failed-leave');
+  await bridge.command('ivs','failed-leave','setMuted',{muted:false});
+  getStage().leave=async()=>{throw new Error('Stage leave failed');};
+  await assert.rejects(bridge.dispose('ivs','failed-leave'),/Stage leave failed/);
+  assert.ok(calls.includes('stop:audio-1'),
+    'a failed leave cannot keep recording the microphone');
+});
+
+test('ARTC Web viewer disables default microphone publication before joining', async () => {
+  const h = await createAgoraHarness();
+  const calls = [];
+  const artc = {
+    on(){}, setChannelProfile(){}, async setClientRole(){return 0;},
+    async enableLocalVideo(){return 0;},
+    async publishLocalVideoStream(){return 0;},
+    async publishLocalAudioStream(enabled){calls.push(`audio:${enabled}`);return 0;},
+    async joinChannel(){calls.push('join');return 0;},
+    async leaveChannel(){}, async destroy(){},
+  };
+  h.context.AliRtcEngine = {
+    createInstance:()=>artc,
+    AliRtcSdkChannelProfile:{AliRtcInteractiveLive:'live'},
+    AliRtcSdkClientRole:{AliRtcSdkLive:'audience'},
+    AliRtcVideoTrack:{AliRtcVideoTrackCamera:1, AliRtcVideoTrackScreen:2},
+    AliRtcConnectionStatus:{},
+  };
+  await h.bridge.create('artc','viewer',{participantId:'viewer',role:'viewer',artc:{authInfo:'test',userId:'viewer'}});
+  await h.bridge.join('artc','viewer');
+  assert.deepEqual(calls,['audio:false','join']);
+  await assert.rejects(h.bridge.command('artc','viewer','setMuted',{muted:false}),/cannot publish/);
+  await h.bridge.dispose('artc','viewer');
 });
 
 test('Chime Web does not claim an unmuted microphone when capture is blocked', async () => {
@@ -418,11 +551,14 @@ async function createIvsHarness() {
     clearInterval: () => {},
     navigator: { mediaDevices },
     document: {
-      createElement: () => ({
-        remove: () => {},
-        play: () => Promise.resolve(),
+      createElement: (tag) => ({
+        remove: () => calls.push(`dom:remove:${tag}`),
+        pause: () => calls.push(`dom:pause:${tag}`),
+        play: () => { calls.push(`dom:play:${tag}`); return Promise.resolve(); },
       }),
-      body: { append: () => {} },
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      body: { append: () => calls.push('dom:append') },
     },
     MediaStream: class {
       constructor(tracks) {
@@ -479,10 +615,9 @@ test('IVS bridge publishes only with publisher credentials and refreshes strateg
   );
 
   await bridge.join('ivs', 'stage-1');
-  assert.ok(calls.some((call) => call.startsWith('getUserMedia:')));
+  assert.equal(calls.some((call) => call.startsWith('getUserMedia:')), false,
+    'joining as an IVS publisher must not open the microphone');
   assert.ok(calls.includes('stage.join'));
-  assert.ok(calls.some((call) => call.startsWith('mute:audio-') && call.endsWith(':true')),
-    'IVS joins with muted microphone, matching the iOS adapter');
 
   await bridge.command(
     'ivs',
@@ -491,6 +626,8 @@ test('IVS bridge publishes only with publisher credentials and refreshes strateg
     JSON.stringify({ muted: false }),
   );
   assert.ok(calls.some((call) => call.startsWith('mute:audio-') && call.endsWith(':false')));
+  assert.ok(calls.some((call) => call.startsWith('getUserMedia:')),
+    'explicit IVS unmute must acquire the microphone');
 
   await bridge.command(
     'ivs',
@@ -508,6 +645,13 @@ test('IVS bridge publishes only with publisher credentials and refreshes strateg
       device: { id: 'camera-2', kind: 'camera', label: 'Camera 2' },
     }),
   );
+  const capturesVideo = () => calls.some((call) =>
+    call.startsWith('getUserMedia:') && Boolean(JSON.parse(call.slice('getUserMedia:'.length)).video));
+  assert.equal(capturesVideo(), false,
+    'selecting an IVS camera while disabled must not activate video');
+  await bridge.command('ivs', 'stage-1', 'setVideoEnabled', JSON.stringify({enabled: true}));
+  assert.ok(capturesVideo(),
+    'IVS camera enable must capture and publish real video');
   assert.ok(calls.includes('stage.refreshStrategy'));
 
   await bridge.dispose('ivs', 'stage-1');
@@ -539,6 +683,133 @@ test('IVS viewer never requests local media or publishes', async () => {
   await bridge.dispose('ivs', 'stage-viewer');
 });
 
+test('IVS Web releases remote audio on participant exit or local leave', async () => {
+  const {bridge, calls, getStage} = await createIvsHarness();
+  await bridge.create('ivs', 'viewer-audio', JSON.stringify({
+    participantId: 'viewer-audio', role: 'viewer',
+    ivs: {token: 'token', capabilities: ['SUBSCRIBE']},
+  }));
+  await bridge.join('ivs', 'viewer-audio');
+  const stage = getStage();
+  const remote = {id: 'remote-audio', userId: 'remote-audio', isLocal: false};
+  const makeStream = (id) => ({
+    id, streamType: 'audio',
+    mediaStreamTrack: {kind: 'audio', id},
+  });
+  stage.handlers.get('stageParticipantStreamsAdded')(remote, [makeStream('audio-a')]);
+  assert.equal(calls.filter(x => x === 'dom:append').length, 1);
+  stage.handlers.get('stageParticipantLeft')(remote);
+  assert.equal(calls.filter(x => x === 'dom:remove:audio').length, 1);
+  stage.handlers.get('stageParticipantStreamsAdded')(remote, [makeStream('audio-b')]);
+  assert.equal(calls.filter(x => x === 'dom:append').length, 2);
+  await bridge.dispose('ivs', 'viewer-audio');
+  assert.equal(calls.filter(x => x === 'dom:remove:audio').length, 2,
+    'local leave must clean audio tags even without remote stream-removal events');
+});
+
+test('IVS Web mirrors remote Stage audio mute events to participant state', async () => {
+  const {bridge, getStage, events} = await createIvsHarness();
+  await bridge.create('ivs', 'mute-state', JSON.stringify({
+    participantId: 'viewer', role: 'viewer',
+    ivs: {token: 'viewer-token', capabilities: ['SUBSCRIBE']},
+  }));
+  await bridge.join('ivs', 'mute-state');
+  const remote = {userId:'speaker', id:'speaker', isLocal:false};
+  getStage().handlers.get('stageParticipantStreamsAdded')(remote, [{
+    id:'speaker-audio', streamType:'audio', mediaStreamTrack:{kind:'audio',id:'speaker-audio'},
+  }]);
+  const muteChange = getStage().handlers.get('stageStreamMuteChanged');
+  assert.equal(typeof muteChange, 'function');
+  const remoteMuted = () => events.filter(({event})=>event.type==='snapshot').at(-1)
+    .event.participants.find(item=>item.id==='speaker').isMuted;
+  muteChange(remote, {streamType:'audio', isMuted:true});
+  assert.equal(remoteMuted(), true);
+  muteChange(remote, {streamType:'audio', isMuted:false});
+  assert.equal(remoteMuted(), false);
+  await bridge.dispose('ivs', 'mute-state');
+});
+
+test('IVS device switch rolls back when refreshStrategy rejects the new stream', async () => {
+  const {bridge, getStage, calls} = await createIvsHarness();
+  await bridge.create('ivs','switch-rollback',{
+    participantId:'host',role:'host',
+    ivs:{token:'publisher-token',capabilities:['PUBLISH','SUBSCRIBE']},
+  });
+  await bridge.join('ivs','switch-rollback');
+  await bridge.command('ivs','switch-rollback','setMuted',{muted:false});
+  const stage=getStage();
+  const before=stage.strategy.stageStreamsToPublish()[0];
+  stage.refreshStrategy=()=>{throw new Error('IVS rejected replacement');};
+  await assert.rejects(
+    bridge.command('ivs','switch-rollback','selectDevice',{
+      device:{kind:'microphone',id:'new-mic'},
+    }),
+    /IVS rejected replacement/,
+  );
+  assert.equal(stage.strategy.stageStreamsToPublish()[0],before);
+  assert.ok(!calls.includes(`stop:${before.id}`),'old input must remain live after rejected switch');
+  assert.ok(calls.includes('stop:audio-2'),'new rejected input must be closed');
+  await bridge.dispose('ivs','switch-rollback');
+});
+
+test('TRTC Web uses current 5.19 screen-sharing API and stops capture on leave', async () => {
+  const h = await createAgoraHarness();
+  const calls = [];
+  const listeners = new Map();
+  const screenTrack = {kind:'video',id:'current-trtc-screen'};
+  const trtc = {
+    on(name, handler){listeners.set(name,handler);},
+    async enterRoom(){},
+    async startScreenShare(){calls.push('startScreenShare');},
+    async stopScreenShare(){calls.push('stopScreenShare');},
+    getVideoTrack({streamType}={}){return streamType==='sub'?screenTrack:null;},
+    async startRemoteVideo(options){calls.push(options);},
+    async exitRoom(){calls.push('exitRoom');},
+    destroy(){},
+  };
+  h.context.TRTC = {create:()=>trtc, TYPE:{
+    SCENE_RTC:'rtc', STREAM_TYPE_MAIN:'main', STREAM_TYPE_SUB:'sub',
+  }};
+  await h.bridge.create('trtc','current-share',{
+    role:'participant',participantId:'presenting-user',
+    trtc:{sdkAppId:1,strRoomId:'room',userId:'presenting-user',userSig:'signed'},
+  });
+  await h.bridge.join('trtc','current-share');
+  await h.bridge.command('trtc','current-share','setScreenShareEnabled',{enabled:true});
+  assert.ok(calls.includes('startScreenShare'));
+  listeners.get('remote-video-available')({userId:'presenter',streamType:'sub'});
+  const div={replaceChildren(){}};
+  await h.bridge.attachVideoElement('trtc','current-share','trtc:video:presenter:sub',div);
+  assert.equal(calls.find(call=>call && call.view)?.view,div);
+  await h.bridge.dispose('trtc','current-share');
+  assert.ok(calls.includes('stopScreenShare'));
+  assert.ok(calls.includes('exitRoom'));
+});
+
+test('TRTC Web never reports screen-share success without a video track', async () => {
+  const h = await createAgoraHarness();
+  const calls = [];
+  const trtc = {
+    on(){},async enterRoom(){},
+    async startScreenShare(){calls.push('start');},
+    async stopScreenShare(){calls.push('stop');},
+    getVideoTrack(){return null;},
+    async exitRoom(){},destroy(){},
+  };
+  h.context.TRTC={create:()=>trtc,TYPE:{SCENE_RTC:'rtc',STREAM_TYPE_SUB:'sub'}};
+  await h.bridge.create('trtc','empty-screen',{
+    participantId:'presenting-user',role:'participant',
+    trtc:{sdkAppId:1,strRoomId:'room',userId:'presenting-user',userSig:'signed'},
+  });
+  await h.bridge.join('trtc','empty-screen');
+  await assert.rejects(
+    h.bridge.command('trtc','empty-screen','setScreenShareEnabled',{enabled:true}),
+    /without a screen video track/,
+  );
+  assert.deepEqual(calls,['start','stop']);
+  await h.bridge.dispose('trtc','empty-screen');
+});
+
 test('IVS browser sharing reports the track, ignores duplicate starts and releases on stop', async () => {
   const {bridge, calls, events, getStage} = await createIvsHarness();
   const payload = {
@@ -550,6 +821,7 @@ test('IVS browser sharing reports the track, ignores duplicate starts and releas
   await bridge.command('ivs', 'stage-screen', 'selectDevice', JSON.stringify({
     device: {kind: 'camera', id: 'cam-1'},
   }));
+  await bridge.command('ivs', 'stage-screen', 'setVideoEnabled', JSON.stringify({enabled: true}));
   const publishedVideos = () => getStage().strategy.stageStreamsToPublish()
     .filter(stream => stream.streamType === 'video');
   assert.equal(publishedVideos().length, 1);
@@ -591,6 +863,7 @@ test('IVS leaving while sharing releases both screen and paused camera', async (
   await bridge.command('ivs', 'stage-share-dispose', 'selectDevice', JSON.stringify({
     device: {kind: 'camera', id: 'cam-a'},
   }));
+  await bridge.command('ivs', 'stage-share-dispose', 'setVideoEnabled', JSON.stringify({enabled: true}));
   const camera = getStage().strategy.stageStreamsToPublish()
     .find(stream => stream.streamType === 'video');
   await bridge.command('ivs', 'stage-share-dispose', 'setScreenShareEnabled', JSON.stringify({enabled: true}));
@@ -1080,7 +1353,8 @@ test('all five Web suppliers consume clones of one processed source and camera s
   h.context.supplierInputs = inputs;
   const receive = (provider, track) => { if (track) inputs.push({provider,track}); };
   const trtc = {
-    on(){}, async enterRoom(){}, async startLocalAudio(){}, async stopLocalVideo(){},
+    on(){}, async enterRoom(){}, async startLocalAudio(){audioActions.push('trtc:start');}, async stopLocalVideo(){},
+    async stopLocalAudio(){audioActions.push('trtc:stop');},
     async updateLocalAudio({mute}){ audioActions.push(`trtc:${mute}`); },
     async startLocalVideo({option}){assert.ok(option.videoTrack); receive('trtc', option.videoTrack);},
     getVideoTrack(){return inputs.find(i=>i.provider==='trtc')?.track;},
@@ -1104,6 +1378,7 @@ test('all five Web suppliers consume clones of one processed source and camera s
     StageConnectionState:{},StreamType:{AUDIO:'audio',VIDEO:'video'},SubscribeType:{NONE:0,AUDIO_VIDEO:1},
   };
   const audioVideo = {addObserver(observer){this.observer=observer;},removeObserver(){}, realtimeSubscribeToAttendeeIdPresence(){},realtimeUnsubscribeToAttendeeIdPresence(){},
+    addContentShareObserver(){}, removeContentShareObserver(){},
     bindAudioElement(){},unbindAudioElement(){},realtimeMuteLocalAudio(){},
     realtimeSubscribeToReceiveDataMessage(){},realtimeUnsubscribeFromReceiveDataMessage(){},
     async listAudioInputDevices(){return [];},async listVideoInputDevices(){return [];},
@@ -1120,10 +1395,15 @@ test('all five Web suppliers consume clones of one processed source and camera s
       meeting:chimePayload.meeting,attendee:chimePayload.attendee};
     await h.bridge.create(provider,provider,payload);await h.bridge.join(provider,provider);
     if (provider === 'trtc' || provider === 'artc') {
-      assert.ok(audioActions.includes(`${provider}:${provider === 'trtc'}`),
-        `${provider} must join muted like its native iOS adapter`);
+      if (provider === 'trtc') {
+        assert.ok(!audioActions.includes('trtc:start'),
+          'TRTC must not capture/publish mic audio before explicit unmute');
+      } else {
+        assert.ok(audioActions.includes('artc:false'),
+          'ARTC must join without publishing microphone audio');
+      }
       await h.bridge.command(provider,provider,'setMuted',{muted:false});
-      assert.ok(audioActions.includes(`${provider}:${provider !== 'trtc'}`),
+      assert.ok(audioActions.includes(provider === 'trtc' ? 'trtc:start' : 'artc:true'),
         `${provider} must actually enable audio publication on unmute`);
     }
     await h.bridge.command(provider,provider,'attachProcessedVideoSource',{sourceId:'shared-output'});
@@ -1139,6 +1419,50 @@ test('all five Web suppliers consume clones of one processed source and camera s
   assert.equal(captures.filter(c=>c.video).length,6);
   assert.equal(h.calls.includes('stop:sdk-processed-video'),false,'disposing suppliers must preserve the source');
   h.effectsBridge.disposeSource('shared-output');assert.ok(h.calls.includes('stop:sdk-processed-video'));
+});
+
+test('ARTC Web does not report published media when provider returns error codes', async () => {
+  const h = await createAgoraHarness();
+  const calls = [];
+  const artc = {
+    on(){}, setChannelProfile(){},
+    async enableLocalVideo(){return 0;},
+    async publishLocalVideoStream(enabled){return enabled ? -24 : 0;},
+    async publishLocalAudioStream(enabled){return enabled ? -17 : 0;},
+    async muteLocalMic(){return 0;},
+    async joinChannel(){return 0;},
+    async startPreviewScreen(){calls.push('screen-preview:start');return 0;},
+    async publishLocalScreenShareStream(enabled){return enabled ? -33 : 0;},
+    async stopPreviewScreen(){calls.push('screen-preview:stop');return 0;},
+    async leaveChannel(){},async destroy(){},
+  };
+  h.context.AliRtcEngine = {
+    createInstance:()=>artc,
+    AliRtcSdkChannelProfile:{AliRtcSdkCommunication:'rtc'},
+    AliRtcSdkClientRole:{},
+    AliRtcVideoTrack:{AliRtcVideoTrackCamera:1, AliRtcVideoTrackScreen:2},
+    AliRtcConnectionStatus:{},
+  };
+  const payload = {
+    participantId: 'host', role: 'participant', displayName: 'Host',
+    artc: {authInfo: 'test', userId: 'host'},
+  };
+  await h.bridge.create('artc', 'error-codes', payload);
+  await h.bridge.join('artc', 'error-codes');
+  await assert.rejects(
+    h.bridge.command('artc', 'error-codes', 'setMuted', {muted: false}),
+    /microphone publication failed \(-17\)/,
+  );
+  await assert.rejects(
+    h.bridge.command('artc', 'error-codes', 'setVideoEnabled', {enabled: true}),
+    /camera publication failed \(-24\)/,
+  );
+  await assert.rejects(
+    h.bridge.command('artc', 'error-codes', 'setScreenShareEnabled', {enabled: true}),
+    /publish screen failed \(-33\)/,
+  );
+  assert.ok(calls.includes('screen-preview:stop'), 'failed ARTC screen publish must stop capture');
+  await h.bridge.dispose('artc', 'error-codes');
 });
 
 
