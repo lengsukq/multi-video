@@ -1,85 +1,113 @@
-name: Windows virtual-background native build
+name: Windows SDK native media smoke
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - feat/ios-windows-virtual-background
+    paths:
+      - '.github/workflows/windows-video-effects-smoke.yml'
+      - 'packages/flutter_realtime_processed_video/**'
+      - 'packages/flutter_realtime_video_effects/**'
+      - 'packages/flutter_realtime_media_livekit/**'
+      - 'packages/flutter_realtime_media_agora/**'
+      - 'packages/flutter_realtime_media_trtc/**'
+      - 'packages/flutter_webrtc/windows/**'
+      - 'example/**'
   pull_request:
     paths:
-      - "packages/flutter_realtime_video_effects/**"
-      - "packages/flutter_realtime_processed_video/**"
-      - "packages/flutter_realtime_media_livekit/**"
-      - "packages/flutter_realtime_media_agora/**"
-      - "packages/flutter_realtime_media_trtc/**"
-      - "packages/flutter_webrtc/**"
-      - "scripts/assemble_single_sdk_desktop.py"
-      - ".github/workflows/windows-video-effects-smoke.yml"
+      - '.github/workflows/windows-video-effects-smoke.yml'
+      - 'packages/flutter_realtime_processed_video/**'
+      - 'packages/flutter_realtime_video_effects/**'
+      - 'packages/flutter_realtime_media_livekit/**'
+      - 'packages/flutter_realtime_media_agora/**'
+      - 'packages/flutter_realtime_media_trtc/**'
+      - 'packages/flutter_webrtc/windows/**'
+      - 'example/**'
+
+permissions:
+  contents: read
 
 jobs:
-  windows-effects:
+  native-portable-tests:
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure portable Windows video pipeline tests (MSVC x64)
+        run: cmake -S packages/flutter_realtime_processed_video/windows/test -B build/windows-native-tests -A x64
+      - name: Compile native tests
+        run: cmake --build build/windows-native-tests --config Debug --parallel
+      - name: Verify color conversion, blur, frame hub, I420
+        run: ctest --test-dir build/windows-native-tests -C Debug --output-on-failure
+
+  native-plugin-link:
+    runs-on: windows-latest
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-      - name: Flutter Windows configuration
+      - name: Flutter Windows setup
+        run: flutter config --enable-windows-desktop
+      - name: Report toolchain
+        run: flutter doctor -v
+      - name: Resolve SDK development Demo with local Windows plugins
+        working-directory: example
+        run: flutter pub get
+      - name: Build Windows Release (links ONNX Runtime, LiveKit, Agora, TRTC)
+        working-directory: example
+        run: flutter build windows --release --no-pub
+      - name: Verify bundled model and runtime assets
         shell: pwsh
         run: |
-          flutter doctor -v
-          flutter config --enable-windows-desktop
-          flutter --version
-      - name: Windows effect compositor C++ tests
-        shell: pwsh
-        run: |
-          cmake --version
-          $source = "packages/flutter_realtime_processed_video/windows/test"
-          New-Item -ItemType Directory -Force -Path build/windows-effects-tests | Out-Null
-          foreach ($test in @("processed_video_frame_hub_test", "processed_video_compositor_test", "processed_video_i420_test")) {
-            cl /nologo /std:c++17 /EHsc /W4 /WX "$source/$test.cpp" "/Febuild/windows-effects-tests/$test.exe"
-            if ($LASTEXITCODE -ne 0) { throw "C++ compile failed: $test" }
-            & "build/windows-effects-tests/$test.exe"
-            if ($LASTEXITCODE -ne 0) { throw "C++ test failed: $test" }
-          }
-      - name: Build all three Windows processed-video provider plugins
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path build/windows-effects-smoke | Out-Null
-          Push-Location build/windows-effects-smoke
-          flutter create --platforms=windows --project-name effects_smoke .
-          if ($LASTEXITCODE -ne 0) { throw "flutter create failed" }
-          $manifest = Get-Content pubspec.yaml -Raw
-          $dependencies = @(
-            "  flutter_realtime_video_effects:",
-            "    path: ../../packages/flutter_realtime_video_effects",
-            "  flutter_realtime_media_livekit:",
-            "    path: ../../packages/flutter_realtime_media_livekit",
-            "  flutter_realtime_media_agora:",
-            "    path: ../../packages/flutter_realtime_media_agora",
-            "  flutter_realtime_media_trtc:",
-            "    path: ../../packages/flutter_realtime_media_trtc"
-          ) -join "`n"
-          $manifest = $manifest -replace '(?m)^dependencies:[ \t]*$', "dependencies:`n$dependencies"
-          $manifest += "`ndependency_overrides:`n  flutter_webrtc:`n    path: ../../packages/flutter_webrtc`n"
-          Set-Content -Path pubspec.yaml -Value $manifest -Encoding utf8
-          flutter pub get
-          if ($LASTEXITCODE -ne 0) { throw "pub get failed" }
-          flutter build windows --release
-          if ($LASTEXITCODE -ne 0) { throw "native Windows build failed" }
-          Pop-Location
-      - name: Upload Windows Release smoke executable
+          $runner = 'example/build/windows/x64/runner/Release'
+          if (-not (Test-Path "$runner/multi-video.exe")) { throw 'Windows runner not found' }
+          if (-not (Test-Path "$runner/onnxruntime.dll")) { throw 'ONNX Runtime DLL missing' }
+          $assets = "$runner/data/flutter_assets/packages/flutter_realtime_video_effects/assets/windows/pphumanseg.onnx"
+          if (-not (Test-Path $assets)) { throw 'PPHumanSeg model asset missing' }
+      - name: Collect native build diagnostics on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-virtual-background-smoke
-          path: build/windows-effects-smoke/build/windows/x64/runner/Release/**
-          if-no-files-found: error
+          name: windows-native-logs
+          path: |
+            example/build/windows/x64/**/CMakeFiles/CMakeConfigureLog.yaml
+            example/build/windows/x64/**/CMakeFiles/CMakeError.log
+          if-no-files-found: ignore
 
-# The Windows plugin now downloads and bundles a pinned official ONNX Runtime
-# release with checksum verification. A real camera and two-device RTC call are
-# still required to validate inference quality and remote video publishing.
+  aggregate-sdk-link:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Assemble the public single-package SDK from the current source
+        run: python scripts/assemble_single_sdk_distribution.py
+      - name: Create a fresh external Windows host
+        run: flutter create --platforms=windows --project-name sdk_windows_smoke build/windows_sdk_smoke
+      - name: Use the assembled one-package SDK without internal path dependencies
+        shell: pwsh
+        run: |
+          $spec = 'build/windows_sdk_smoke/pubspec.yaml'
+          $raw = Get-Content $spec -Raw
+          $raw = $raw.Replace('dependencies:', "dependencies:`n  flutter_realtime_sdk:`n    path: ../single_sdk_candidate")
+          Set-Content -Path $spec -Value $raw
+      - name: Resolve the external host dependencies
+        working-directory: build/windows_sdk_smoke
+        run: flutter pub get
+      - name: Link the assembled SDK in Windows Release configuration
+        working-directory: build/windows_sdk_smoke
+        run: flutter build windows --release --no-pub
+      - name: Verify SDK DLL, ONNX runtime and bundled model
+        shell: pwsh
+        run: |
+          $runner = 'build/windows_sdk_smoke/build/windows/x64/runner/Release'
+          if (-not (Test-Path "$runner/sdk_windows_smoke.exe")) { throw 'External Windows host missing' }
+          if (-not (Test-Path "$runner/flutter_realtime_sdk_plugin.dll")) { throw 'Aggregated SDK plugin missing' }
+          if (-not (Test-Path "$runner/onnxruntime.dll")) { throw 'ONNX Runtime missing' }
+          $model = "$runner/data/flutter_assets/packages/flutter_realtime_sdk/assets/bundled/flutter_realtime_video_effects/windows/pphumanseg.onnx"
+          if (-not (Test-Path $model)) { throw 'Bundled Windows model missing' }

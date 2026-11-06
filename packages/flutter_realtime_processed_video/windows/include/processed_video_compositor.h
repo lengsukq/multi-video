@@ -84,42 +84,59 @@ inline float MaskAt(const PersonMask& mask, std::uint32_t x,
   return std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
 }
 
-// Separable box blur: O(width * height * radius) worst case, with bounded
-// radius. Kept dependency-free for portable C++ tests and Windows Release.
+// Separable box blur using row/column prefix sums. Work is O(width * height)
+// even for the high-strength blur (radius 24): the previous nested-radius
+// implementation could consume most of the MF capture thread at 720p/1080p.
+// Prefix sums use 32-bit integers (<= 4096 * 255 per channel). Keep this
+// header portable so the same assertions run on macOS/Linux and MSVC.
 inline std::vector<std::uint8_t> BlurBgra(const Frame& frame, int radius) {
+  if (!frame.IsValid() || frame.width > 4096 || frame.height > 4096) return {};
   const auto w = frame.width, h = frame.height;
   const auto count = static_cast<std::size_t>(w) * h * 4;
-  std::vector<std::uint8_t> source(count), horizontal(count), blurred(count);
-  for (std::uint32_t y = 0; y < h; ++y) {
-    std::copy_n(frame.pixels->data() + static_cast<std::size_t>(y) * frame.stride,
-                static_cast<std::size_t>(w) * 4,
-                source.data() + static_cast<std::size_t>(y) * w * 4);
-  }
+  std::vector<std::uint8_t> horizontal(count), blurred(count);
   radius = std::clamp(radius, 1, 32);
+  std::vector<unsigned int> sums((static_cast<std::size_t>(w) + 1) * 3);
   for (std::uint32_t y = 0; y < h; ++y) {
+    const auto* row = frame.pixels->data() + static_cast<std::size_t>(y) * frame.stride;
+    sums[0] = sums[1] = sums[2] = 0;
+    for (std::uint32_t x = 0; x < w; ++x) {
+      for (int c = 0; c < 3; ++c) {
+        sums[(static_cast<std::size_t>(x) + 1) * 3 + c] =
+            sums[static_cast<std::size_t>(x) * 3 + c] + row[x * 4 + c];
+      }
+    }
     for (std::uint32_t x = 0; x < w; ++x) {
       const auto start = x > static_cast<std::uint32_t>(radius) ? x - radius : 0;
       const auto end = std::min(w - 1, x + static_cast<std::uint32_t>(radius));
       for (int c = 0; c < 3; ++c) {
-        unsigned sum = 0;
-        for (auto xx = start; xx <= end; ++xx)
-          sum += source[(static_cast<std::size_t>(y) * w + xx) * 4 + c];
         horizontal[(static_cast<std::size_t>(y) * w + x) * 4 + c] =
-            static_cast<std::uint8_t>(sum / (end - start + 1));
+            static_cast<std::uint8_t>((
+                sums[(static_cast<std::size_t>(end) + 1) * 3 + c] -
+                sums[static_cast<std::size_t>(start) * 3 + c]) /
+                (end - start + 1));
       }
       horizontal[(static_cast<std::size_t>(y) * w + x) * 4 + 3] = 255;
     }
   }
-  for (std::uint32_t y = 0; y < h; ++y) {
-    const auto start = y > static_cast<std::uint32_t>(radius) ? y - radius : 0;
-    const auto end = std::min(h - 1, y + static_cast<std::uint32_t>(radius));
-    for (std::uint32_t x = 0; x < w; ++x) {
+  sums.resize((static_cast<std::size_t>(h) + 1) * 3);
+  for (std::uint32_t x = 0; x < w; ++x) {
+    sums[0] = sums[1] = sums[2] = 0;
+    for (std::uint32_t y = 0; y < h; ++y) {
       for (int c = 0; c < 3; ++c) {
-        unsigned sum = 0;
-        for (auto yy = start; yy <= end; ++yy)
-          sum += horizontal[(static_cast<std::size_t>(yy) * w + x) * 4 + c];
+        sums[(static_cast<std::size_t>(y) + 1) * 3 + c] =
+            sums[static_cast<std::size_t>(y) * 3 + c] +
+            horizontal[(static_cast<std::size_t>(y) * w + x) * 4 + c];
+      }
+    }
+    for (std::uint32_t y = 0; y < h; ++y) {
+      const auto start = y > static_cast<std::uint32_t>(radius) ? y - radius : 0;
+      const auto end = std::min(h - 1, y + static_cast<std::uint32_t>(radius));
+      for (int c = 0; c < 3; ++c) {
         blurred[(static_cast<std::size_t>(y) * w + x) * 4 + c] =
-            static_cast<std::uint8_t>(sum / (end - start + 1));
+            static_cast<std::uint8_t>((
+                sums[(static_cast<std::size_t>(end) + 1) * 3 + c] -
+                sums[static_cast<std::size_t>(start) * 3 + c]) /
+                (end - start + 1));
       }
       blurred[(static_cast<std::size_t>(y) * w + x) * 4 + 3] = 255;
     }

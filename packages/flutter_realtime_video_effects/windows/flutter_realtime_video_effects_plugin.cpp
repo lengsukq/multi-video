@@ -12,6 +12,7 @@
 #include <deque>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -78,8 +79,12 @@ std::string String(const Value* value) {
 int Number(const Value* value, int fallback) {
   if (!value) return fallback;
   if (auto* i = std::get_if<std::int32_t>(value)) return *i;
-  if (auto* i = std::get_if<std::int64_t>(value)) return static_cast<int>(*i);
-  return fallback;
+  if (auto* i = std::get_if<std::int64_t>(value)) {
+    if (*i < std::numeric_limits<int>::min() ||
+        *i > std::numeric_limits<int>::max()) return -1;
+    return static_cast<int>(*i);
+  }
+  return -1;
 }
 bool Boolean(const Value* value) {
   return value && std::get_if<bool>(value) && std::get<bool>(*value);
@@ -135,14 +140,16 @@ bool DecodeImage(const std::vector<std::uint8_t>& encoded,
   Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
   if (FAILED(factory->CreateDecoderFromStream(
           stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder)) ||
-      FAILED(decoder->GetFrame(0, &frame)) ||
-      FAILED(factory->CreateFormatConverter(&converter)) ||
+      FAILED(decoder->GetFrame(0, &frame))) return false;
+  // Check untrusted compressed-image dimensions before instantiating a
+  // converter. A small JPEG/PNG can expand into a huge bitmap.
+  UINT width = 0, height = 0;
+  if (FAILED(frame->GetSize(&width, &height)) ||
+      !width || !height || width > 4096 || height > 4096) return false;
+  if (FAILED(factory->CreateFormatConverter(&converter)) ||
       FAILED(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppBGRA,
           WICBitmapDitherTypeNone, nullptr, 0,
           WICBitmapPaletteTypeCustom))) return false;
-  UINT width = 0, height = 0;
-  if (FAILED(converter->GetSize(&width, &height)) ||
-      !width || !height || width > 4096 || height > 4096) return false;
   auto next = std::vector<std::uint8_t>(
       static_cast<std::size_t>(width) * height * 4);
   if (FAILED(converter->CopyPixels(nullptr, width * 4,
@@ -155,13 +162,20 @@ bool DecodeImage(const std::vector<std::uint8_t>& encoded,
 
 bool ParseEffect(const Map& effect, BackgroundSettings* config) {
   if (!config) return false;
-  const auto type = String(Field(effect, "type"));
+  const auto* raw_type = Field(effect, "type");
+  // Do not interpret malformed effect values as "none": that would
+  // accidentally publish an unblurred camera background. The caller must
+  // explicitly select none, and unknown settings fail closed.
+  if (!raw_type || !std::get_if<std::string>(raw_type)) return false;
+  const auto type = String(raw_type);
   BackgroundSettings next;
-  if (type == "none" || type.empty()) {
+  if (type == "none") {
     next.mode = BackgroundMode::none;
   } else if (type == "blur") {
     next.mode = BackgroundMode::blur;
     const auto strength = String(Field(effect, "blurStrength"));
+    if (!strength.empty() && strength != "low" &&
+        strength != "medium" && strength != "high") return false;
     next.blur_radius = strength == "low" ? 8 : strength == "high" ? 24 : 16;
   } else if (type == "replaceImage") {
     next.mode = BackgroundMode::replace_image;
@@ -292,8 +306,13 @@ class Source final : public std::enable_shared_from_this<Source> {
     auto available = realtime_video_effects::FindCameras();
     if (!id.empty() && std::none_of(available.begin(), available.end(),
         [&](const auto& camera) { return camera.id == id; })) return false;
-    camera_id_ = std::move(id);
+    // Camera disconnection can mark the processor as failed. Selecting a
+    // newly attached device is the explicit recovery path: stop the old
+    // worker first, reset the failure and throttle, then start the new one.
     capture_.Stop();
+    camera_id_ = std::move(id);
+    failed_.store(false);
+    last_processed_ = {};
     if (enabled_.load()) RestartCapture();
     return true;
   }
@@ -360,12 +379,7 @@ class Source final : public std::enable_shared_from_this<Source> {
     textures_->MarkTextureFrameAvailable(texture_id_);
   }
 
-  flutter::PluginRegistrarWindows* registrar_;
   flutter::TextureRegistrar* textures_;
-  HWND window_ = nullptr;
-  int proc_id_ = -1;
-  std::mutex error_mutex_;
-  std::deque<std::pair<std::string, std::string>> pending_errors_;
   FrameHub* hub_;
   const std::string id_;
   std::wstring camera_id_;
@@ -504,7 +518,9 @@ class VideoEffectsPlugin final : public flutter::Plugin {
       BackgroundSettings background;
       const auto* raw_effect = Field(map, "effect");
       const auto* effect = raw_effect ? std::get_if<Map>(raw_effect) : nullptr;
-      if (!ParseEffect(effect ? *effect : empty, &background)) {
+      // The bridge always supplies an explicit effect; missing or malformed
+      // maps must never silently activate the raw-camera path.
+      if (!effect || !ParseEffect(*effect, &background)) {
         result->Error("invalid_effect", "Unable to decode background effect");
         return;
       }
