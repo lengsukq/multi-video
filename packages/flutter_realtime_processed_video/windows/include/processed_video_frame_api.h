@@ -22,10 +22,15 @@ typedef void (*RealtimeProcessedReportFailure)(
 
 // The host resolves these symbols with GetProcAddress from either
 // flutter_realtime_video_effects_plugin.dll or the single SDK DLL.
-void* RealtimeProcessedVideoSubscribe(
+#ifdef _WIN32
+#define REALTIME_PROCESSED_FRAME_EXPORT __declspec(dllexport)
+#else
+#define REALTIME_PROCESSED_FRAME_EXPORT
+#endif
+REALTIME_PROCESSED_FRAME_EXPORT void* RealtimeProcessedVideoSubscribe(
     const char* source_id, void* context, RealtimeProcessedOnFrame callback);
-void RealtimeProcessedVideoUnsubscribe(void* subscription);
-void RealtimeProcessedVideoReportFailure(
+REALTIME_PROCESSED_FRAME_EXPORT void RealtimeProcessedVideoUnsubscribe(void* subscription);
+REALTIME_PROCESSED_FRAME_EXPORT void RealtimeProcessedVideoReportFailure(
     const char* source_id, const char* message);
 
 #ifdef __cplusplus

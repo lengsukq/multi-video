@@ -598,7 +598,12 @@ class VideoEffectsPlugin final : public flutter::Plugin {
     result->NotImplemented();
   }
 
+  flutter::PluginRegistrarWindows* registrar_;
   flutter::TextureRegistrar* textures_;
+  HWND window_ = nullptr;
+  int proc_id_ = 0;
+  std::mutex error_mutex_;
+  std::deque<std::pair<std::string, std::string>> pending_errors_;
   std::unique_ptr<flutter::MethodChannel<Value>> channel_;
   std::unique_ptr<flutter::MethodChannel<Value>> source_channel_;
   FrameHub hub_;

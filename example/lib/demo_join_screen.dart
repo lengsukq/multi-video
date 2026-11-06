@@ -7,6 +7,7 @@ import 'demo_classroom_sample.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_realtime_sdk/flutter_realtime_sdk.dart';
 import 'package:flutter_realtime_sdk_ui/flutter_realtime_sdk_ui.dart';
@@ -20,10 +21,16 @@ import 'demo_identity_store.dart';
 import 'demo_strings.dart';
 import 'standalone_chat_demo.dart';
 
-const String _defaultBackendUrl = String.fromEnvironment(
-  'MEDIA_BACKEND_URL',
-  defaultValue: 'http://192.168.31.2:3000',
-);
+const String _configuredBackendUrl = String.fromEnvironment('MEDIA_BACKEND_URL');
+String get _defaultBackendUrl {
+  if (_configuredBackendUrl.isNotEmpty) return _configuredBackendUrl;
+  // The Windows desktop Demo connects to the LAN backend by default.
+  // Other platforms retain their existing default and all platforms
+  // can still override this using --dart-define=MEDIA_BACKEND_URL=...
+  return !kIsWeb && defaultTargetPlatform == TargetPlatform.windows
+      ? 'http://10.0.111.99:3000'
+      : 'http://192.168.31.2:3000';
+}
 const String _appToken = String.fromEnvironment('MEDIA_APP_TOKEN');
 
 /// Optional test seam; Demo registers its desired providers explicitly.
