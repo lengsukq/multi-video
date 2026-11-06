@@ -211,28 +211,275 @@ python3 -m unittest scripts.tests.test_assemble_single_sdk_distribution
 
 截图验收使用 `example/test/support/design_capture.dart` 生成 meeting / live / prejoin / chat 在 390、768、1440 的预览，并单独检查 320×640、740×390 与 200% 文字。
 
-## 本轮主要变更（2026-10-19）
+---
 
-- 色板从珍珠白 + 绿色改为冷灰蓝 + 琥珀 + teal + 玫红；`primary` 保留为 `accent` 的别名。
-- 打包 Onest 与 Bricolage Grotesque，单包发布同步复制字体并改写 family 前缀。
-- 会议页重做为「常显顶栏 + 竖向工具栏 + 舞台栏 + 340pt 侧栏」，手机与平板面板改为右侧抽屉。
-- 直播桌面改为「左视频 + 右互动栏」，恢复被遗漏的桌面离开按钮。
-- Pre-Join 重做为 Green room 两栏布局，移动端只保留一个 CTA。
-- 聊天、课堂、白板、共享内容条、标注工具栏、Dock、徽标统一到新 token。
-- 修复 320pt / 200% 文字下顶栏、Pre-Join 头部、效果卡与 Join 按钮的溢出。
+## 会议、直播与聊天的角色 UI 权限
 
-## 本次完善与验证（2026-10-19）
+### Authority and ownership
 
-- 首页按 Green room 的编辑式标题、深色操作卡和工作区工具轨重新设计。
-- 白板网格不再被子层底色遮住；标注文字使用主题字体。`AnnotationPainter(fontFamily:)` 可为自定义绘制指定字体，`AnnotationSurface(constrainToolbarToCanvas:)` 支持将浮动工具限制在画面内。
-- 消息列表去掉远端消息边框；不把远端普通成员标为老师。直播爱心跟随 `live` 语义色。
-- 移动和桌面课堂 CTA 使用相同文案逻辑；缺省会话仍为通用加入，观众使用观看入口，课程主持人/参与者分别显示开始/加入课堂。
-- 新增 `workspace_acceptance_test.dart`，覆盖白板、共享、录制及 Green room。截图工具直接加载包内字体；截图输出到 `build/design-previews/`。HTML 参考在禁用联网并移除外部资源后离线渲染，参考中的 CDN 图标和未提供的手写字体不作为逐像素比对依据。
+- For the **post-join room UI**, use the backend's `roomMode` metadata as the
+  source of truth. If it is unavailable, use the SDK's connected role as a
+  conservative fallback. A stale pre-join choice of Live must not turn a
+  Meeting participant into a Live broadcaster.
+- In Meeting, RTC `participant` means *symmetric media participation*, not
+  *no meeting administration*. The creator may also hold a separate
+  `roomOwnerCredential`. Check `media.isLogicalOwner` **and** the specific
+  management capability, rather than assuming only `MediaRole.host` can
+  manage meetings or that any `participant` can.
+- Live's `MediaRole.host` is not the same as Chat's `ChatRole.host`. UI
+  must require the actual corresponding session role; `role != viewer` is
+  insufficient. Legacy host panels should also block standalone mounting by
+  guests; simply hiding the top-level entry is not enough.
+- For independent Chat, use `ChatSession.role` returned by the connected
+  provider (based on trusted provisioned credentials), not the user-provided
+  `join` request. The Demo Server never allows a public Chat join to
+  self-promote to host. The Chat UI controller owns all management gating.
+  If the remote join response omits a valid role, `HttpStandaloneChatProvisioner`
+  treats the caller as a `participant`, **not** as its caller-requested `host`.
+- The HTTP Media join contract behaves similarly: a public join that asks for
+  `MediaRole.host` but receives no assigned role from the server is treated as
+  an unprivileged `participant`. Create and credential-refresh flows retain
+  their separate existing role contracts. Backend capabilities and provider
+  tokens remain the real authorization boundary.
+- Display roles for **remote** video users only when a trusted source supplies
+  their authoritative role. `MediaParticipant` alone has display name,
+  camera/microphone status and local identity, **not** a guaranteed remote
+  host role. Do not label the first user with a video track as a verified host.
+- A status tooltip/semantic label can replace long badges in tight 320px
+  Meeting headers. The text roles in the independent Chat header remain
+  visible and localized. UI semantics are an accessibility and usability
+  feature, **not an authorization boundary**.
+
+### Validation
+
+Offline tests cover Meeting logical-owner/guest labels, 320px text scaling,
+desktop Meeting sidebars, Live host/viewer/non-host participant gating, Chat
+creator/guest management affordances, and backend mode winning over a stale
+pre-join hint. These tests cannot prove all vendor adapters issue and refresh
+the intended roles on physical devices. Before pub.dev release, test both
+devices concurrently (create, join, reconnect, rejoin as owner/guest, leave)
+on the selected vendors and confirm server authorization independently.
+
+See [SDK integration](APP_INTEGRATION_QUICKSTART.zh-CN.md),
+[provider capabilities](SDK_CAPABILITY_MATRIX.zh-CN.md) and
+[UI composition](REALTIME_DESIGN_SYSTEM.md).
 
 
-## 二级页面与独立 SDK 接入
+---
 
-- `design_ui` 统一弹窗、底部面板、卡片和表单；默认使用不透明表面，`RealtimeCard` 默认无阴影，显式阴影与玻璃配置仍可使用。`RealtimeGlassDialog` 与 `showRealtimeGlassBottomSheet` 在宿主没有安装 SDK 主题扩展时局部应用 SDK 默认主题；宿主已安装扩展时保留品牌与字体覆盖。弹窗整体可滚动以适应键盘、大文字和低高度。
-- `sdk_ui` 承载共享方式、更多操作、反应、主播工具、音视频设备选择、录制布局和结果、会议/直播退出及成员操作确认。更多菜单按宽度和文字大小改变列数；主播工具在窄屏上下排列说明与操作；反应按钮换行。
-- `classroom_ui` 承载发布、答题、举手、问答与课堂工具；`chat_ui` 承载消息操作和成员管理；`whiteboard_ui` 承载标注文字和绘图颜色。绘图调色板与视频上的可读性渐变保留其内容语义。
-- 这些改动没有下放到 Demo。新增 `sdk_ui/test/secondary_pages_test.dart` 直接通过 SDK 公开组件生成 24 张截图并测试 8 个入口。默认外观、宿主覆盖及低高度键盘回归位于 `design_ui/test/modal_defaults_test.dart`。
+## 房间离开、关闭与组件生命周期
+
+### 3. 组合式 UI 的 Scope 规则
+
+`RealtimeRoomUiScope.of(context)` 只能访问 **Context 祖先链中确实存在**
+的 Scope。以下是常见错误：
+
+```dart
+class RoomPageState extends State<RoomPage> {
+  // 错误：当前 State.context 是 Scope 的父级。
+  void closeRoom() {
+    RealtimeRoomUiScope.of(context).leave();
+  }
+  Widget build(BuildContext context) =>
+      RealtimeRoomUiScope(room: room, child: const SizedBox());
+}
+```
+
+正确做法：在 Scope **内部**的 `Builder` 中获得控制器，并将
+`controller` 显式传给事件回调、异步逻辑或弹窗：
+
+```dart
+RealtimeRoomUiScope(
+  room: room,
+  child: Builder(
+    builder: (scopedContext) {
+      final controller = RealtimeRoomUiScope.of(scopedContext);
+      return Scaffold(
+        body: Column(
+          children: [
+            const Expanded(child: RealtimeVideoGrid()),
+            const RealtimeMicrophoneButton(),
+            RealtimeLeaveButton(
+              closeForEveryone: false, // 只离开当前参会者
+              onLeft: () {
+                if (scopedContext.mounted) {
+                  Navigator.of(scopedContext).maybePop();
+                }
+              },
+            ),
+          ],
+        ),
+      );
+    },
+  ),
+);
+```
+
+不要通过吞掉 Scope 断言、空 catch 或随意 `maybeOf` 返回 null
+来掩盖错误的祖先关系。布局切换时可以注入同一个 Controller；将
+Controller 注入新 Scope 时由**调用方**负责最终 `close()`。
+
+### 4. Navigator Overlay：Dialog / BottomSheet
+
+`showDialog`、`showModalBottomSheet`、一些 Drawer/Popup
+会在 Navigator 的 Overlay 中建立新路由；它们的 builder 并不是
+会议页面 Scope 的子树。直接在弹窗 builder 的 Context 上调用
+`RealtimeRoomUiScope.of` 可能报：
+
+```text
+RealtimeRoomUiScope is required above this widget
+```
+
+**SDK dev.15 已发布 API：**
+
+```dart
+// controller 来自会议页面 Scope 内的 Builder，而非 State.context。
+await showRealtimeRoomUiBottomSheet<void>(
+  scopedContext,
+  controller: controller,
+  builder: (sheetContext) => RealtimeMediaDevicePicker(
+    kind: MediaDeviceKind.microphone,
+  ),
+);
+
+await showRealtimeRoomUiDialog<void>(
+  scopedContext,
+  controller: controller,
+  builder: (dialogContext) => AlertDialog(
+    title: const Text('会议设置'),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(dialogContext).pop(),
+        child: const Text('关闭'),
+      ),
+    ],
+  ),
+);
+```
+
+两个 helper 都将原 Controller **借给** Overlay，不创建新的媒体房间，
+也不会负责销毁借入的 Controller。关闭弹窗时优先使用
+其 builder 提供的 `sheetContext`/`dialogContext`，
+不要用宿主页面 Context 盲目调用 `Navigator.pop()`。
+在关闭整个会议前，先关闭依赖房间状态的弹窗，避免重建已释放资源的组件。
+尚未升级到新版本时，宿主必须自行在 Overlay 下方显式传入已有 Controller。
+
+### 5. Leave / Close / Dispose 的责任边界
+
+| 操作 | 含义 | 不能替代的操作 |
+| --- | --- | --- |
+| `controller.close()` | 释放 UI 订阅、UI 状态；借用的 `room` 保持存在 | 离会、结束会议 |
+| `controller.leave(closeForEveryone: false)` | 请求本地离会，并释放相应 Room 资源 | 结束所有人会议 |
+| `controller.leave(closeForEveryone: true)` | 请求结束整个房间；权限、录制收尾和后端校验均可能失败 | 无权限情况下强行结束 |
+| `controller.leave()` | 按房间所有权自动选择：主持人结束全员会话，其他人仅离开自己 | 后端无法关闭房间时不能视为退出成功 |
+| `connection.dispose()` | 释放 Connection/Room 等本地资源 | 后端管理操作或结束全员会议 |
+| `Navigator.pop()` | 退出视觉页面 | 任何 RTC/IM 资源清理 |
+
+会议和直播统一使用自动退出策略：
+`room.media.isLogicalOwner == true` 时，点击离开会尝试关闭整个房间，
+使所有参会者/观众退出；其他用户则只退出本人。不再提供退出方式选择。
+SDK 内置页面仅保留单次确认：主持人提示“结束会议/直播”，其他人提示“离开”。
+普通会议创建者可能持有 owner 凭证但媒体角色仍是 `participant`，
+因此不能只靠 `MediaRole.host` 判断主持人身份。最终关房权限以服务端为准。
+若客户端或服务端不支持关房，则返回错误并保留当前连接，避免主持人误以为
+全员已经退出。第三方自定义应用也应按 `isLogicalOwner` 处理退出。
+
+**远端结束同步（源码实现，需发布新的单包版本）：**
+连接成功后的媒体心跳若获得后端的 `room-not-found`，SDK 将停止重复心跳，
+向 `room.events` 发出 `RealtimeBackendFailure`，其中
+`error.operation == 'room.presence.heartbeat'`。SDK 内置会议与直播页
+由此提示房间结束并触发宿主 `onLeft`。宿主如使用组合式/无头页面，需自己
+监听并释放连接。高层 `Realtime` 默认媒体心跳间隔为 5 秒；异常网络连接失败
+不视为房间结束。该机制是跨厂商的*最终一致*兜底，不保证即时踢出远端
+RTC 连接；如需服务端强制断连，必须使用厂商关房能力并在后端实现授权。
+
+退出过程中不要重复点击，也不要让第二个调用者在首次销毁完成之前
+提前导航。近期源码已为并发 `leave()` 提供共享 Future，并防止
+等待确认时 Widget 已卸载后继续执行。**已经关闭的 UI Controller**
+再次收到 `leave()` 时会抛出 `RealtimeErrorCode.invalidState`，
+而不是谎报房间已释放；此时应由仍持有 Connection 的宿主决定如何清理。
+错误应提供明确的处理路径，而不是视为离会成功。
+
+### 6. 还需通过的回归场景
+
+开发者可对照以下场景测试 SDK 集成：成品会议/直播页面退出；
+组合页面确认/取消；手机 Drawer/弹窗；嵌套 Navigator；
+离会连续点击与重复释放；录制正在启动/停止时关房；
+网络断线、超时与权限不足；页面被系统返回先卸载；
+重新进入同房间；不同用户角色与不同 Provider。
+
+**当前验证状态（2026-11-02 SDK 工作树）：**
+SDK UI 和 Room UI 静态分析通过；新加的 SDK 嵌入/Scope/退出测试通过；
+SDK UI 全量回归现已通过 151 项测试（其中包括修复后的大字体直播工具栏
+Host tools 可达性测试）；Room UI 6 项测试通过，相关静态分析通过。
+此外，厂商真实设备、多平台发布构建、聚合单包与第三方 pub 依赖应用
+仍未在本次修复中完成验收。只能在维护者手动发布新 SDK 后，
+用保持不变的第三方 Demo 做发布后回归。
+
+
+---
+
+## 标准页面与可组合组件
+
+### 1. 完整页面
+
+| 场景 | 公开入口 |
+| --- | --- |
+| 自动选择会议 / 直播 | `RealtimeRoomView(room: room)` |
+| 会议 / 直播页面单独使用 | `RealtimeMeetingPage` / `RealtimeLivePage` |
+| 独立产品聊天 | `RealtimeChatPage(chatRoom: chatRoom)` |
+| 入会准备 | `RealtimePreJoinPage` |
+| 房间页面配置 | `RealtimeRoomViewConfig` |
+| 异步预加入回调 | `RealtimePreJoinEnter` |
+
+```dart
+RealtimeRoomView(
+  room: room,
+  config: RealtimeRoomViewConfig(initialMediaSettings: settings),
+  onLeave: () => Navigator.of(context).pop(),
+);
+```
+
+后端权威 `roomMode` 选择会议或直播，配置的模式仅作无元数据时的提示。
+RTC 角色不能代替逻辑房主、教师或主播权限。默认麦克风和摄像头关闭；
+预加入设备与媒体选择在准备完成、权限允许后应用。
+
+Demo 的 Chat / Pre-Join 路由直接调用 SDK 页面；Meeting / Live 适配层只注入
+本地背景图片及自定义挥手事件。断点、侧栏、手机弹层、浮动工具栏、聚焦/网格、
+清屏、虚拟背景和录制交互均在 SDK 中维护。
+
+### 2. 可组合组件与依赖边界
+
+```text
+Domain Core / Foundation
+  ├─ Runtime                  会话、成员、功能插件、生命周期，无 UI/厂商依赖
+  ├─ chat_ui                  独立聊天组件，不依赖 Media UI / RTC
+  ├─ design_ui                设计系统
+  └─ media_ui                 Media Core + design_ui + Flutter 组件
+       ↑
+room_ui                       房间作用域、媒体组件与控制器
+       ↑
+sdk_ui                        标准页面与可选 Classroom / Live / 共享内容组合
+       ↑
+App / Demo                    连接、路由、内容注入；也可自由组合组件
+```
+
+独立 UI 组件继续公开。完整页面和自定义布局共享相同会话与权威状态，
+不需要复制业务操作或引入供应商实现。
+
+- `RealtimeRoomUiScope` 清理它创建的 UI Controller，传入自建 controller 则由调用方释放。
+- Room/Chat UI 卸载不关闭连接；显式离开操作先离开/关闭房间再回调导航，连接所有者最终调用 `connection.dispose()`。
+- 完整预加入页面拥有并释放 `RealtimePreJoinController`；自行组合时由宿主初始化和关闭它。预览在入会前释放，失败后可保留选择并重试，过期操作不能触发晚到导航。
+- Classroom/Live 是显式注册的可选插件，权限与快照以可信后端为准，瞬时消息不能授权。
+- RTC Data 调试不等于产品 Chat；成员目录按 Runtime 的逻辑身份合并，媒体/Chat 管理能力分别判断。
+
+### 3. 扩展与录制
+
+通过 `header`、`participantBuilder`、`loadImagePresets`、
+`onCustomReaction`、`stageOverlayBuilder` 以及功能可见性参数调整标准页面。
+原子组件可以放入宿主的 `Row`、`Column`、`Stack`、抽屉或弹窗。
+
+录制是否可用由注入的执行器决定，布局由后端报告，不维护厂商名字名单。
+会议和直播共用启动/停止/结果流程。结果对话框展示中英文权威任务状态，
+卸载或切换房间后失效旧查询，完成后才提供下载。
+背景处理需要显式注册特效服务；不支持时展示原因，不能静默发布未经保护的帧。

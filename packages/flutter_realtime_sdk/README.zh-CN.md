@@ -89,7 +89,7 @@ final room = connection.mediaRoom!;
 已发布的 pub.dev 单包 `0.1.0-dev.15` 可从公共 import 获取
 `DefaultRealtimeVideoEffects`。请始终检查能力支持，并处理初始化异常。
 
-详见 [SDK / Headless 接入](../../doc/SDK_RUNTIME_INTEGRATION.zh-CN.md)。
+详见 [SDK / Headless 接入](../../doc/APP_INTEGRATION_QUICKSTART.zh-CN.md)。
 宿主自己拥有 UI 与路由，SDK 自己拥有媒体会话；销毁 Widget 不代表离开房间。
 
 ## 四、供应商与平台
@@ -103,7 +103,7 @@ Live 对应 IVS。请根据 [能力矩阵](../../doc/SDK_CAPABILITY_MATRIX.zh-CN
 
 [仓库中文首页](../../README.zh-CN.md) ·
 [首次接入清单](../../doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) ·
-[单包发行方案](../../doc/SINGLE_PACKAGE_RELEASE.zh-CN.md) ·
+[单包发行方案](../../doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md) ·
 [云录制](../../doc/CLOUD_RECORDING.md) ·
 [Demo](../../example/README.md) ·
 [pub.dev 发行清单](../../doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md)

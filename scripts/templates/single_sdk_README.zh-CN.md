@@ -126,7 +126,7 @@ RealtimeRoomUiScope(
 结束所有人会议则必须考虑房主权限及云录制状态，并由可信后端鉴权。
 
 更完整的示例与排错请看
-[房间 UI 生命周期指南](https://github.com/lengsukq/multi-video/blob/main/doc/ROOM_UI_LIFECYCLE.zh-CN.md)。
+[房间 UI 生命周期指南](https://github.com/lengsukq/multi-video/blob/main/doc/REALTIME_DESIGN_SYSTEM.md)。
 
 ## 四、Headless 模式、虚拟背景与摄像头
 
@@ -331,6 +331,6 @@ ENV['FRSDK_IOS_DISABLE_ARTC'] = '1'
 [英文说明](README.md) ·
 [仓库中文首页](https://github.com/lengsukq/multi-video/blob/main/README.zh-CN.md) ·
 [首次完整接入](https://github.com/lengsukq/multi-video/blob/main/doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) ·
-[Headless / Runtime](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_RUNTIME_INTEGRATION.zh-CN.md) ·
+[Headless / Runtime](https://github.com/lengsukq/multi-video/blob/main/doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) ·
 [能力矩阵](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_CAPABILITY_MATRIX.zh-CN.md) ·
 [云录制](https://github.com/lengsukq/multi-video/blob/main/doc/CLOUD_RECORDING.md)

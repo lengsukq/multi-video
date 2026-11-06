@@ -320,7 +320,7 @@ def assemble(root: Path, destination: Path) -> dict:
         "Generated native entry points are engineering prototypes. The "
         "iOS uses pinned official IVS archives and requires the provided Podfile hook; "
         "Windows/Linux and live vendor/device E2E remain unverified. "
-        "See doc/SINGLE_PACKAGE_RELEASE.zh-CN.md in the source repository.\n"
+        "See doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md in the source repository.\n"
     )
     result = {
         "target": str(destination),

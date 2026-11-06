@@ -17,4 +17,4 @@ try {
 
 The public library exports error, cleanup, transport and validation utilities. Applications using `flutter_realtime_sdk` already receive foundation transitively; import this package directly only if you are implementing custom adapters or a non-Flutter backend/client.
 
-See [architecture](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_CODE_QUALITY.md) and [public facade](https://github.com/lengsukq/multi-video/tree/main/packages/flutter_realtime_sdk). Never log tokens or service secrets in exception telemetry.
+See [architecture](https://github.com/lengsukq/multi-video/blob/main/doc/ARCHITECTURE.md) and [public facade](https://github.com/lengsukq/multi-video/tree/main/packages/flutter_realtime_sdk). Never log tokens or service secrets in exception telemetry.

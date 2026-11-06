@@ -93,7 +93,7 @@ await room.setBackgroundEffect(const MediaBackgroundEffect.blur());
 await room.setCameraEnabled(true); // 不直接调用 media.session.setVideoEnabled(true)
 ~~~
 
-完整的权限判断、摄像头关闭后选背景再开启等流程，参考 [SDK / Headless 接入指南](doc/SDK_RUNTIME_INTEGRATION.zh-CN.md)。不同平台/角色的虚拟背景支持能力并不相同。
+完整的权限判断、摄像头关闭后选背景再开启等流程，参考 [SDK / Headless 接入指南](doc/APP_INTEGRATION_QUICKSTART.zh-CN.md)。不同平台/角色的虚拟背景支持能力并不相同。
 
 ## 二、基于仓库源码开发（多模块）
 
@@ -121,7 +121,7 @@ dependencies:
 | Classroom/Live/Shared Content Preset | 教学、举手、问答、互动与内容共享 |
 | `example/`、`demo-server/` | 演示应用与参考后端，**不是第二套 SDK** |
 
-参阅 [内部模块索引](doc/PACKAGE_INTEGRATION_INDEX.zh-CN.md)、[单包发行设计](doc/SINGLE_PACKAGE_RELEASE.zh-CN.md)、[角色与 UI 语义](doc/ROLE_UI_SEMANTICS.md)。
+参阅 [内部模块索引](doc/ARCHITECTURE.md)、[单包发行设计](doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md)、[角色与 UI 语义](doc/REALTIME_DESIGN_SYSTEM.md)。
 
 ## 三、运行 Demo
 
@@ -137,7 +137,7 @@ Demo 直接调用 SDK 内置的 Meeting/Live/Chat/Pre-Join 页面，只保留连
 
 ## 四、平台能力、安全与发布限制
 
-- [供应商与平台能力矩阵（中文）](doc/SDK_CAPABILITY_MATRIX.zh-CN.md) · [English](doc/SDK_CAPABILITY_MATRIX.md)：每项能力与实际设备、平台、供应商及用户角色相关。
+- [供应商与平台能力矩阵（中文）](doc/SDK_CAPABILITY_MATRIX.zh-CN.md) · [English](doc/SDK_CAPABILITY_MATRIX.zh-CN.md)：每项能力与实际设备、平台、供应商及用户角色相关。
 - [云录制方案](doc/CLOUD_RECORDING.md)：由可信后端调用供应商云录制与云存储，不依赖 Flutter 本地编码。
 - 发布版虽然只需要一个依赖，但仍可能解析和安装**全部内置供应商的原生依赖**。
 - Web 摄像头/麦克风需要 HTTPS 或 localhost；iOS/macOS/Android 需要宿主权限配置。
@@ -155,6 +155,6 @@ python3 scripts/format_sdk.py --check
 python3 scripts/generate_capability_matrix.py --check
 ~~~
 
-[第三方 App 完整接入清单](doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) · [Headless / SDK Runtime 指南](doc/SDK_RUNTIME_INTEGRATION.zh-CN.md) · [UI 组件化与验收](doc/UI_COMPOSABILITY_ACCEPTANCE.zh-CN.md) · [pub.dev 发布清单](doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md) · [Demo 说明](example/README.md) · [开发环境](doc/DEVELOPMENT.md)
+[第三方 App 完整接入清单](doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) · [Headless / SDK Runtime 指南](doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) · [UI 组件化与验收](doc/REALTIME_DESIGN_SYSTEM.md) · [pub.dev 发布清单](doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md) · [Demo 说明](example/README.md) · [开发环境](doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md)
 
 **英文版：** [README.md](README.md)。

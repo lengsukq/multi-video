@@ -97,5 +97,5 @@ and models) and is committed on purpose, exactly like
 rebuilding the bundles.
 
 See the repository [README](../../README.md) and
-[capability matrix](../../doc/SDK_CAPABILITY_MATRIX.md) for the end-to-end usage
+[capability matrix](../../doc/SDK_CAPABILITY_MATRIX.zh-CN.md) for the end-to-end usage
 and platform status.

@@ -34,6 +34,6 @@ Initial media settings are applied before publishing and respect current
 room and classroom permissions. Unsupported background processing must never
 silently fall back to publishing unprotected camera frames.
 
-See [SDK integration](../../doc/SDK_RUNTIME_INTEGRATION.zh-CN.md),
+See [SDK integration](../../doc/APP_INTEGRATION_QUICKSTART.zh-CN.md),
 [Pre-Join host setup](../flutter_realtime_media_core/PRE_JOIN_SETUP.md), and
-[UI acceptance](../../doc/UI_COMPOSABILITY_ACCEPTANCE.zh-CN.md).
+[UI acceptance](../../doc/REALTIME_DESIGN_SYSTEM.md).

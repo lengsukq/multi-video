@@ -121,7 +121,7 @@ a new independent room UI controller for every overlay.
 the SDK working source **only**, not in the previously published dev.10
 single-package artifact. The maintainer publishes the next SDK version
 manually; external apps can upgrade and test only after publication.
-See the [room UI lifecycle guide](../../doc/ROOM_UI_LIFECYCLE.zh-CN.md).
+See the [room UI lifecycle guide](../../doc/REALTIME_DESIGN_SYSTEM.md).
 
 ### Leave and resource ownership
 
@@ -171,4 +171,4 @@ stays coordinated with background processing.
 
 Do not import another package's `src/` implementation. Widget tests and local
 previews are separate from real-provider, physical-device, remote-pixel and
-release-build acceptance. See [UI architecture and acceptance](../../doc/UI_COMPOSABILITY_ACCEPTANCE.zh-CN.md).
+release-build acceptance. See [UI architecture and acceptance](../../doc/REALTIME_DESIGN_SYSTEM.md).

@@ -37,6 +37,6 @@ final connection = await realtime.open(
 
 `createLivekitProvider({maxMessages: 500})` accepts a positive local chat-history limit. Do not pass a long-lived LiveKit API Secret from the client. The backend generates short-lived room tokens and owns any cloud recording jobs, storage and download endpoints.
 
-Meeting vs broadcast publishing permissions, screen sharing, network statistics and Web/mobile capabilities differ by platform. Check the [capability matrix](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_CAPABILITY_MATRIX.zh-CN.md) and [integration guide](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_RUNTIME_INTEGRATION.zh-CN.md) rather than assuming all UI actions are supported.
+Meeting vs broadcast publishing permissions, screen sharing, network statistics and Web/mobile capabilities differ by platform. Check the [capability matrix](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_CAPABILITY_MATRIX.zh-CN.md) and [integration guide](https://github.com/lengsukq/multi-video/blob/main/doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) rather than assuming all UI actions are supported.
 
 The Demo at [example/](https://github.com/lengsukq/multi-video/tree/main/example) registers this bundle explicitly; it is not a transitive dependency of `flutter_realtime_sdk`.

@@ -101,5 +101,5 @@ continues to work until the issued credentials expire.
 The repository's `demo-server` accepts `TRTC_SDK_APP_ID`,
 `TRTC_SDK_SECRET_KEY`, and optional `TRTC_TOKEN_TTL_SECONDS` (default 600).
 Enable Tencent Advanced Permission Control for server-issued PrivateMapKey
-rights to be enforced. Follow [`../../doc/TRTC_E2E.md`](../../doc/TRTC_E2E.md) to verify
+rights to be enforced. Follow [`../../doc/ACCEPTANCE.md`](../../doc/ACCEPTANCE.md) to verify
 host/viewer behavior and renewal on physical devices.

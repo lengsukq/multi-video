@@ -88,7 +88,7 @@ await room.setBackgroundEffect(const MediaBackgroundEffect.blur());
 await room.setCameraEnabled(true); // not media.session.setVideoEnabled(true)
 ~~~
 
-See [Headless integration](doc/SDK_RUNTIME_INTEGRATION.zh-CN.md) and the exact installed version's README.
+See [Headless integration](doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) and the exact installed version's README.
 
 ## 2. Source development (separate modules)
 
@@ -116,7 +116,7 @@ The source facade exports only Runtime. Register the selected provider and optio
 | Classroom/Live/shared-content presets | Teaching and live interactions |
 | `example/` + `demo-server/` | Reference app/backend, not additional SDKs |
 
-[Module index](doc/PACKAGE_INTEGRATION_INDEX.zh-CN.md) · [Single-package architecture](doc/SINGLE_PACKAGE_RELEASE.zh-CN.md) · [Role semantics](doc/ROLE_UI_SEMANTICS.md)
+[Module index](doc/ARCHITECTURE.md) · [Single-package architecture](doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md) · [Role semantics](doc/REALTIME_DESIGN_SYSTEM.md)
 
 ## 3. Run the Demo
 
@@ -132,7 +132,7 @@ The Demo directly displays the SDK’s built-in Meeting/Live/Chat/Pre-Join pages
 
 ## 4. Capabilities and security
 
-- [Provider/platform matrix](doc/SDK_CAPABILITY_MATRIX.md) · [中文](doc/SDK_CAPABILITY_MATRIX.zh-CN.md). Implemented does not mean tested on every real device.
+- [Provider/platform matrix](doc/SDK_CAPABILITY_MATRIX.zh-CN.md) · [中文](doc/SDK_CAPABILITY_MATRIX.zh-CN.md). Implemented does not mean tested on every real device.
 - [Cloud recording](doc/CLOUD_RECORDING.md) is controlled by trusted backend and vendor cloud storage/recording, not local media encoding.
 - The combined hosted SDK resolves bundled native vendor dependencies even when only one provider is registered at runtime.
 - Browsers need HTTPS/localhost for camera and microphone; native hosts must declare their permission usage descriptions.
@@ -150,6 +150,6 @@ python3 scripts/format_sdk.py --check
 python3 scripts/generate_capability_matrix.py --check
 ~~~
 
-[First-time integration (中文)](doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) · [SDK Runtime/Headless (中文)](doc/SDK_RUNTIME_INTEGRATION.zh-CN.md) · [UI composition](doc/UI_COMPOSABILITY_ACCEPTANCE.zh-CN.md) · [pub.dev release guide](doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md) · [Example](example/README.md) · [Development](doc/DEVELOPMENT.md)
+[First-time integration (中文)](doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) · [SDK Runtime/Headless (中文)](doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) · [UI composition](doc/REALTIME_DESIGN_SYSTEM.md) · [pub.dev release guide](doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md) · [Example](example/README.md) · [Development](doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md)
 
 **Full Chinese overview:** [README.zh-CN.md](README.zh-CN.md).

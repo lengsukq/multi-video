@@ -211,7 +211,7 @@ def main() -> int:
         print(f"Apple podspecs with dependency declarations: {len(report['applePodDependencies'])}")
         print(f"Asset-owning modules: {len(report['bundledAssetPackages'])}")
         print(f"Third-party dependencies to preserve: {len(report['externalDependencies'])}")
-        print("Single publishable artifact: BLOCKED (see doc/SINGLE_PACKAGE_RELEASE.zh-CN.md)")
+        print("Single publishable artifact: BLOCKED (see doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md)")
     return 1 if args.strict and not report["publishableNow"] else 0
 
 

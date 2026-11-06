@@ -155,7 +155,7 @@ The default `MediaPermissionProbe` reads current microphone/camera permission
 state only; it never requests permission. See
 [`PRE_JOIN_SETUP.md`](PRE_JOIN_SETUP.md) for Android/iOS host configuration.
 
-See [`SDK_CAPABILITY_MATRIX.md`](../../doc/SDK_CAPABILITY_MATRIX.md) for the current provider
+See [`SDK_CAPABILITY_MATRIX.zh-CN.md`](../../doc/SDK_CAPABILITY_MATRIX.zh-CN.md) for the current provider
 matrix and the host room-management surface.
 
 Failures are typed:

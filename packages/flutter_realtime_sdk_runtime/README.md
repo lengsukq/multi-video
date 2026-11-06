@@ -47,4 +47,4 @@ The trusted backend decides the provider and signs short-lived join credentials.
 
 `RealtimeConnection.dispose()` is called once on **explicit room leave**; rebuilding or unmounting a widget must not stop a live room. Async cleanup may report multiple failures, and the host should surface those failures instead of silently assuming the cloud recorder stopped.
 
-See [integration guide](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_RUNTIME_INTEGRATION.zh-CN.md), [architecture](https://github.com/lengsukq/multi-video/blob/main/doc/LIGHTWEIGHT_SDK.md), and [capability matrix](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_CAPABILITY_MATRIX.zh-CN.md).
+See [integration guide](https://github.com/lengsukq/multi-video/blob/main/doc/APP_INTEGRATION_QUICKSTART.zh-CN.md), [architecture](https://github.com/lengsukq/multi-video/blob/main/doc/ARCHITECTURE.md), and [capability matrix](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_CAPABILITY_MATRIX.zh-CN.md).

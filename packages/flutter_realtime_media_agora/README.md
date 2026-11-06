@@ -37,5 +37,5 @@ override to those two third-party subprojects in
 Applications that encounter the same AAR metadata error need an equivalent
 scoped override until the upstream packages raise their own compile SDK.
 
-See [`../../doc/AGORA_E2E.md`](../../doc/AGORA_E2E.md) for the optional real-service
+See [`../../doc/ACCEPTANCE.md`](../../doc/ACCEPTANCE.md) for the optional real-service
 device test flow.

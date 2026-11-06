@@ -119,7 +119,7 @@ depends on role, backend capability and cloud-recording state; server-side
 authorization remains authoritative.
 
 For the exact behavior and edge cases see the
-[room UI lifetime guide](https://github.com/lengsukq/multi-video/blob/main/doc/ROOM_UI_LIFECYCLE.zh-CN.md).
+[room UI lifetime guide](https://github.com/lengsukq/multi-video/blob/main/doc/REALTIME_DESIGN_SYSTEM.md).
 
 Meeting presentations keep participant thumbnails below the shared screen or
 whiteboard. Select a person to focus their camera and show a live, read-only

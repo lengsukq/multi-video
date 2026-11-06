@@ -9,7 +9,7 @@ distribution includes provider factories, optional UI and presets behind
 this **same public import**. Only runtime registration and widget composition
 remain optional; all shipped vendor SDK dependencies may still enter the app.
 
-[Single-package release architecture and current blockers](https://github.com/lengsukq/multi-video/blob/main/doc/SINGLE_PACKAGE_RELEASE.zh-CN.md).
+[Single-package release architecture and current blockers](https://github.com/lengsukq/multi-video/blob/main/doc/PUB_DEV_RELEASE_GUIDE.zh-CN.md).
 
 The hosted single-package preview `0.1.0-dev.15` is currently published on
 [pub.dev](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.15).
@@ -135,6 +135,6 @@ Backend-issued provider identifiers must resolve to a bundle registered by the h
 - App ID may be public where the vendor allows it; **App Certificate, Customer Secret, cloud access keys and user signing keys belong server-side only**.
 - Cloud recording starts/stops in the trusted backend, not in this package; storage, MP4 conversion and billable recording lifecycle depend on the actual vendor. See [cloud recording](https://github.com/lengsukq/multi-video/blob/main/doc/CLOUD_RECORDING.md).
 - Web media requires HTTPS or localhost for permissions; configure native camera/microphone permissions in the host app.
-- [SDK integration (Chinese)](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_RUNTIME_INTEGRATION.zh-CN.md) · [Platform capability matrix](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_CAPABILITY_MATRIX.zh-CN.md) · [Full Demo](https://github.com/lengsukq/multi-video/tree/main/example).
+- [SDK integration (Chinese)](https://github.com/lengsukq/multi-video/blob/main/doc/APP_INTEGRATION_QUICKSTART.zh-CN.md) · [Platform capability matrix](https://github.com/lengsukq/multi-video/blob/main/doc/SDK_CAPABILITY_MATRIX.zh-CN.md) · [Full Demo](https://github.com/lengsukq/multi-video/tree/main/example).
 
 Platform support in the capability matrix describes implemented drivers, **not an assurance of end-to-end real-device testing for every provider/platform combination**.

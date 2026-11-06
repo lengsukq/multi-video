@@ -41,7 +41,7 @@ meeting/live mode during creation. **After joining, the backend-returned
 `roomMode` and assigned credentials take precedence over Pre-Join hints.**
 Meeting creators may be `participant` with separate logical room-owner
 authority; Live joiners must not see broadcaster tools.
-See the [role UI contract](../doc/ROLE_UI_SEMANTICS.md) and [Chinese P1 architecture and integration guide](../doc/P1_ARCHITECTURE_AND_INTEGRATION.zh-CN.md)
+See the [role UI contract](../doc/REALTIME_DESIGN_SYSTEM.md) and [Chinese P1 architecture and integration guide](../doc/ARCHITECTURE.md)
 for the module graph and tested versus pending features.
 
 ## Run the example
@@ -59,7 +59,7 @@ Host applications must keep the matching purpose text in iOS/macOS
 `Info.plist`; the example already includes camera and microphone descriptions.
 Windows and browser permission prompts are handled by their platform runtimes.
 Minimum OS support and provider/feature differences are listed in
-[`../doc/SDK_CAPABILITY_MATRIX.md`](../doc/SDK_CAPABILITY_MATRIX.md).
+[`../doc/SDK_CAPABILITY_MATRIX.zh-CN.md`](../doc/SDK_CAPABILITY_MATRIX.zh-CN.md).
 
 ### Run on Web
 
@@ -129,7 +129,7 @@ packages. SDK consumers can choose the native integration approach compatible
 with their own plugin dependencies.
 
 Agora's optional real-service device E2E flow is documented in
-[`../doc/AGORA_E2E.md`](../doc/AGORA_E2E.md).
+[`../doc/ACCEPTANCE.md`](../doc/ACCEPTANCE.md).
 
 Applications that use the lower-level Core packages directly may still depend
 on only the provider adapters they need. The recommended high-level
@@ -137,8 +137,8 @@ on only the provider adapters they need. The recommended high-level
 registers its selected bundles in `createDemoProviders()`. Host apps must
 add only the desired `flutter_realtime_provider_*` packages and pass them
 to `Realtime(providers: [...])`. No vendor is bundled or selected implicitly.
-TRTC and ARTC device E2E instructions are in [`../doc/TRTC_E2E.md`](../doc/TRTC_E2E.md) and
-[`../doc/ARTC_E2E.md`](../doc/ARTC_E2E.md). The ARTC 7.11.0 iOS pod does not support
+TRTC and ARTC device E2E instructions are in [`../doc/ACCEPTANCE.md`](../doc/ACCEPTANCE.md) and
+[`../doc/ACCEPTANCE.md`](../doc/ACCEPTANCE.md). The ARTC 7.11.0 iOS pod does not support
 simulator linking.
 
 
@@ -160,7 +160,7 @@ tree. Standard macOS Debug/Release builds no longer need a CocoaPods wrapper.
 The existing DMG packaging script delegates to the same SwiftPM Flutter build;
 its installer/signing workflow still needs separate release QA.
 
-See [interaction acceptance](../doc/INTERACTION_ACCEPTANCE.md) for current
+See [interaction acceptance](../doc/ACCEPTANCE.md) for current
 build/test evidence and pending real-device checks.
 
-教学 Meeting 的 SDK 房间界面新增「课堂内容」入口，教师可选择成员、独立分页白板或屏幕共享。学生跟随教师，屏幕预览和白板共用完整标注工具。供应商没有共享能力时仍可使用白板；旧后端保留原共享流程。详见 [白板 SDK](../doc/WHITEBOARD_SDK.md)。
+教学 Meeting 的 SDK 房间界面新增「课堂内容」入口，教师可选择成员、独立分页白板或屏幕共享。学生跟随教师，屏幕预览和白板共用完整标注工具。供应商没有共享能力时仍可使用白板；旧后端保留原共享流程。详见 [白板 SDK](../doc/CLASSROOM_SDK.md)。

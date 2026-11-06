@@ -28,4 +28,4 @@ if (live != null) await live.sendLike();
 
 Live event revision messages are delivery hints; authoritative state comes from the backend. Consumers should subscribe to `LiveInteractionSession.events` and refresh snapshots so both host and viewers can see gifts. A demonstration server applies a rate limit to prevent uncontrolled bursts; those limits are *not* payment or spending quotas.
 
-Optional visuals such as `RealtimeLiveGiftBanner` live in `flutter_realtime_sdk_ui`; adding this preset alone never adds a full-page live UI. See [interaction architecture](https://github.com/lengsukq/multi-video/blob/main/doc/INTERACTION_ARCHITECTURE.md) and [acceptance](https://github.com/lengsukq/multi-video/blob/main/doc/INTERACTION_ACCEPTANCE.md).
+Optional visuals such as `RealtimeLiveGiftBanner` live in `flutter_realtime_sdk_ui`; adding this preset alone never adds a full-page live UI. See [interaction architecture](https://github.com/lengsukq/multi-video/blob/main/doc/ARCHITECTURE.md) and [acceptance](https://github.com/lengsukq/multi-video/blob/main/doc/ACCEPTANCE.md).

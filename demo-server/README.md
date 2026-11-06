@@ -150,7 +150,7 @@ The `/health`, `/api/provider`, `/api/chat-provider`,
 `/api/overview`, and `/rooms` endpoints are public contract surfaces,
 not implementation details of a particular router. Route extraction must not
 weaken owner authorization, short-lived credential rules or same-origin admin
-protection. See [P1 architecture and integration](../doc/P1_ARCHITECTURE_AND_INTEGRATION.zh-CN.md)
+protection. See [P1 architecture and integration](../doc/ARCHITECTURE.md)
 for the updated SDK/Demo/Backend ownership diagram and pending E2E gates.
 
 ## Room flow used by the example app
@@ -381,8 +381,8 @@ The new tool/gift state is room-lifecycle memory only. Material sharing accepts
 existing HTTP(S) links; uploading/storing files and recording courses are not
 implemented. The legacy optional classroom state store does not persist these
 new tools. See [Classroom SDK](../doc/CLASSROOM_SDK.md),
-[Live SDK](../doc/LIVE_INTERACTIONS_SDK.md) and
-[acceptance](../doc/INTERACTION_ACCEPTANCE.md).
+[Live SDK](../doc/CLASSROOM_SDK.md) and
+[acceptance](../doc/ACCEPTANCE.md).
 
 ### Whiteboard control plane
 
@@ -394,4 +394,4 @@ board revision. Drawing also checks current page/canvas IDs, finite shared
 whiteboard scene points (bounded to ±1000), and
 limits. Teacher identity and duplicate event payloads are validated before mutation.
 Only current-page marks are transmitted; other pages remain in room-lifecycle memory.
-No new persistence/storage is added. See [Whiteboard SDK](../doc/WHITEBOARD_SDK.md).
+No new persistence/storage is added. See [Whiteboard SDK](../doc/CLASSROOM_SDK.md).
