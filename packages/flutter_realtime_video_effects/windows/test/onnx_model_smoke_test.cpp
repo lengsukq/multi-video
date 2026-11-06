@@ -56,33 +56,59 @@ int main(int argc, char** argv) {
     if (argc == 3) {
       std::atomic<int> composed{0};
       std::atomic<int> capture_failed{0};
+      std::atomic<int> captured{0};
+      std::atomic<std::uint64_t> infer_us{0};
+      std::atomic<std::uint64_t> compose_us{0};
+      std::atomic<std::uint64_t> preview_us{0};
+      std::atomic<std::uint32_t> camera_width{0};
+      std::atomic<std::uint32_t> camera_height{0};
       {
         realtime_video_effects::CameraCapture capture;
         // An empty device id uses the first camera that can actually open.
         capture.Start("camera_smoke", L"",
             [&](const realtime_processed_video::Frame& camera) {
-              if (composed.load() != 0) return;
+              ++captured;
+              if (composed.load() >= 12) return;
+              camera_width.store(camera.width);
+              camera_height.store(camera.height);
               realtime_processed_video::PersonMask person;
               realtime_processed_video::BackgroundSettings blur;
               blur.mode = realtime_processed_video::BackgroundMode::blur;
               blur.blur_radius = 12;
               realtime_processed_video::Frame processed;
-              if (segmenter.Infer(camera, &person) &&
-                  realtime_processed_video::Compose(
-                      camera, person, blur, &processed) &&
-                  processed.IsValid() && processed.effect_applied &&
-                  realtime_processed_video::PreviewRgba(processed)) {
-                ++composed;
-              }
+              const auto start = std::chrono::steady_clock::now();
+              if (!segmenter.Infer(camera, &person)) return;
+              const auto after_infer = std::chrono::steady_clock::now();
+              if (!realtime_processed_video::Compose(
+                      camera, person, blur, &processed)) return;
+              const auto after_compose = std::chrono::steady_clock::now();
+              if (!processed.IsValid() || !processed.effect_applied ||
+                  !realtime_processed_video::PreviewRgba(processed)) return;
+              const auto end = std::chrono::steady_clock::now();
+              infer_us.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+                  after_infer - start).count());
+              compose_us.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+                  after_compose - after_infer).count());
+              preview_us.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+                  end - after_compose).count());
+              ++composed;
             },
             [&](const std::string& reason) {
               std::cerr << "Camera capture failure: " << reason << '\n';
               ++capture_failed;
             });
-        std::this_thread::sleep_for(std::chrono::milliseconds(2700));
+        std::this_thread::sleep_for(std::chrono::milliseconds(5000));
         capture.Stop();
       }
-      std::cout << "Camera->ONNX->blur frames: " << composed.load() << '\n';
+      const auto n = std::max(1, composed.load());
+      std::cout << "Camera: " << camera_width.load() << 'x'
+                << camera_height.load() << ", captured=" << captured.load()
+                << ", processed=" << composed.load() << '\n';
+      std::cout << "Average ms: infer=" << infer_us.load() / (n * 1000.0)
+                << ", compose=" << compose_us.load() / (n * 1000.0)
+                << ", preview=" << preview_us.load() / (n * 1000.0)
+                << ", total=" << (infer_us.load() + compose_us.load() +
+                                      preview_us.load()) / (n * 1000.0) << '\n';
       if (composed.load() == 0 || capture_failed.load() != 0) return 6;
     }
   } catch (const Ort::Exception& error) {

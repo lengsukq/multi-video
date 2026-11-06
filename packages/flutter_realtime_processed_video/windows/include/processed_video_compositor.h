@@ -144,6 +144,45 @@ inline std::vector<std::uint8_t> BlurBgra(const Frame& frame, int radius) {
   return blurred;
 }
 
+// A soft background does not need full-resolution blur intermediate buffers.
+// At 720p+, sample an averaged 2x2 image and blur it at half resolution.
+// The final composite samples the soft background at full output resolution,
+// while keeping the person and person-mask boundaries at their original size.
+// Small images retain the exact full-resolution blur behavior.
+inline std::vector<std::uint8_t> BlurBgraHalfResolution(
+    const Frame& frame, int radius) {
+  if (!frame.IsValid() || frame.width < 640 || frame.height < 360)
+    return {};
+  const auto sw = (frame.width + 1) / 2;
+  const auto sh = (frame.height + 1) / 2;
+  const auto stride = sw * 4;
+  auto sampled = std::make_shared<std::vector<std::uint8_t>>(
+      static_cast<std::size_t>(stride) * sh);
+  for (std::uint32_t y = 0; y < sh; ++y) {
+    const auto iy = y * 2;
+    const auto* row0 = frame.pixels->data() +
+        static_cast<std::size_t>(iy) * frame.stride;
+    const auto* row1 = frame.pixels->data() +
+        static_cast<std::size_t>(std::min(iy + 1, frame.height - 1)) *
+            frame.stride;
+    auto* out = sampled->data() + static_cast<std::size_t>(y) * stride;
+    for (std::uint32_t x = 0; x < sw; ++x) {
+      const auto ix = x * 2;
+      const auto nx = std::min(ix + 1, frame.width - 1);
+      for (int c = 0; c < 3; ++c) {
+        out[x * 4 + c] = static_cast<std::uint8_t>(
+            (static_cast<unsigned>(row0[ix * 4 + c]) +
+             row0[nx * 4 + c] + row1[ix * 4 + c] +
+             row1[nx * 4 + c] + 2) / 4);
+      }
+      out[x * 4 + 3] = 255;
+    }
+  }
+  return BlurBgra(Frame{frame.source_id, sampled, sw, sh, stride,
+                        frame.timestamp_ns, frame.effect_applied},
+                  std::max(1, (std::clamp(radius, 1, 32) + 1) / 2));
+}
+
 // Returns false rather than exposing unsegmented camera pixels whenever the
 // requested effect cannot be applied.
 inline bool Compose(const Frame& camera, const PersonMask& person,
@@ -155,8 +194,14 @@ inline bool Compose(const Frame& camera, const PersonMask& person,
       static_cast<std::size_t>(camera.width) * camera.height;
   const std::size_t stride = static_cast<std::size_t>(camera.width) * 4;
   std::vector<std::uint8_t> background;
+  bool half_blur = false;
+  std::uint32_t background_width = camera.width;
   if (settings.mode == BackgroundMode::blur) {
-    background = BlurBgra(camera, settings.blur_radius);
+    background = BlurBgraHalfResolution(camera, settings.blur_radius);
+    half_blur = !background.empty();
+    if (half_blur) background_width = (camera.width + 1) / 2;
+    else background = BlurBgra(camera, settings.blur_radius);
+    if (background.empty()) return false;
   } else if (settings.mode == BackgroundMode::replace_image) {
     if (!settings.replacement_width || !settings.replacement_height ||
         settings.replacement_width > 4096 ||
@@ -168,40 +213,98 @@ inline bool Compose(const Frame& camera, const PersonMask& person,
   }
 
   auto buffer = std::make_shared<std::vector<std::uint8_t>>(pixel_count * 4);
+  // Compute mask coordinate mapping once, not once per camera pixel. This
+  // avoids repeated division, clamping and bilinear lookups at 720p/1080p.
+  struct MaskX {
+    std::uint32_t left, right;
+    float blend;
+  };
+  std::vector<MaskX> mask_x;
+  if (settings.mode != BackgroundMode::none) {
+    mask_x.reserve(camera.width);
+    for (std::uint32_t x = 0; x < camera.width; ++x) {
+      const float fx = std::clamp(
+          (static_cast<float>(x) + .5f) * person.width / camera.width - .5f,
+          0.0f, static_cast<float>(person.width - 1));
+      const auto x0 = static_cast<std::uint32_t>(fx);
+      mask_x.push_back({x0, std::min(x0 + 1, person.width - 1), fx - x0});
+    }
+  }
+  const auto rw = settings.replacement_width;
+  const auto rh = settings.replacement_height;
+  float replace_scale = 1.0f;
+  float replace_x_offset = 0.0f, replace_y_offset = 0.0f;
+  if (settings.mode == BackgroundMode::replace_image) {
+    replace_scale = std::max(
+        static_cast<float>(camera.width) / rw,
+        static_cast<float>(camera.height) / rh);
+    replace_x_offset = (camera.width - rw * replace_scale) * .5f;
+    replace_y_offset = (camera.height - rh * replace_scale) * .5f;
+  }
   for (std::uint32_t y = 0; y < camera.height; ++y) {
+    std::uint32_t y0 = 0, y1 = 0;
+    float ay = 0.0f;
+    if (settings.mode != BackgroundMode::none) {
+      const float fy = std::clamp(
+          (static_cast<float>(y) + .5f) * person.height / camera.height - .5f,
+          0.0f, static_cast<float>(person.height - 1));
+      y0 = static_cast<std::uint32_t>(fy);
+      y1 = std::min(y0 + 1, person.height - 1);
+      ay = fy - y0;
+    }
+    const float* mask_top = settings.mode == BackgroundMode::none
+        ? nullptr : person.alpha.data() + static_cast<std::size_t>(y0) * person.width;
+    const float* mask_bottom = settings.mode == BackgroundMode::none
+        ? nullptr : person.alpha.data() + static_cast<std::size_t>(y1) * person.width;
+    const auto replacement_y = settings.mode == BackgroundMode::replace_image
+        ? std::min(rh - 1, static_cast<std::uint32_t>(std::clamp(
+              (y + .5f - replace_y_offset) / replace_scale,
+              0.0f, static_cast<float>(rh - 1)))) : 0;
     for (std::uint32_t x = 0; x < camera.width; ++x) {
       const std::size_t at = static_cast<std::size_t>(y) * stride + x * 4;
       const auto* src = camera.pixels->data() +
                         static_cast<std::size_t>(y) * camera.stride + x * 4;
-      const float alpha = settings.mode == BackgroundMode::none
-                              ? 1.0f
-                              : MaskAt(person, x, y, camera.width, camera.height);
+      float alpha = 1.0f;
+      if (settings.mode != BackgroundMode::none) {
+        const auto& sample = mask_x[x];
+        const float a0 = mask_top[sample.left] +
+            (mask_top[sample.right] - mask_top[sample.left]) * sample.blend;
+        const float a1 = mask_bottom[sample.left] +
+            (mask_bottom[sample.right] - mask_bottom[sample.left]) * sample.blend;
+        alpha = std::clamp(a0 + (a1 - a0) * ay, 0.0f, 1.0f);
+      }
       const std::uint8_t* bg = nullptr;
       if (settings.mode == BackgroundMode::blur) {
-        bg = background.data() + at;
+        // A blurred image is low-frequency; adjacent output pixels can reuse
+        // the same half-resolution background pixel without visible aliasing.
+        bg = half_blur
+            ? background.data() +
+                (static_cast<std::size_t>(y / 2) * background_width + x / 2) * 4
+            : background.data() + at;
       } else if (settings.mode == BackgroundMode::replace_image) {
-        const auto rw = settings.replacement_width;
-        const auto rh = settings.replacement_height;
         // Fill/cover framing, centered and aspect-preserving.
-        const float scale = std::max(
-            static_cast<float>(camera.width) / rw,
-            static_cast<float>(camera.height) / rh);
-        const float width = rw * scale, height = rh * scale;
         const auto rx = std::min(rw - 1,
             static_cast<std::uint32_t>(std::clamp(
-                (x + .5f - (camera.width - width) / 2) / scale,
+                (x + .5f - replace_x_offset) / replace_scale,
                 0.0f, static_cast<float>(rw - 1))));
-        const auto ry = std::min(rh - 1,
-            static_cast<std::uint32_t>(std::clamp(
-                (y + .5f - (camera.height - height) / 2) / scale,
-                0.0f, static_cast<float>(rh - 1))));
         bg = settings.replacement_bgra.data() +
-             (static_cast<std::size_t>(ry) * rw + rx) * 4;
+             (static_cast<std::size_t>(replacement_y) * rw + rx) * 4;
       }
-      for (int c = 0; c < 3; ++c) {
-        (*buffer)[at + c] = bg
-            ? Channel(alpha * src[c] + (1 - alpha) * bg[c])
-            : src[c];
+      if (bg) {
+        // Quantize alpha once per pixel and blend all channels using fixed
+        // point. This keeps fully-opaque/transparent pixels exact while
+        // avoiding three float conversions and clamps per pixel at 720p.
+        const auto opacity = static_cast<std::uint32_t>(
+            std::clamp(alpha, 0.0f, 1.0f) * 256.0f + .5f);
+        const auto inverse = 256u - opacity;
+        for (int c = 0; c < 3; ++c) {
+          (*buffer)[at + c] = static_cast<std::uint8_t>(
+              (opacity * src[c] + inverse * bg[c] + 128u) >> 8);
+        }
+      } else {
+        (*buffer)[at] = src[0];
+        (*buffer)[at + 1] = src[1];
+        (*buffer)[at + 2] = src[2];
       }
       (*buffer)[at + 3] = 255;
     }
