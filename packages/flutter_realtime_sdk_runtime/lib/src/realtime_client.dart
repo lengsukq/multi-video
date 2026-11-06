@@ -189,6 +189,9 @@ class RealtimeClient {
               registry: mediaAdapters.registry,
               tokenProvider: _tokenProvider,
               requestTimeout: requestTimeout ?? const Duration(seconds: 15),
+              // A closed logical room should be detected promptly across
+              // vendors even if the RTC provider cannot kick peers itself.
+              heartbeatInterval: const Duration(seconds: 5),
             ));
 
   /// Adopts media joined from any trusted provisioning mechanism.

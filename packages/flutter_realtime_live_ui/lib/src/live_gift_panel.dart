@@ -945,10 +945,18 @@ class _LiveGiftControlButtonState extends State<LiveGiftControlButton> {
   }
 }
 
-/// Floating gift event banner for non-intrusive notification.
+/// Recent gift activity that stays visible on the live stage without opening
+/// the gift sheet. Older history remains available from the gift sheet.
 class LiveGiftBanner extends StatefulWidget {
-  const LiveGiftBanner({super.key, required this.session});
+  const LiveGiftBanner({
+    super.key,
+    required this.session,
+    this.maxVisible = 3,
+    this.displayDuration = const Duration(seconds: 10),
+  });
   final LiveInteractionSession session;
+  final int maxVisible;
+  final Duration displayDuration;
 
   @override
   State<LiveGiftBanner> createState() => _LiveGiftBannerState();
@@ -956,63 +964,173 @@ class LiveGiftBanner extends StatefulWidget {
 
 class _LiveGiftBannerState extends State<LiveGiftBanner> {
   StreamSubscription<LiveGiftEvent>? _events;
-  Timer? _hide;
-  LiveGiftEvent? _last;
+  StreamSubscription<LiveInteractionState>? _states;
+  final List<LiveGiftEvent> _visible = [];
+  final Map<String, Timer> _expiry = {};
+  final Set<String> _seen = {};
+  final List<String> _seenOrder = [];
+  int? _lastRevision;
 
   @override
   void initState() {
     super.initState();
-    _events = widget.session.events.listen((event) {
-      if (!mounted) return;
-      setState(() => _last = event);
-      _hide?.cancel();
-      _hide = Timer(const Duration(seconds: 3), () {
-        if (mounted) setState(() => _last = null);
-      });
-    });
+    _attach();
+  }
+
+  void _attach() {
+    _events = widget.session.events.listen(_onGift);
+    // Also observe snapshots: joining after a gift was sent, or missing a
+    // broadcast event during a rebuild, must not require opening the sheet.
+    _states = widget.session.states.listen(_onState);
+    final state = widget.session.state;
+    if (state != null) _onState(state);
     unawaited(widget.session.start().catchError((Object _) {}));
+  }
+
+  void _onState(LiveInteractionState state) {
+    final previousRevision = _lastRevision;
+    _lastRevision = state.revision;
+    for (final event in state.events) {
+      if (previousRevision == null) {
+        // A newly mounted banner should only surface truly recent activity,
+        // not replay an entire live stream's historic gifts.
+        final age = DateTime.now().difference(event.timestamp);
+        if (age.isNegative || age > widget.displayDuration) continue;
+      } else if (event.sequence <= previousRevision) {
+        continue;
+      }
+      _onGift(event);
+    }
+  }
+
+  void _onGift(LiveGiftEvent event) {
+    if (!mounted || !_seen.add(event.id)) return;
+    _seenOrder.add(event.id);
+    if (_seenOrder.length > 128) {
+      _seen.remove(_seenOrder.removeAt(0));
+    }
+    final limit = widget.maxVisible < 1 ? 1 : widget.maxVisible;
+    setState(() {
+      _visible.add(event);
+      while (_visible.length > limit) {
+        _expiry.remove(_visible.removeAt(0).id)?.cancel();
+      }
+    });
+    _expiry[event.id] = Timer(widget.displayDuration, () {
+      _expiry.remove(event.id);
+      if (mounted) setState(() => _visible.removeWhere((e) => e.id == event.id));
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant LiveGiftBanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.session, widget.session)) {
+      observeDetached(_events?.cancel());
+      observeDetached(_states?.cancel());
+      for (final timer in _expiry.values) {
+        timer.cancel();
+      }
+      _expiry.clear();
+      _visible.clear();
+      _seen.clear();
+      _seenOrder.clear();
+      _lastRevision = null;
+      _attach();
+    }
   }
 
   @override
   void dispose() {
-    _hide?.cancel();
+    for (final timer in _expiry.values) {
+      timer.cancel();
+    }
     observeDetached(_events?.cancel());
+    observeDetached(_states?.cancel());
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedSwitcher(
-    duration: const Duration(milliseconds: 250),
-    child: _last == null
-        ? const SizedBox.shrink()
-        : Container(
-            key: ValueKey(_last!.id),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: RealtimeUiTokens.primarySubtle.withValues(alpha: 0.95),
-              borderRadius: BorderRadius.circular(RealtimeUiTokens.pillRadius),
-              border: Border.all(color: RealtimeUiTokens.primaryBorder),
-              boxShadow: RealtimeUiTokens.cardShadow,
-            ),
-            child: Row(
+  Widget build(BuildContext context) {
+    final state = widget.session.state;
+    final isZh = Localizations.localeOf(context).languageCode == 'zh';
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 240),
+      child: _visible.isEmpty
+          ? const SizedBox.shrink()
+          : Column(
+              key: const ValueKey('live-gift-notices'),
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(
-                  Icons.celebration,
-                  size: 16,
-                  color: RealtimeUiTokens.text,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '${_last!.displayName} · ${_last!.giftId} × ${_last!.quantity}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: RealtimeUiTokens.text,
+                for (final event in _visible.reversed)
+                  Padding(
+                    key: ValueKey('gift-notice-${event.id}'),
+                    padding: const EdgeInsets.only(top: 5),
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 340),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 9,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.82),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: const Color(0xFFFBBF24).withValues(alpha: 0.65),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _icon(event.giftId),
+                            color: const Color(0xFFFBBF24),
+                            size: 20,
+                          ),
+                          const SizedBox(width: 9),
+                          Flexible(
+                            child: Text(
+                              _giftNoticeText(
+                                event,
+                                state?.catalog ?? const [],
+                                context,
+                                isZh,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
               ],
             ),
-          ),
-  );
+    );
+  }
+}
+
+String _giftNoticeText(
+  LiveGiftEvent event,
+  List<LiveGift> catalog,
+  BuildContext context,
+  bool isZh,
+) {
+  LiveGift? gift;
+  for (final item in catalog) {
+    if (item.id == event.giftId) {
+      gift = item;
+      break;
+    }
+  }
+  final name = gift == null ? event.giftId : _name(context, gift);
+  return isZh
+      ? '${event.displayName} 送出 $name ×${event.quantity}'
+      : '${event.displayName} sent $name ×${event.quantity}';
 }

@@ -15,9 +15,10 @@ class RealtimeLeaveButton extends StatelessWidget {
   });
 
   final Future<bool> Function(BuildContext context)? onConfirm;
+
   final VoidCallback? onLeft;
 
-  /// Null retains the SDK default: a broadcast host with close rights ends it.
+  /// Null retains the SDK default: owner ends room, attendee leaves alone.
   final bool? closeForEveryone;
   final bool iconOnly;
 
@@ -46,7 +47,13 @@ class RealtimeLeaveButton extends StatelessWidget {
                   }
                 }
               };
-        final label = RealtimeStrings.of(context).leave;
+        final strings = RealtimeStrings.of(context);
+        final media = controller.room.media;
+        final label = media.isLogicalOwner
+            ? (media.backendMetadata['roomMode'] == 'broadcast'
+                  ? strings.endLive
+                  : strings.endMeetingForAll)
+            : strings.leave;
         if (iconOnly) {
           return Tooltip(
             message: label,

@@ -581,6 +581,40 @@ void main() {
       },
     );
 
+    test('room-not-found heartbeat stops polling and reports terminal end once', () async {
+      var ended = false;
+      final client = clientFor((request) {
+        if (request.uri.path.endsWith('/heartbeat') && ended) {
+          return MediaBackendTransportResponse(
+            statusCode: 404,
+            body: '{"error":{"code":"room-not-found"}}',
+          );
+        }
+        return jsonResponse(liveKitJoinPayload(
+          provider: 'fake',
+          participantId: 'viewer-1',
+          role: 'participant',
+        ));
+      }, heartbeatInterval: const Duration(milliseconds: 20));
+      final room = await client.createRoomAndJoin(nickname: 'Viewer');
+      final errors = <RealtimeException>[];
+      final subscription = room.backendErrors.listen(errors.add);
+
+      ended = true;
+      await Future<void>.delayed(const Duration(milliseconds: 75));
+      final heartbeats = transport.requestsTo('/rooms/482913/heartbeat').length;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(errors.where((e) => e.code == RealtimeErrorCode.roomNotFound), hasLength(1));
+      expect(errors.single.operation, 'room.presence.heartbeat');
+      expect(transport.requestsTo('/rooms/482913/heartbeat'), hasLength(heartbeats));
+      expect(room.session.state, MediaSessionState.connected,
+          reason: 'the host presentation owns final RTC disposal');
+      await subscription.cancel();
+      await room.dispose();
+      client.dispose();
+    });
+
     test('backend heartbeat failures do not stop healthy media', () async {
       var failHeartbeat = false;
       final client = clientFor((request) {

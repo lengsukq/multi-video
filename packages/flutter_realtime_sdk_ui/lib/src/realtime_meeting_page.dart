@@ -76,6 +76,8 @@ class RealtimeMeetingPage extends StatefulWidget {
 
 class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
   late Future<void> _videoEffectsReady;
+  StreamSubscription<RealtimeEvent>? _roomEndSubscription;
+  bool _remoteEndHandled = false;
   int _preparationRevision = 0;
   RealtimeMeetingPanel _panel = RealtimeMeetingPanel.closed;
   int _classroomTab = 0;
@@ -94,13 +96,46 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
 
   @override
   void dispose() {
+    unawaited(_roomEndSubscription?.cancel());
     _whiteboardTools.dispose();
     super.dispose();
+  }
+
+  void _watchRoomEnd() {
+    final room = widget.room;
+    _remoteEndHandled = false;
+    _roomEndSubscription = room.events.listen((event) {
+      if (event is! RealtimeBackendFailure ||
+          event.error.code != RealtimeErrorCode.roomNotFound ||
+          event.error.operation != 'room.presence.heartbeat' ||
+          !mounted ||
+          _remoteEndHandled) {
+        return;
+      }
+      _remoteEndHandled = true;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            RealtimeStrings.of(context).isZh
+                ? '会议已结束，正在退出房间'
+                : 'Meeting ended. Leaving the room.',
+          ),
+        ),
+      );
+      _onLeft();
+      // Without a host callback, this page also owns the fallback cleanup.
+      if (widget.onLeft == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          unawaited(room.dispose());
+        });
+      }
+    });
   }
 
   @override
   void initState() {
     super.initState();
+    _watchRoomEnd();
     _enteredAt = DateTime.now();
     _videoEffectsReady = _prepare();
   }
@@ -157,6 +192,10 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
   @override
   void didUpdateWidget(covariant RealtimeMeetingPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.room, widget.room)) {
+      unawaited(_roomEndSubscription?.cancel());
+      _watchRoomEnd();
+    }
     if (!identical(oldWidget.room, widget.room)) _showFilmstrip = true;
     if (!identical(oldWidget.room, widget.room) ||
         oldWidget.initialSettings != widget.initialSettings) {
@@ -174,11 +213,18 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
   Future<bool> _confirmLeave(BuildContext context) async {
     if (!widget.confirmBeforeLeave) return true;
     final strings = RealtimeStrings.of(context);
+    final isOwner = widget.room.media.isLogicalOwner;
     return await showDialog<bool>(
           context: context,
           builder: (dialogContext) => RealtimeGlassDialog(
-            title: Text(strings.leaveRoomTitle),
-            content: Text(strings.leaveRoomConfirmation),
+            title: Text(
+              isOwner ? strings.endMeetingForAll : strings.leaveRoomTitle,
+            ),
+            content: Text(
+              isOwner
+                  ? strings.endMeetingForAllDesc
+                  : strings.leaveRoomConfirmation,
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
@@ -186,7 +232,7 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(dialogContext, true),
-                child: Text(strings.leave),
+                child: Text(isOwner ? strings.endMeetingForAll : strings.leave),
               ),
             ],
           ),
@@ -589,7 +635,9 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
           ),
         const SizedBox(width: 4),
         RealtimeLeaveButton(
-          iconOnly: compact,
+          // Tablet-sized headers do not have room for the longer owner
+          // "End meeting for all" label, especially at 200% text scale.
+          iconOnly: !wide,
           onConfirm: _confirmLeave,
           onLeft: _onLeft,
         ),

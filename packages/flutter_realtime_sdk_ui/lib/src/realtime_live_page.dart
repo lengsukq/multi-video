@@ -40,6 +40,8 @@ enum _LiveSidePanel { none, chat, members }
 
 class _RealtimeLivePageState extends State<RealtimeLivePage> {
   late Future<void> _preparing;
+  StreamSubscription<RealtimeEvent>? _roomEndSubscription;
+  bool _remoteEndHandled = false;
   int _preparationRevision = 0;
   late Future<List<MediaBackgroundImagePreset>> _presets;
   _LiveSidePanel _sidePanel = _LiveSidePanel.none;
@@ -50,10 +52,49 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
   @override
   void initState() {
     super.initState();
+    _watchRoomEnd();
     _enteredAt = DateTime.now();
     _preparing = _prepare();
     _presets =
         widget.loadImagePresets?.call() ?? Future.value(widget.imagePresets);
+  }
+
+  void _watchRoomEnd() {
+    final room = widget.room;
+    _remoteEndHandled = false;
+    _roomEndSubscription = room.events.listen((event) {
+      if (event is! RealtimeBackendFailure ||
+          event.error.code != RealtimeErrorCode.roomNotFound ||
+          event.error.operation != 'room.presence.heartbeat' ||
+          !mounted ||
+          _remoteEndHandled) {
+        return;
+      }
+      _remoteEndHandled = true;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            RealtimeStrings.of(context).isZh
+                ? '主播已结束直播'
+                : 'The host ended the livestream.',
+          ),
+        ),
+      );
+      if (widget.onLeft != null) {
+        widget.onLeft!();
+      } else {
+        if (Navigator.canPop(context)) Navigator.pop(context);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          unawaited(room.dispose());
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_roomEndSubscription?.cancel());
+    super.dispose();
   }
 
   void _showActionError(RealtimeException error) {
@@ -71,6 +112,10 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
   @override
   void didUpdateWidget(covariant RealtimeLivePage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.room, widget.room)) {
+      unawaited(_roomEndSubscription?.cancel());
+      _watchRoomEnd();
+    }
     if (!identical(oldWidget.room, widget.room) ||
         oldWidget.initialSettings != widget.initialSettings) {
       _enteredAt = DateTime.now();
@@ -96,9 +141,7 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
   Future<bool> _confirmLeave(BuildContext context) async {
     if (!widget.confirmBeforeLeave) return true;
     final strings = RealtimeStrings.of(context);
-    final host =
-        widget.room.media.role == MediaRole.host &&
-        widget.room.media.managementCapabilities.closeRoom.supported;
+    final host = widget.room.media.isLogicalOwner;
     final recordingMayBeActive = {
       RecordingStatus.starting,
       RecordingStatus.recording,

@@ -249,13 +249,17 @@ class RealtimeLiveDesktopStage extends StatelessWidget {
                       height: 210,
                       child: IgnorePointer(child: RealtimeLiveHeartsOverlay()),
                     ),
-                    if (!compact)
-                      const Positioned(
-                        left: 16,
-                        right: 140,
-                        bottom: 16,
-                        child: IgnorePointer(child: RealtimeLiveGiftBanner()),
+                    const Positioned(
+                      left: 16,
+                      right: 16,
+                      bottom: 16,
+                      child: IgnorePointer(
+                        child: Align(
+                          alignment: Alignment.bottomLeft,
+                          child: RealtimeLiveGiftBanner(),
+                        ),
                       ),
+                    ),
                   ],
                 ],
               ),

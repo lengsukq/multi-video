@@ -6,6 +6,108 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'meeting owner exit closes the room even with participant media role',
+    () async {
+      for (final role in [MediaRole.participant, MediaRole.host]) {
+        final media = _FakeMediaSession(role: role);
+        final management = _FakeRoomManagement();
+        final presence = _FakeRoomPresence();
+        final room = RealtimeRoom(
+          media: MediaRoomSession.attach(
+            roomCode: 'meeting-room',
+            participantId: 'creator',
+            roomOwnerCredential: role == MediaRole.participant
+                ? 'owner-key'
+                : null,
+            session: media,
+            management: management,
+            presence: presence,
+            heartbeatInterval: Duration.zero,
+            backendMetadata: const {
+              'roomMode': 'meeting',
+              'meetingMode': 'standard',
+            },
+          ),
+          renderer: const _FakeRenderer(),
+          disposeClients: () {},
+        );
+        final controller = RealtimeRoomUiController(room);
+        await controller.leave();
+        expect(
+          management.closeCalls,
+          1,
+          reason: 'meeting owner must end the room',
+        );
+        expect(
+          presence.leaveCalls,
+          0,
+          reason: 'no redundant leave after closing',
+        );
+        expect(media.disposeCalls, 1);
+        await controller.close();
+      }
+    },
+  );
+
+  test('ordinary participant exit never closes the meeting room', () async {
+    final media = _FakeMediaSession(role: MediaRole.participant);
+    final management = _FakeRoomManagement();
+    final presence = _FakeRoomPresence();
+    final room = RealtimeRoom(
+      media: MediaRoomSession.attach(
+        roomCode: 'meeting-room',
+        participantId: 'viewer',
+        session: media,
+        management: management,
+        presence: presence,
+        heartbeatInterval: Duration.zero,
+        backendMetadata: const {
+          'roomMode': 'meeting',
+          'meetingMode': 'standard',
+        },
+      ),
+      renderer: const _FakeRenderer(),
+      disposeClients: () {},
+    );
+    final controller = RealtimeRoomUiController(room);
+    await controller.leave();
+    expect(management.closeCalls, 0);
+    expect(presence.leaveCalls, 1);
+    expect(media.disposeCalls, 1);
+    await controller.close();
+  });
+
+  test(
+    'owner cannot silently self-leave when room closure is unavailable',
+    () async {
+      final media = _FakeMediaSession(role: MediaRole.host);
+      final room = RealtimeRoom(
+        media: MediaRoomSession.direct(
+          roomCode: 'room',
+          participantId: 'host',
+          session: media,
+        ),
+        renderer: const _FakeRenderer(),
+        disposeClients: () {},
+      );
+      final controller = RealtimeRoomUiController(room);
+      await expectLater(
+        controller.leave(),
+        throwsA(
+          isA<RealtimeException>().having(
+            (e) => e.code,
+            'code',
+            RealtimeErrorCode.unsupportedFeature,
+          ),
+        ),
+      );
+      expect(media.disposeCalls, 0);
+      await controller.close();
+      await room.dispose();
+    },
+  );
+
+  test(
     'closed UI controller rejects new actions instead of false success',
     () async {
       final media = _FakeMediaSession(role: MediaRole.participant);
@@ -353,6 +455,45 @@ void main() {
       await room.dispose();
     },
   );
+}
+
+class _FakeRoomPresence implements MediaRoomPresence {
+  int leaveCalls = 0;
+  @override
+  Future<void> heartbeat(String roomCode, {String? participantId}) async {}
+  @override
+  Future<void> leave(String roomCode, {String? participantId}) async {
+    leaveCalls++;
+  }
+}
+
+class _FakeRoomManagement implements MediaRoomManagement {
+  int closeCalls = 0;
+  @override
+  Future<void> closeRoomManaged(
+    String roomCode, {
+    required String requesterParticipantId,
+    String? participantCredential,
+    String? roomOwnerCredential,
+  }) async {
+    closeCalls++;
+  }
+
+  @override
+  Future<List<MediaRoomParticipantSummary>> listParticipants(
+    String roomCode, {
+    required String requesterParticipantId,
+    String? participantCredential,
+    String? roomOwnerCredential,
+  }) async => const [];
+  @override
+  Future<void> removeParticipant(
+    String roomCode, {
+    required String requesterParticipantId,
+    required String targetParticipantId,
+    String? participantCredential,
+    String? roomOwnerCredential,
+  }) async {}
 }
 
 class _FakeRenderer extends MediaTrackRenderer {

@@ -71,7 +71,25 @@ class _RoomPresence {
     try {
       await presence.heartbeat(roomCode, participantId: participantId);
     } on RealtimeException catch (error) {
-      _reportBackendError(error);
+      if (error.code == RealtimeErrorCode.roomNotFound) {
+        // A previously joined room disappearing is an authoritative end,
+        // rather than a transient network failure. Mark this heartbeat as the
+        // source so room UIs don't mistake unrelated 404s for a room close.
+        stop();
+        _reportBackendError(
+          RealtimeException(
+            code: error.code,
+            message: error.message,
+            domain: 'media',
+            operation: 'room.presence.heartbeat',
+            providerId: error.providerId,
+            statusCode: error.statusCode,
+            details: error.details,
+          ),
+        );
+      } else {
+        _reportBackendError(error);
+      }
     }
   }
 

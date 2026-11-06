@@ -135,6 +135,58 @@ void main() {
     await tester.runAsync(fixture.room.dispose);
   });
 
+  testWidgets('cancelled leave confirmation keeps the room open', (
+    tester,
+  ) async {
+    final fixture = await MeetingSharingFixture.create(teaching: false);
+    addTearDown(fixture.room.dispose);
+    final controller = RealtimeRoomUiController(fixture.room);
+    addTearDown(controller.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RealtimeRoomUiScope(
+          room: fixture.room,
+          controller: controller,
+          child: Scaffold(
+            body: RealtimeLeaveButton(onConfirm: (_) async => false),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.call_end_rounded));
+    await tester.pump();
+    expect(fixture.media.changes.isClosed, isFalse);
+    expect(controller.isDisposed, isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.runAsync(controller.close);
+    await tester.runAsync(fixture.room.dispose);
+  });
+
+  testWidgets('meeting host confirms end-for-all without a mode selector', (
+    tester,
+  ) async {
+    final fixture = await MeetingSharingFixture.create(
+      teaching: false,
+      role: MediaRole.host,
+    );
+    addTearDown(fixture.room.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: RealtimeUiTheme.light(),
+        home: RealtimeMeetingPage(room: fixture.room, showClassroom: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.call_end_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('End meeting for all'), findsWidgets);
+    expect(find.text('Leave meeting only'), findsNothing);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(fixture.media.changes.isClosed, isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('meeting mobile drawer reuses the page room controller', (
     tester,
   ) async {

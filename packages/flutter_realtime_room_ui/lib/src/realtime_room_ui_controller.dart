@@ -28,7 +28,15 @@ class RealtimeRoomUiController extends ChangeNotifier {
         RealtimeMediaEvent(event: MediaFailureEvent(:final error)) => error,
         _ => null,
       };
-      if (failure != null) reportActionError(failure);
+      if (failure != null) {
+        // Room pages handle this terminal presence event by leaving; it is
+        // not a recoverable action error to present as an HTTP 404 snackbar.
+        if (failure.code == RealtimeErrorCode.roomNotFound &&
+            failure.operation == 'room.presence.heartbeat') {
+          return;
+        }
+        reportActionError(failure);
+      }
     });
     final chat = room.chat;
     if (chat != null) {
@@ -396,10 +404,12 @@ class RealtimeRoomUiController extends ChangeNotifier {
   Future<void> _leaveOnce({bool? closeForEveryone}) async {
     try {
       await execute(RealtimeRoomUiAction.leave, () async {
-        final endsRoom =
-            closeForEveryone ??
-            (room.media.role == MediaRole.host &&
-                room.media.managementCapabilities.closeRoom.supported);
+        // An owner leaves by ending the room for everyone, regardless of
+        // meeting/broadcast mode or RTC role. Owners may have participant
+        // media roles and an authoritative room-owner credential instead.
+        // If the backend cannot close the room, fail visibly rather than
+        // silently dropping just the owner and leaving everyone connected.
+        final endsRoom = closeForEveryone ?? room.media.isLogicalOwner;
         if (endsRoom) {
           // Stop before closing the room: the recording endpoint requires
           // the still-live room and host credential to authorize Agora Stop.

@@ -228,14 +228,13 @@ class RealtimeLiveMobileOverlay extends StatelessWidget {
                 child: IgnorePointer(child: RealtimeLiveHeartsOverlay()),
               ),
 
-            if (!lowHeightHud &&
-                showLiveInteractions &&
+            if (showLiveInteractions &&
                 controller.room.liveInteractions != null)
-              const Positioned(
+              Positioned(
                 left: 12,
                 right: 12,
-                bottom: 214,
-                child: IgnorePointer(
+                bottom: lowHeightHud ? 76 : (compactHud ? 178 : 214),
+                child: const IgnorePointer(
                   child: Align(
                     alignment: Alignment.bottomLeft,
                     child: RealtimeLiveGiftBanner(),
