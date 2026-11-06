@@ -141,6 +141,8 @@ The Demo directly displays the SDK’s built-in Meeting/Live/Chat/Pre-Join pages
 
 ## 5. Validation and related docs
 
+**[Documentation index (integration, capabilities, features, release, archive)](doc/README.md)**.
+
 ~~~bash
 python3 scripts/check_sdk_quality.py --resolve --analyze --test
 python3 scripts/check_sdk_architecture.py

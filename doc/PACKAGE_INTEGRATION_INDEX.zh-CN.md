@@ -1,11 +1,11 @@
 # Flutter Realtime SDK 内部 44 模块职责与接入索引
 
 本文中列出的 44 个是**内部源码开发模块**，不是 44 个独立 pub.dev 产品。
-**对外已发布单包预览版 `flutter_realtime_sdk 0.1.0-dev.1`。**
+**对外当前已发布单包预览版 `flutter_realtime_sdk 0.1.0-dev.27`。**
 目前开发版仍需主 Facade + 选定 Provider 的本地 `path:` 依赖；
 是否引入 UI 和 Preset 由应用按需决定。内部 Core/Adapter 包的单独使用属于进阶场景。
 
-包名是当前 monorepo 源码包名，**尚未作为独立产品发布 pub.dev**。开发版依赖使用本地
+包名是当前 monorepo 源码包名，**内部子包未分别发布 pub.dev**。开发版依赖使用本地
 `path:`，请参考 [独立应用的从零接入](APP_INTEGRATION_QUICKSTART.zh-CN.md)。
 单包的聚合与迁移边界见
 [单包发行方案](SINGLE_PACKAGE_RELEASE.zh-CN.md)。
@@ -83,10 +83,10 @@
 CHANGELOG / repository 元数据。它们**不计划各自上架 pub.dev**。
 真正需要审计的是聚合后的一个 `flutter_realtime_sdk` 发布包。
 本文只覆盖**内部功能定位与组合关系**，不能代替单包的
-许可证审计、完整 API 参考和真实设备验收。内部元数据检查命令：
+许可证审计、完整 API 参考和真实设备验收。当前单包审计命令：
 
 ```sh
-python3 scripts/check_pub_release_readiness.py --report-only
+python3 scripts/audit_single_pub_package.py --strict
 ```
 
 单包发行阻断请优先运行：

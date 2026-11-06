@@ -1,14 +1,14 @@
-# 第三方 Flutter App 接入 Flutter Realtime SDK（源码开发版）
+# 第三方 Flutter App 接入 Flutter Realtime SDK（pub.dev 单包优先）
 
 本文面向**不使用仓库 Demo 的宿主应用**，目标是从零完成一次真实的创建/加入/退出。
-**当前已发布的单包预览版是 `0.1.0-dev.15`（2026-11-03）。** 普通宿主在 App 目录执行
-`flutter pub add flutter_realtime_sdk:0.1.0-dev.15`，并参考
-[该版本发布包 README](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.15)
+**当前已发布的单包预览版是 `0.1.0-dev.27`（2026-11-06）。** 普通宿主在 App 目录执行
+`flutter pub add flutter_realtime_sdk:0.1.0-dev.27`，并参考
+[当前版本发布包 README](https://pub.dev/packages/flutter_realtime_sdk/versions/0.1.0-dev.27)
 配置 iOS Podfile、权限与后端。
-Scope/Overlay 和离会并发改进已包含在 dev.15；之后在源码仓库新增的变更
+Scope/Overlay 和离会并发改进始于 dev.15，已包含在 dev.27；之后在源码仓库新增的变更
 仍需维护者发布新版本，第三方才可升级并回归验证。
 
-**dev.15 iOS 必需配置：** 聚合包目前仍依赖 CocoaPods，请在宿主
+**dev.27 iOS 必需配置：** 聚合包目前仍依赖 CocoaPods，请在宿主
 `pubspec.yaml` 的 `flutter:` 下添加：
 
 ```yaml
@@ -26,20 +26,33 @@ pre_install do |installer|
 end
 ```
 
-这会解决 Agora RTC/Chat 的重复 `aosl.xcframework`；dev.15 发行包
+这会解决 Agora RTC/Chat 的重复 `aosl.xcframework`；相关修复始于 dev.15，并包含于当前发行包，
 同时修复了 Swift umbrella 头文件污染。不要再复制旧版 dev.13 的
 手工修改 `source_files` / `public_header_files` 或 Headers 阶段的
 Podfile workaround。**双指缩放跳动修复**同样包含在 dev.15：
 触点数量变化时保持画布变换，不应影响随后单指绘画。该功能仍需各机型
 真实设备手感与跨端同步验收。
 
-**本文后续演示源码开发接入**，适用于需要修改内部模块的宿主。
-facade + Provider 的多个本地 `path:` 属于仓库开发结构；公开分发只需要
+**本文同时保留源码开发接入示例**，仅适用于需要修改内部模块的宿主。
+Facade + Provider 的多个本地 `path:` 属于仓库开发结构；公开分发只需要
 一个 `flutter_realtime_sdk` 包和一个 SDK import。详见
 [单包发行工程方案](SINGLE_PACKAGE_RELEASE.zh-CN.md)。
 Flutter、Dart、Java 和各平台最低版本详见 [能力矩阵](SDK_CAPABILITY_MATRIX.zh-CN.md)。
 
-## 1. 源码开发版选择依赖
+## 1. 安装依赖
+
+**公开单包（推荐）：**
+
+```yaml
+dependencies:
+  flutter_realtime_sdk: 0.1.0-dev.27
+```
+
+业务代码只需导入 `package:flutter_realtime_sdk/flutter_realtime_sdk.dart`；
+Provider、可组合 UI、Classroom/Live/SharedContent Preset 已在单包导出，
+但需显式注册使用的 Provider 和 Preset，不会自动启用全部厂商。
+
+### 源码开发版（仅用于 SDK 内部调试）
 
 假设 `my_app/` 与 `multi-video/` 在同一父目录，
 宿主 `pubspec.yaml` 使用：
@@ -66,10 +79,8 @@ dependencies:
 **只复用视觉设计**：再添加独立 `flutter_realtime_design_ui`，不启动媒体会话。
 仅需独立聊天室 UI 也可单独使用 `flutter_realtime_chat_ui`。
 
-**当前已发布单包预览版**：只需 `flutter_realtime_sdk: ^0.1.0-dev.15`，
-通过 `package:flutter_realtime_sdk/flutter_realtime_sdk.dart` 一个入口获取
-Provider 工厂、Room 和可组合 UI；仍需在 `Realtime(providers: ...)`
-中指定启用的供应商。**不保证**未选用厂商的原生依赖会被自动移除。
+**注意：**外部单包依然要在 `Realtime(providers: ...)` 中指定启用的供应商；
+**不保证**未选用厂商的原生依赖会被自动移除。
 
 如果第三方要展示白板，在 `Realtime` 上显式注册
 `featurePlugins: const [SharedContentPreset()]`；如需课堂互动，注册
@@ -92,7 +103,6 @@ RTC/IM 的 App Certificate、SecretKey、Customer Secret 和 S3 密钥**不进�
 
 ```dart
 import 'package:flutter_realtime_sdk/flutter_realtime_sdk.dart';
-import 'package:flutter_realtime_provider_livekit/flutter_realtime_provider_livekit.dart';
 
 final realtime = Realtime(
   backendUrl: 'https://your-backend.example',
@@ -182,7 +192,7 @@ Headless：订阅 `room.states`、`room.events`、
 可组合 UI（需要额外添加 `flutter_realtime_sdk_ui`）：
 
 ```dart
-import 'package:flutter_realtime_sdk_ui/flutter_realtime_sdk_ui.dart';
+import 'package:flutter_realtime_sdk/flutter_realtime_sdk.dart';
 
 RealtimeRoomUiScope(
   room: creator.mediaRoom!,
@@ -207,9 +217,8 @@ RealtimeRoomUiScope(
 `RealtimeRoomUiScope` **子树内部**的 `BuildContext`，不能在创建该 Scope 的页面
 `State.context` 中查找它。`showDialog`、`showModalBottomSheet` 和抽屉
 是在 Navigator 的 Overlay 路由中构建，不能假设它们自动继承会议页面的 Scope。
-下一发布版 SDK 已准备
 `showRealtimeRoomUiDialog` / `showRealtimeRoomUiBottomSheet`
-（显式传入既有 Controller，**dev.15 已包含**）。
+已包含在当前版本（自 dev.15 起提供），使用时显式传入既有 Controller。
 退出会议也不能将 `Navigator.pop()` 或仅仅销毁 Widget 当成
 `controller.leave()`、`connection.dispose()`。
 完整代码和资源所有权说明见
@@ -218,11 +227,11 @@ RealtimeRoomUiScope(
 ## 7. 选装课堂、直播互动与云录制
 
 课堂举手/Q&A/授权发言、Live 点赞/礼物**不是主 SDK 自动开启的功能**。
-另加 `flutter_realtime_classroom_preset` /
-`flutter_realtime_live_preset`，在初始化时显式
-`featurePlugins: const [ClassroomPreset(), LivePreset()]`，
-在业务模块导入相应包后才有 `room.classroom` /
-`room.liveInteractions` 扩展。后端还需实现权威状态与权限接口。
+公开单包直接使用已经导出的 `ClassroomPreset` /
+`LivePreset`，在初始化时显式注册
+`featurePlugins: const [ClassroomPreset(), LivePreset()]`；
+内部源码开发版才需要另加对应模块依赖和 import。
+后端还需实现权威状态与权限接口。
 见 [互动 Preset 指南](INTERACTION_PRESET_GUIDE.zh-CN.md)。
 
 录制由供应商云端服务及**可信后端**执行，不依赖 Flutter 本地视频捕获；
@@ -246,6 +255,6 @@ RealtimeRoomUiScope(
 `python3 scripts/check_sdk_quality.py --analyze --test`、
 `python3 scripts/generate_capability_matrix.py --check`；
 供应商真实通话、多人音轨与录制费用仍须现场 E2E。
-仓库软件包目前仍设置 `publish_to: none` 和内部 `path:` 依赖，
-**可本地接入，不代表已经满足 pub.dev 发布条件**；请阅读
+仓库内 44 个开发子模块仍设置 `publish_to: none` 和内部 `path:` 依赖；
+**它们不独立发布，与已上架的 dev.27 单包是两种不同交付形式**；请阅读
 [发布准备清单](PUB_DEV_RELEASE_GUIDE.zh-CN.md)。

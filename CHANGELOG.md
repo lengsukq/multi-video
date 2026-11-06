@@ -1,45 +1,9 @@
-## Unreleased
+# Flutter Realtime SDK · 当前版本更新
 
-* Add the optional `ChimeClient` / `ChimeRoomSession` high-level backend-contract API while preserving direct `ChimeMeetingSession.join(JoinInfo)` integration.
-* Add typed backend errors, application token/custom-header providers, request timeouts, heartbeat, best-effort leave lifecycle, and an injectable backend transport.
-* Add backend contract and integration guides, align the demo server with contract v1, and simplify the example to consume the public SDK client.
-* Migrate Android plugin/example builds to AGP 9 built-in Kotlin and keep the Java/Kotlin target at JVM 17.
-* Add Swift Package Manager support alongside CocoaPods for iOS and add release CI/device-E2E coverage.
-* Update package metadata to the current `lengsukq/multi-video` repository.
+**最新已发布：`flutter_realtime_sdk 0.1.0-dev.27`（2026-11-06）。**
 
-## 3.0.0
+本仓库只维护当前公开 SDK 的版本说明；较早的单包预览版和原 Chime 项目发布历史已从此文档移除。实际发行包的唯一版本说明来源为 [`scripts/release_notes_current.md`](scripts/release_notes_current.md)，发布脚本会验证其版本标题并复制到发行包。
 
-* Redesign the public API around `ChimeMeetingSession` and typed join information, state, events,
-  audio devices, and errors. This is a breaking release; v2 API compatibility is not provided.
-* Add the optional `ChimeMeetingView`, while leaving join/leave/dispose ownership with the caller.
-* Align the Android and iOS method-channel response protocol and use typed native error codes.
-* Declare iOS and Android as the only supported meeting platforms and update package metadata.
+最新主要变化：主持人/逻辑房主退出时关闭整个会议或直播，普通成员只退出自己；其他成员通过媒体心跳检测结束状态；内置页面移除了退出方式二选一，并处理平板端高字体缩放布局。
 
-## 2.0.0
-
-* Require Flutter 3.47.0 or newer.
-* Upgrade Android Chime SDK to 0.25.5 and Media to 0.25.4; upgrade iOS Chime SDK to 0.27.4,
-  Media to 0.25.4, and MachineLearning to 0.3.3.
-* Raise the minimum iOS deployment target to 15.0 and Android minimum SDK to API 23. Flutter 3.47 requires these platform floors; Android previously targeted API 21.
-* Add the typed `MeetingModel.events` stream for session, connection, camera, attendee, and video
-  tile updates.
-* Add `CameraPosition` and `MeetingModel.switchCamera`.
-* Document the existing audio device list, selection, and update APIs.
-
-## 0.0.1
-
-* Initial publish, please do not use this
-
-## 1.0.0
-
-* Official release for android and ios, Happy using!
-
-## 1.1.0
-
-* Fix pinch view issue with latest flutter
-* Fix mute at first issue
-* Fix hide control on tap issue
-
-## 1.1.0+1
-
-* Fix message self send not display issue
+完整更新条目和未完成实机验收范围见 [当前版本说明](scripts/release_notes_current.md)。集成与发布请阅读 [文档导航](doc/README.md)。

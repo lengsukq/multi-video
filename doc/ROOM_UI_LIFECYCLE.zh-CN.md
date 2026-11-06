@@ -146,14 +146,27 @@ await showRealtimeRoomUiDialog<void>(
 | `controller.close()` | 释放 UI 订阅、UI 状态；借用的 `room` 保持存在 | 离会、结束会议 |
 | `controller.leave(closeForEveryone: false)` | 请求本地离会，并释放相应 Room 资源 | 结束所有人会议 |
 | `controller.leave(closeForEveryone: true)` | 请求结束整个房间；权限、录制收尾和后端校验均可能失败 | 无权限情况下强行结束 |
-| `controller.leave()` | 使用 SDK 的默认角色/能力判断 | 宿主要求的明确主持人管理策略 |
+| `controller.leave()` | 按房间所有权自动选择：主持人结束全员会话，其他人仅离开自己 | 后端无法关闭房间时不能视为退出成功 |
 | `connection.dispose()` | 释放 Connection/Room 等本地资源 | 后端管理操作或结束全员会议 |
 | `Navigator.pop()` | 退出视觉页面 | 任何 RTC/IM 资源清理 |
 
-SDK 当前默认的结束全员判断依赖 `MediaRole.host` 和
-`managementCapabilities.closeRoom.supported`。会议的逻辑房主可能不是
-`host` 角色，因此**会议所有权与 closeForEveryone 的默认语义仍需验收**；
-不要只通过按钮可见性推断谁有权限关房。
+会议和直播统一使用自动退出策略：
+`room.media.isLogicalOwner == true` 时，点击离开会尝试关闭整个房间，
+使所有参会者/观众退出；其他用户则只退出本人。不再提供退出方式选择。
+SDK 内置页面仅保留单次确认：主持人提示“结束会议/直播”，其他人提示“离开”。
+普通会议创建者可能持有 owner 凭证但媒体角色仍是 `participant`，
+因此不能只靠 `MediaRole.host` 判断主持人身份。最终关房权限以服务端为准。
+若客户端或服务端不支持关房，则返回错误并保留当前连接，避免主持人误以为
+全员已经退出。第三方自定义应用也应按 `isLogicalOwner` 处理退出。
+
+**远端结束同步（源码实现，需发布新的单包版本）：**
+连接成功后的媒体心跳若获得后端的 `room-not-found`，SDK 将停止重复心跳，
+向 `room.events` 发出 `RealtimeBackendFailure`，其中
+`error.operation == 'room.presence.heartbeat'`。SDK 内置会议与直播页
+由此提示房间结束并触发宿主 `onLeft`。宿主如使用组合式/无头页面，需自己
+监听并释放连接。高层 `Realtime` 默认媒体心跳间隔为 5 秒；异常网络连接失败
+不视为房间结束。该机制是跨厂商的*最终一致*兜底，不保证即时踢出远端
+RTC 连接；如需服务端强制断连，必须使用厂商关房能力并在后端实现授权。
 
 退出过程中不要重复点击，也不要让第二个调用者在首次销毁完成之前
 提前导航。近期源码已为并发 `leave()` 提供共享 Future，并防止

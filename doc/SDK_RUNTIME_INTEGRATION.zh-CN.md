@@ -3,12 +3,16 @@
 本指南只提供 SDK 接入方法与**短代码片段**，不新增 Headless 示例工程或第二套 Demo。现有 `example/` 直接展示 SDK 内置页面，同时演示内容与自定义交互的参数注入。
 
 **首次在独立宿主 App 接入**，请先按 [完整分步接入清单](APP_INTEGRATION_QUICKSTART.zh-CN.md)
-准备 Flutter 依赖、可信后端、Provider、权限与创建/加入链路。当前包尚未发布
-pub.dev，示例路径属于**本地开发 Checkout**。
+准备 Flutter 依赖、可信后端、Provider、权限与创建/加入链路。公开单包
+`flutter_realtime_sdk: 0.1.0-dev.27` 已发布在 pub.dev。以下多包 `path:`
+代码仅用于仓库内部源码开发，**不是外部宿主必需配置**。
 
 ## 1. 依赖边界
 
-应用使用纯功能 API 时，只需依赖 `flutter_realtime_sdk` 与选中的 `flutter_realtime_provider_*` 包；不需要 `flutter_realtime_sdk_ui`。主 SDK 的生产依赖只有 `flutter_realtime_sdk_runtime`，并通过 Runtime 传递依赖必要领域 Core（视频特效和系统桥接等为当前 Runtime 自身能力）。不注册供应商时 SDK 不会自动拉取任何特定供应商。
+公开单包宿主只需依赖 `flutter_realtime_sdk: 0.1.0-dev.27`，通过一个 SDK import
+获得所有导出 API；仍须显式注册使用的 Provider / Preset。内部轻量开发入口
+`packages/flutter_realtime_sdk` 只有 Runtime 生产依赖，按需添加内部
+`flutter_realtime_provider_*` 和 UI 模块。**运行时按需注册并不等于公开单包不安装其他厂商原生依赖。**
 
 ```yaml
 dependencies:
@@ -26,7 +30,6 @@ dependencies:
 
 ```dart
 import 'package:flutter_realtime_sdk/flutter_realtime_sdk.dart';
-import 'package:flutter_realtime_provider_livekit/flutter_realtime_provider_livekit.dart';
 
 final realtime = Realtime(
   backendUrl: 'https://your-backend.example',
@@ -52,15 +55,15 @@ await connection.dispose();
 
 ## 3. Media、Chat、直播与课堂的纯功能操作
 
-以下 `room.liveInteractions` 与 `room.classroom` 并非主 SDK 内置成员：
-必须**另行依赖并导入** `flutter_realtime_live_preset` 和
-`flutter_realtime_classroom_preset`，且在 `Realtime(featurePlugins: ...)`
-中显式注册对应 Preset。未安装/注册的宿主请删去以下两个可选调用，
-仅使用媒体和 Chat 功能。
+以下 `room.liveInteractions` 与 `room.classroom` 来自可选互动
+Preset。公开 dev.27 单包**已导出所需类型，无需额外安装内部模块**，
+但仍要在 `Realtime(featurePlugins: ...)` 中显式注册。
+只有使用多包本地源码结构时才需要额外依赖并单独导入
+`flutter_realtime_live_preset`、`flutter_realtime_classroom_preset`。
+未注册的宿主应跳过相关调用，仅使用媒体和 Chat。
 
 ```dart
-import 'package:flutter_realtime_live_preset/flutter_realtime_live_preset.dart';
-import 'package:flutter_realtime_classroom_preset/flutter_realtime_classroom_preset.dart';
+import 'package:flutter_realtime_sdk/flutter_realtime_sdk.dart';
 
 // 在创建 Realtime 时注册：
 // featurePlugins: const [LivePreset(), ClassroomPreset()],
@@ -169,10 +172,11 @@ Classroom / Live 可选服务由 `RealtimeRoom.initialize()` **在 Runtime 内�
 
 ## 6. 可选 SDK UI（当前 Demo 唯一定位）
 
-需要快速搭建页面时，额外添加 `flutter_realtime_sdk_ui`：
+需要快速搭建页面时，公开 dev.27 单包可直接使用 SDK 导出的 UI 类型；
+仅内部多包源码开发需要额外依赖 `flutter_realtime_sdk_ui`：
 
 ```dart
-import 'package:flutter_realtime_sdk_ui/flutter_realtime_sdk_ui.dart';
+import 'package:flutter_realtime_sdk/flutter_realtime_sdk.dart';
 
 RealtimeRoomUiScope(
   room: room,

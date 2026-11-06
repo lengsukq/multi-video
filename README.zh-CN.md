@@ -146,6 +146,8 @@ Demo 直接调用 SDK 内置的 Meeting/Live/Chat/Pre-Join 页面，只保留连
 
 ## 五、质量检查与详细文档
 
+**[SDK 文档导航（按接入、能力、功能、发布、历史归档分类）](doc/README.md)**。
+
 ~~~bash
 python3 scripts/check_sdk_quality.py --resolve --analyze --test
 python3 scripts/check_sdk_architecture.py

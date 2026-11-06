@@ -9,14 +9,13 @@ SCRIPTS = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from prepare_single_sdk_release import (
     prepare,
-    refresh_changelog,
     refresh_readmes,
     verify_staged,
 )
 
 
 class ReleasePreparationTest(unittest.TestCase):
-    def test_dev16_release_notes_and_safe_refresh_preserve_staged_sources(self):
+    def test_latest_notes_and_safe_verification_preserve_staged_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             source = root / "build/single_sdk_candidate"
@@ -37,18 +36,20 @@ class ReleasePreparationTest(unittest.TestCase):
             templates.mkdir(parents=True)
             (templates / "single_sdk_README.md").write_text("@VERSION@")
             (templates / "single_sdk_README.zh-CN.md").write_text("@VERSION@")
-            release = prepare("0.1.0-dev.16", root)
+            (templates.parent / "release_notes_current.md").write_text(
+                "## 0.1.0-dev.27\n\n- Owners close meetings for everyone.\n"
+            )
+            release = prepare("0.1.0-dev.27", root)
             dart_source = (release / "lib/flutter_realtime_sdk.dart").read_bytes()
             changelog = (release / "CHANGELOG.md").read_text()
-            self.assertIn("RealtimeRoomUiController lifecycle", changelog)
-            self.assertIn("extremely tall mobile headers", changelog)
-            self.assertNotIn("Headless apps", changelog)
-            self.assertEqual(refresh_changelog("0.1.0-dev.16", root), release)
+            self.assertIn("Owners close meetings for everyone", changelog)
+            self.assertNotIn("dev.16", changelog)
             self.assertEqual((release / "lib/flutter_realtime_sdk.dart").read_bytes(), dart_source)
             self.assertEqual((release / "CHANGELOG.md").read_text(), changelog)
-            self.assertEqual(verify_staged("0.1.0-dev.16", root), release)
-            with self.assertRaises(ValueError):
-                refresh_changelog("0.1.0-dev.15", root)
+            self.assertEqual(verify_staged("0.1.0-dev.27", root), release)
+            with self.assertRaisesRegex(ValueError, "Update"):
+                prepare("0.1.0-dev.28", root)
+            self.assertFalse((root / "build/pub_release/0.1.0-dev.28").exists())
 
     def test_preview_excludes_local_artifacts_and_preserves_source(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -80,13 +81,16 @@ class ReleasePreparationTest(unittest.TestCase):
             template.write_text("Preview @VERSION@")
             template_zh = root / "scripts/templates/single_sdk_README.zh-CN.md"
             template_zh.write_text("预览版 @VERSION@\n[English](README.md)\n")
+            (template.parent.parent / "release_notes_current.md").write_text(
+                "## 0.1.0-dev.28\n\n- Reviewed next-preview changes.\n"
+            )
 
-            release = prepare("0.1.0-dev.1", root)
+            release = prepare("0.1.0-dev.28", root)
             self.assertEqual((candidate / "pubspec.yaml").read_text(), files["pubspec.yaml"])
             self.assertNotIn("publish_to:", (release / "pubspec.yaml").read_text())
-            self.assertIn("version: 0.1.0-dev.1", (release / "pubspec.yaml").read_text())
-            self.assertEqual((release / "README.md").read_text(), "Preview 0.1.0-dev.1")
-            self.assertIn("预览版 0.1.0-dev.1", (release / "README.zh-CN.md").read_text())
+            self.assertIn("version: 0.1.0-dev.28", (release / "pubspec.yaml").read_text())
+            self.assertEqual((release / "README.md").read_text(), "Preview 0.1.0-dev.28")
+            self.assertIn("预览版 0.1.0-dev.28", (release / "README.zh-CN.md").read_text())
             for excluded in ("ios/Frameworks", ".dart_tool",
                              "tool/single_import_smoke.dart", "pubspec.lock"):
                 self.assertFalse((release / excluded).exists(), excluded)
@@ -102,7 +106,7 @@ class ReleasePreparationTest(unittest.TestCase):
             self.assertNotIn(".git/config", inventory)
             self.assertFalse(any(name.startswith("ios/Frameworks/") for name in inventory))
             with self.assertRaises(FileExistsError):
-                prepare("0.1.0-dev.1", root)
+                prepare("0.1.0-dev.28", root)
 
             # Updating staged documentation leaves Dart, native and package
             # metadata byte-for-byte intact, even after dependency resolution.
@@ -116,9 +120,9 @@ class ReleasePreparationTest(unittest.TestCase):
             original_licenses = (release / "LICENSE").read_bytes()
             template.write_text("Updated English @VERSION@\n[简体中文](README.zh-CN.md)\n")
             template_zh.write_text("更新中文 @VERSION@\n[English](README.md)\n")
-            self.assertEqual(refresh_readmes("0.1.0-dev.1", root), release)
-            self.assertIn("Updated English 0.1.0-dev.1", (release / "README.md").read_text())
-            self.assertIn("更新中文 0.1.0-dev.1", (release / "README.zh-CN.md").read_text())
+            self.assertEqual(refresh_readmes("0.1.0-dev.28", root), release)
+            self.assertIn("Updated English 0.1.0-dev.28", (release / "README.md").read_text())
+            self.assertIn("更新中文 0.1.0-dev.28", (release / "README.zh-CN.md").read_text())
             self.assertEqual((release / "pubspec.yaml").read_bytes(), original_pubspec)
             self.assertEqual((release / "LICENSE").read_bytes(), original_licenses)
             revised = json.loads((release.parent / "FILES.sha256.json").read_text())
@@ -132,19 +136,19 @@ class ReleasePreparationTest(unittest.TestCase):
             )
             # A canceled publishing prompt is resumable without rebuilding.
             # Dependency cache files must not invalidate the immutable stage.
-            self.assertEqual(verify_staged("0.1.0-dev.1", root), release)
+            self.assertEqual(verify_staged("0.1.0-dev.28", root), release)
             original_readme = (release / "README.md").read_text()
             (release / "README.md").write_text("tampered")
             with self.assertRaisesRegex(ValueError, "README.md"):
-                verify_staged("0.1.0-dev.1", root)
+                verify_staged("0.1.0-dev.28", root)
             (release / "README.md").write_text(original_readme)
             (release / "unexpected_file.txt").write_text("not in inventory")
             with self.assertRaisesRegex(ValueError, "unexpected_file.txt"):
-                verify_staged("0.1.0-dev.1", root)
+                verify_staged("0.1.0-dev.28", root)
             (release / "unexpected_file.txt").unlink()
-            self.assertEqual(verify_staged("0.1.0-dev.1", root), release)
+            self.assertEqual(verify_staged("0.1.0-dev.28", root), release)
 
-    def test_dev10_changelog_describes_the_sdk_preview_changes(self):
+    def test_changelog_contains_only_matching_current_release_notes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             candidate = root / "build/single_sdk_candidate"
@@ -167,17 +171,18 @@ class ReleasePreparationTest(unittest.TestCase):
             template.write_text("Preview @VERSION@")
             template_zh = root / "scripts/templates/single_sdk_README.zh-CN.md"
             template_zh.write_text("预览版 @VERSION@")
+            (template.parent.parent / "release_notes_current.md").write_text(
+                "## 0.1.0-dev.27\n\n- Room owners end the whole meeting.\n"
+            )
 
-            release = prepare("0.1.0-dev.10", root)
+            release = prepare("0.1.0-dev.27", root)
             changelog = (release / "CHANGELOG.md").read_text()
 
-            self.assertIn("## 0.1.0-dev.10", changelog)
-            self.assertIn("meeting-mode selection", changelog)
-            self.assertIn("repository-backed shared-content sessions", changelog)
-            self.assertIn("native macOS pre-join microphone meter", changelog)
-            self.assertNotIn("Headless apps", changelog)
+            self.assertIn("## 0.1.0-dev.27", changelog)
+            self.assertIn("Room owners end the whole meeting", changelog)
+            self.assertNotIn("## 0.1.0-dev.10", changelog)
             metadata = json.loads((release.parent / "PREPARATION.json").read_text())
-            self.assertEqual(metadata["version"], "0.1.0-dev.10")
+            self.assertEqual(metadata["version"], "0.1.0-dev.27")
             self.assertFalse(metadata["published"])
 
     def test_stable_release_requires_a_separate_acceptance_decision(self):

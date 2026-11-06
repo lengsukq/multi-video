@@ -9,14 +9,14 @@ VERSION="${1:-}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   echo "Usage: bash scripts/publish_single_sdk.command 0.1.0-dev.N"
-  echo "An explicit unpublished version is required; dev.15 has already shipped."
+  echo "An explicit NEW, unpublished version is required; never reuse a published version."
   echo "First run checks, assembles, analyzes and dry-runs a release."
   echo "Reruns verify/reuse the same staged release without rebuilding."
   echo "Only pub.dev's own interactive y/N confirmation can publish."
   exit 0
 fi
 if [[ -z "$VERSION" ]]; then
-  echo "Specify the NEXT unpublished preview version explicitly (dev.15 is already published)." >&2
+  echo "Specify the NEXT unpublished preview version explicitly (e.g. 0.1.0-dev.28 after dev.27)." >&2
   exit 2
 fi
 if [[ ! "$VERSION" =~ ^0\.1\.0-dev\.[1-9][0-9]*$ ]]; then
@@ -45,6 +45,10 @@ if [[ -e "$STAGE" ]]; then
 fi
 
 if [[ "$RESUMING" -eq 0 ]]; then
+if [[ ! -f "scripts/release_notes_current.md" ]] || ! grep -qxF "## $VERSION" "scripts/release_notes_current.md"; then
+  echo "Before publishing $VERSION, update scripts/release_notes_current.md with a matching ## $VERSION heading and factual release notes." >&2
+  exit 2
+fi
 echo "==> 1/7: SDK architecture and full internal-package checks"
 python3 scripts/check_sdk_architecture.py
 python3 -m unittest discover -s scripts/tests -q

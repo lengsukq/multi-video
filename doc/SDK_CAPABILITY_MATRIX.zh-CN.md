@@ -1,5 +1,23 @@
 # SDK 能力矩阵
 
+> **当前源码复核：2026-11-06** · 已发布聚合包：`flutter_realtime_sdk 0.1.0-dev.27`。
+> 请先阅读 [逐引擎 × 平台 × 功能与验收分层核对表](SDK_CAPABILITY_AUDIT_2026-11-06.zh-CN.md)。
+> 本页保留 API 介绍与部分早期专项验收记录；**过往快照不能覆盖最新源码结论**。
+> “支持/✅”仅表示有 Driver 或基础实现，绝不自动代表已通过真实多设备媒体、权限与清理验收。
+> Windows 原生插件补强、Windows CI 门禁、仍缺失的 Provider 与待验收清单：
+> [Windows SDK 实现与验收说明](WINDOWS_SDK_IMPLEMENTATION_2026-11-06.zh-CN.md)。
+
+### 当前结论速查
+
+| 范围 | 当前可确认 | 主要限制 |
+| --- | --- | --- |
+| 媒体 | LiveKit / Agora / TRTC / ARTC / AWS（Chime Meeting、IVS Live），共 5 个外部 Provider、6 个引擎 | Windows 只声明 LiveKit/Agora/TRTC；Linux 无默认 Driver；ARTC macOS 依赖宿主 Framework |
+| 产品 Chat | Agora / 腾讯 / Amazon IVS Chat，共 3 个可选引擎 | RTC fallback 要求媒体支持双向 Data；IVS Real-Time 无 RTC Data；产品 Chat 不自动回退 |
+| 主持人结束房间 | `isLogicalOwner` 默认关闭逻辑房间，其他人仅退出自己；成员通过 5 秒心跳识别关闭 | 非厂商服务器端瞬时踢人，轮询存在延迟和在途请求 |
+| 全系统共享 | iOS 27+ 六引擎对应的 ScreenCaptureKit 源码路径已接；LiveKit iOS 15–26 有 ReplayKit 扩展回退 | 真正切 App 的远端出帧、签名和双设备仍需验收，其他引擎旧版 iOS 路径有缺口 |
+| 虚拟背景 | Android/Web/macOS Bridge 已实现；iOS 原生 Bridge/供应商 Sink 已有代码并通过无签名编译；Windows 有 ONNX 原生代码 | iOS 真实远端像素和 Windows 原生构建/设备待验收，不能把 `ProcessedVideoSink` 源码等于所有平台可用 |
+| 课堂/直播/录制 | 白板/投票/Q&A/礼物/云录制控制面已实现；LiveKit/Chime/IVS 录制有历史实测反馈 | 各厂商双向声音、云录制音画质量与课程回放管理未全面验收 |
+
 Meeting 教学互动 V1 已提供可选 ClassroomSession 和 SDK UI，举手、问答、
 学生列表、消息提醒与课堂统计由 SDK 层统一处理。LiveKit Meeting 已
 支持通过服务端 UpdateParticipant 限制/开放麦克风发布源；其他供应商
@@ -22,10 +40,13 @@ IM System Hint / RTC Data 仅发送修订通知以加快同步。
 
 ## 可选 Provider Bundle 的平台 Driver 声明
 
-**下表是各个可选 Provider 包提供的 Driver 能力，不表示主 SDK 内置了所有厂商。**
-宿主必须显式引入对应的 `flutter_realtime_provider_*` 并使用
-`Realtime(providers: [createLivekitProvider(), ...])` 注册；纯
-`flutter_realtime_sdk` 不会自动安装或注册任意 Vendor。
+**下表是开发工作区各可选 Provider Bundle 的 Driver 声明，而非真机验收。**
+内部开发入口 `packages/flutter_realtime_sdk` 不传递依赖全部 Provider；但公开
+pub.dev 单包 `flutter_realtime_sdk 0.1.0-dev.27` 已聚合源码和原生依赖：
+**外部宿主只需一个 Pub 包，无需额外声明 `flutter_realtime_provider_*`，
+但仍需在 `Realtime(providers: [...])` 中显式注册要使用的 Provider。**
+这不保证未选中的原生厂商依赖被安装器剔除，避免把运行时按需加载误写为
+二进制完全按需安装。
 业务代码在所有平台使用同一套 API，Runtime 从**已注册**的 Driver 中按运行平台
 解析。破折号表示该 Bundle 对应平台没有可用 Driver，按能力返回
 `unsupportedPlatform` 或 Provider 未注册错误，而不是静默替换其他供应商。
@@ -106,8 +127,8 @@ AWS 对外统一展示为一个 Vendor，内部按模式路由：`Meeting -> Chi
 | 加入前原生设备探测 | 麦克风/摄像头 | 无 | 无 | 无 | 无 | 麦克风/摄像头 |
 | 加入前 Provider 网络探测 | 需要房间凭证时不支持 | 无 | 无 | 无 | 无 | 需要参与者令牌时不支持 |
 | 网络统计 | 支持 | Adapter 未提供 | 支持 | 支持 | Adapter 未提供 | 基础 RTC 统计 |
-| 屏幕共享 | 发布者支持，Web 移动端限制 | 原生 Adapter 未提供；Web 按能力检查 | 原生暂未实现；Web 按能力检查 | Android/iOS 发布者；Web 按能力检查 | Web 按能力检查 | Web 按能力检查 |
-| Blur / image processed-video sink | Android/macOS/Web，iOS Release 已编译，Windows 待验证 | Android/macOS conditional/Web | Android/macOS/Web，iOS Release 已编译，Windows 待验证 | Android/macOS/Web，iOS Release 已编译，Windows 待验证 | Android/macOS conditional/Web | Android/macOS conditional/Web |
+| 屏幕共享 | Web/Android/macOS；iOS 27+ 系统共享，15–26 ReplayKit 扩展 | Web Content Share；iOS 27+ ScreenCaptureKit（需验收），其他原生端缺桥 | Web/Android/macOS/Windows 有适配；iOS 27+ 外部屏幕轨道，旧版未接 | Web/Android/macOS/Windows 有适配；iOS 27+ 辅路，旧版未接 | Web/Android 有代码；iOS 27+ 外部屏幕轨道；macOS 发送端缺 | Web 单视频流替换；iOS 27+ Stage 替换摄像头，其他原生端缺 |
+| Blur / image processed-video sink | Android/macOS/Web；iOS 已接且无签名编译通过；Windows 源码待验证 | Android/macOS 有条件/Web；iOS 需实测 | Android/macOS/Web；iOS 已接；Windows 源码待验证 | Android/macOS/Web；iOS 已接；Windows 源码待验证 | Android/macOS 有条件/Web，iOS 逐引擎待实测 | Android/macOS 有条件/Web，iOS 逐引擎待实测 |
 | 房主查看参与者列表 | 后端验证逻辑房主 | Meeting 创建者通过逻辑房主凭证 | 后端验证逻辑房主 | 后端验证逻辑房主 | 后端验证逻辑房主 | 后端验证逻辑房主 |
 | 房主移除参与者 | 支持 | 不支持 | 不支持 | 不支持 | 不支持 | 通过 IVS `DisconnectParticipant` |
 | 房主关闭房间 | 后端支持 | Meeting 创建者通过控制面关闭 | 后端支持 | 后端支持 | 后端支持 | 后端支持 |
@@ -116,14 +137,14 @@ AWS 对外统一展示为一个 Vendor，内部按模式路由：`Meeting -> Chi
 
 | Effects 平台 Bridge | Android | macOS | Web | iOS | Windows |
 | --- | --- | --- | --- | --- | --- |
-| 采集 + None/Blur 处理 | 已实现 | 已实现 | 已实现 | 已接入 Vision / Core Image，待真机 | Media Foundation + ONNX 源码已写入，待 Windows 编译/设备测试 |
+| 采集 + None/Blur/换图处理 | 已实现 | 已实现 | 已实现 | 已接入 Vision / Core Image，待真机 | Media Foundation + ONNX 源码已写入，待 Windows 编译/设备测试 |
 | 实时本地预览 | Flutter Texture | Flutter Texture | HTML video | Flutter Texture，待真机 | Flutter Texture 原生代码已写入，待 Windows 编译 |
 | Processed Source | Native RGBA Frame Hub | Native `CVPixelBuffer` Frame Hub | `MediaStreamTrack` | iOS `CVPixelBuffer` Frame Hub + LiveKit，待真实远端验收 | Windows Frame Hub → LiveKit 自定义 WebRTC 轨道 / Agora 外部视频轨道 / TRTC I420 数据投递源码已接入，待原生构建及真机验收 |
 
 第一层由 `flutter_realtime_video_effects` 统一负责，提供模糊和图片替换；六个媒体 Engine 已有
 `ProcessedVideoSink` 实现。Native 帧仍在 Native Frame Hub 中传递。
 Android/macOS/Web 的发布者按平台与运行时能力启用；ARTC、Chime、IVS 的 macOS 输入需要真实能力探测。
-当前源码（2026-10-21）已新增 iOS 效果桥和 LiveKit iOS 处理视频输入，并通过
+当前源码已有 iOS 效果桥和 LiveKit iOS 处理视频输入，并通过
 iOS 无签名 Release 构建，但**尚未完成真机与真实远端像素验收**；Agora/TRTC/ARTC/AWS 的
 iOS LiveKit、Agora、TRTC 原生处理后视频轨道均已接入并通过 iOS 无签名 Release
 构建，但仍需分别完成 iPhone 真实远端像素及长时间运行测试。Windows 已写入 Media Foundation
@@ -141,6 +162,7 @@ Flutter Windows 原生构建门禁见 `.github/workflows/windows-video-effects-s
 仍必须完成 Windows 双设备真实通话。
 以上描述的是源码中的实现声明；具体发布版支持范围以该版本的能力矩阵和
 实际设备测试为准。源码实现不等于真实远端画面验收通过。
+**最新细分清单以 [2026-11-06 复核表](SDK_CAPABILITY_AUDIT_2026-11-06.zh-CN.md) 为准。**
 
 Demo 的 Pre-Join 直接使用 Platform Bridge 做实时虚化预览，不进入 Provider 房间。
 正式入房前 `RealtimeRoomView` 会重新创建 processed source 并 attach 给当前
@@ -238,107 +260,13 @@ Provider 专属接口。未支持的操作应返回有类型的错误，不能�
 
 ## 教学工具与直播互动
 
-> **2026-10-10 架构更新：** 此处列的是已经具备的业务能力，
-> 不代表所有应用默认加载。普通 `flutter_realtime_sdk` /
-> `flutter_realtime_sdk_runtime` 不再强制依赖课堂、直播礼物或白板。
-> 需显式注册 `flutter_realtime_classroom_preset` 的 `ClassroomPreset`
-> 或 `flutter_realtime_live_preset` 的 `LivePreset`；
-> 主 SDK 也可仅使用 `room.interactions` 实现自己的瞬时互动。
-> 详见 [四种接入方式](INTERACTION_PRESET_GUIDE.zh-CN.md)。
-> 下方平台能力及历史构建状态仍按 **2026-10-08** 记录，
-> 不代表本次重新完成了真实设备验收。
+此处只保留**当前源码能力**，不再复制历史版本的需求/平台验收快照。
 
-以下为 **2026-10-08 当前工作区快照**，包含未提交实现，不表示已发布版本。
-功能属于 SDK 的供应商无关层；参考后端确认身份与状态，Demo 通过通用组件演示。
+| 业务能力 | 当前状态 | 关键限制 |
+| --- | --- | --- |
+| 课堂互动 | 举手、许可发言、问答、投票、小测、公告、计时器、考勤和参与统计已有统一控制面 | 非 LiveKit 厂商的强制禁麦受限；作业提交/批改和资料上传/内置预览未完整闭环 |
+| 共享内容/白板 | 独立分页白板、画笔、标注、撤销、清屏、迟加入快照和共享舞台 | 真正的跨 App 屏幕共享取决于平台权限、原生 Bridge、远端轨道和真实设备验收 |
+| Live 互动 | 点赞、虚拟礼物、近期礼物条幅、观众订阅、房主结束直播 | 礼物不代表真实支付；无产品 Chat 时部分观众角色不能发送 RTC Data 聊天 |
+| 云录制 | 统一开始/停止/状态/结果接口，多个厂商由可信后端执行 | 课程录像历史/同步回看不是完整产品闭环；不同厂商真实录制质量待验收 |
 
-状态含义：**✅ 基础实现已有；△ 部分实现或有条件；❌ 未实现；— 不适用。**
-状态不等于实机验收通过。Web、Android、iOS、macOS 已完成应用构建；
-Windows 的已注册组合仍缺本次原生构建和新互动功能验收。
-
-### 需求与各平台实现对照
-
-| 预计功能 | Web | Android | iOS | macOS | 当前实现与缺口 |
-| --- | :---: | :---: | :---: | :---: | --- |
-| Live 集成 Chat | ✅ | ✅ | ✅ | △ | 媒体与产品 Chat 可自由组合；ARTC macOS 需官方 framework。各组合仍待真实联调 |
-| Web 端 | ✅ | — | — | — | 标准 JavaScript Flutter Web 已实现并构建；完整 SDK 尚不支持 Wasm |
-| Live 打赏，不接支付 | ✅ | ✅ | ✅ | ✅ | 虚拟礼物、数量、共享记录、汇总、动画和重试；无余额、支付或结算 |
-| 举手 | ✅ | ✅ | ✅ | ✅ | 学生举手/取消，老师查看队列 |
-| 允许指定学生发言 | △ | △ | △ | △ | LiveKit 有服务端麦克风权限控制；其他供应商只限制 SDK 界面，不能宣称强制禁麦 |
-| 课堂聊天 | ✅ | ✅ | ✅ | ✅ | 使用独立产品 Chat；未配置产品 Chat 时，RTC fallback 需要双向数据能力 |
-| Q&A | ✅ | ✅ | ✅ | ✅ | 提问、回答、标记已处理、搜索和筛选 |
-| 学生列表 | △ | △ | △ | △ | 在线/离线、举手和发言许可已有；摄像头/麦克风信息缺失时显示未知 |
-| 互动提醒 | ✅ | ✅ | ✅ | ✅ | 举手、问题、回答、发言批准提醒；聊天有未读提示 |
-| 参与度统计 | ✅ | ✅ | ✅ | ✅ | 在线成员/学生、举手、问题等；消息数只是本机缓存数量，不是全班累计 |
-| 独立白板与分页 | ✅ | ✅ | ✅ | ✅ | 独立 Core/UI，无媒体也可绘制；默认最多 20 页、逐页保留笔迹，真实多设备验收待完成 |
-| 统一内容舞台 | ✅ | ✅ | ✅ | ✅ | 成员、白板、共享统一入口；教师控制、学生跟随；共享采集仍按下方供应商能力启用 |
-| 画笔 | △ | △ | △ | △ | 白板可独立使用，屏幕标注需可渲染共享轨道；共用绘制层 |
-| 高亮 | △ | △ | △ | △ | 白板已实现；屏幕标注需可渲染共享轨道 |
-| 圆圈 | △ | △ | △ | △ | 白板已实现；屏幕标注需可渲染共享轨道 |
-| 箭头 | △ | △ | △ | △ | 白板已实现；屏幕标注需可渲染共享轨道 |
-| 文字说明 | △ | △ | △ | △ | 白板已实现；屏幕标注需可渲染共享轨道 |
-| 撤销 | △ | △ | △ | △ | 白板/共享画布撤销最后一个标注 |
-| 清除 | △ | △ | △ | △ | 清除当前白板页或共享画布 |
-| 实时同步标注 | △ | △ | △ | △ | 已有同步、迟加入恢复、共享源切换重置；远端画面待验收，无通知通道时约两秒轮询 |
-| Quiz 小测验 | ✅ | ✅ | ✅ | ✅ | 单选、提交/修改答案、教师查看结果；结束前对学生隐藏正确答案 |
-| Poll 投票 | ✅ | ✅ | ✅ | ✅ | 单选投票、修改选择、结束和结果统计 |
-| 课堂公告 | ✅ | ✅ | ✅ | ✅ | 教师发布，学生同步接收 |
-| 专注提醒 | ✅ | ✅ | ✅ | ✅ | 文字提醒；不监控学生是否切出应用 |
-| 布置作业 | ✅ | ✅ | ✅ | ✅ | 标题、说明、截止时间、发布和查看；未扩展提交或批改 |
-| 考勤 | ✅ | ✅ | ✅ | ✅ | 本次课堂首次加入、最近离开、累计在线时长；没有应到名单或缺勤判定 |
-| 教学资料 | △ | △ | △ | △ | 资料链接分享和打开已有；文件选择、实际上传及内置课件预览未实现，仅预留宿主上传接口 |
-| 课堂计时器 | ✅ | ✅ | ✅ | ✅ | 服务器截止时间、同步倒计时和停止 |
-| 课堂录制与回看 | ❌ | ❌ | ❌ | ❌ | 按当前范围暂缓，录制和回放均未实现 |
-
-上表的 ✅ 表示 SDK 有该功能；实际可用性仍要求后端提供相应接口，
-并配置可用的媒体/Chat Driver。新教学工具和礼物状态保留在本次房间生命周期内，
-不提供跨课堂长期历史；存储和录制仍不在本轮范围内。
-
-### Live 与产品 Chat 的平台接入
-
-[可选 Provider Bundle 的平台 Driver 声明](#可选-provider-bundle-的平台-driver-声明) 表列出五套媒体供应商和三套产品 Chat
-在 Web、Android、iOS、macOS、Windows 的接入情况。五套 Live 为 LiveKit、
-Agora、TRTC、ARTC、AWS IVS；AWS Meeting 使用 Chime。ARTC macOS 有原生
-framework 条件；Windows 已注册 LiveKit/Agora/TRTC 和 Tencent Chat，
-AWS/ARTC、IVS Chat/Agora Chat 暂无 Windows Driver。Linux 暂无默认 Driver。
-
-AWS Live 已取消强制绑定 IVS Chat。媒体与产品 Chat 自由组合，创建房间时固定
-其 Chat 绑定，后续切换只影响新房间。未选择产品 Chat 时只有双向 RTC Data
-才能提供用户聊天 fallback；Agora/TRTC/ARTC 观众及 IVS 无法依赖这个 fallback
-发送聊天。礼物和教学状态有独立的控制面轮询，不依赖用户聊天 fallback。
-
-### 教师发起屏幕共享的平台差异
-
-标注工具已经实现，但教师能否发起共享仍取决于媒体能力：
-
-| Meeting 供应商 | 桌面 Web | Android | iOS | macOS |
-| --- | :---: | :---: | :---: | :---: |
-| LiveKit | ✅ 浏览器能力允许时 | ✅ | △ 当前使用应用内采集 | ✅ 需屏幕录制权限 |
-| TRTC | ✅ 浏览器能力允许时 | ✅ | △ 已调用原生 SDK，完整链路待实机验收 | △ 本轮补主屏选取与辅路，待实机 |
-| Agora | △ 浏览器可共享，原生→Web共享标识已接，Web→原生信令待补 | △ 原生 MediaProjection + 远端共享信令已接，待实机 | ❌ ReplayKit 广播扩展未接 | △ macOS/Windows 已接主显示器自动选择，待实机 |
-| ARTC | △ Web 发送与远端显示待多设备验收 | △ Android 原生屏幕采集与远端独立轨道已接，待实机 | △ 远端屏幕接收已接，主动共享缺 ReplayKit | △ macOS 远端接收已接，发送与可选原生 Framework 待验收 |
-| AWS Chime | ✅ 浏览器能力允许时 | ❌ | ❌ | ❌ |
-
-详细的五平台 × 六引擎缺口、验证边界和本轮改动见 [屏幕共享实现矩阵](SCREEN_SHARING_PROVIDER_STATUS.md)。
-这里的 Web 指桌面浏览器；移动浏览器不能从桌面 Web 支持推断可发起共享。
-LiveKit iOS 当前设置 `useiOSBroadcastExtension: false`，不能将应用内采集
-描述为跨应用整屏共享。接收共享/标注也不意味着同平台可以发起共享。
-标注操作发生在 SDK 的共享预览区域，系统级桌面标注层尚未实现。
-
-### 剩余缺口与验收
-
-- **尚未实现**：教学资料文件选择/实际上传/内置预览、课堂录制及回放。
-  上传存储和录制按当前范围暂缓，宿主可接入自己的上传服务。
-- **供应商覆盖不足**：LiveKit 之外的服务端强制发言权限，以及上表未实现的
-  原生屏幕共享和 iOS 跨应用共享链路。
-- **仍待真实验收**：各媒体 × Chat × 平台组合、观众发送聊天、LiveKit 实际禁麦、
-  远端标注坐标/画面、横竖屏、重连恢复和资源清理。
-- **非本轮扩展**：作业提交/批改、正式应到名单/缺勤判定、全班累计聊天分析、
-  跨课堂长期历史。不要将这些扩展列为已完成能力。
-
-上一轮实现验证记录为 55 项后端测试 + 156 项 Dart/Flutter 测试，共 **211 项**；
-Web、Android、iOS、macOS 构建通过。这些证据不替代真实多人/供应商或远端画面验收。
-详见 [交付与验收](INTERACTION_ACCEPTANCE.md)、
-[Classroom SDK](CLASSROOM_SDK.md) 和 [Live 互动 SDK](LIVE_INTERACTIONS_SDK.md)。
-
-白板与统一内容舞台详见 [SDK 文档](WHITEBOARD_SDK.md)。本批验证为 306 项相关测试，
-构建证据与真实共享/远端像素验收分开记录，详见[最新验收记录](INTERACTION_ACCEPTANCE.md#independent-whiteboard-delivery--2026-10-08)。
+**详见：**[2026-11-06 SDK 当前能力复核](SDK_CAPABILITY_AUDIT_2026-11-06.zh-CN.md) · [课堂](CLASSROOM_SDK.md) · [白板](WHITEBOARD_SDK.md) · [直播互动](LIVE_INTERACTIONS_SDK.md) · [屏幕共享](SCREEN_SHARING_PROVIDER_STATUS.md) · [云录制](CLOUD_RECORDING.md)。

@@ -1,5 +1,25 @@
 # SDK Capability Matrix
 
+> **Current-source audit: 2026-11-06** · Last confirmed published aggregate package:
+> `flutter_realtime_sdk 0.1.0-dev.27`. See the
+> [detailed current-source provider/platform/feature audit (Chinese)](SDK_CAPABILITY_AUDIT_2026-11-06.zh-CN.md).
+> This page also preserves historical acceptance snapshots. **Driver registered,
+> implementation present, package built and real-device E2E passed are four distinct claims**.
+> Older snapshots do not override the newer source audit.
+> Windows native fixes, MSVC CI gates and remaining vendor gaps:
+> [Windows SDK implementation and acceptance plan (Chinese)](WINDOWS_SDK_IMPLEMENTATION_2026-11-06.zh-CN.md).
+
+### Current capability summary
+
+| Area | Implemented/declared in current source | Important limitation |
+| --- | --- | --- |
+| RTC | Five public media providers / six engines: LiveKit, Agora, TRTC, ARTC, AWS Chime (Meeting) and IVS (Live) | Windows drivers: LiveKit/Agora/TRTC; Linux no default driver; ARTC macOS requires separately supplied vendor framework |
+| Product Chat | Agora Chat, Tencent Cloud Chat, IVS Chat; explicitly registered independently from RTC | Session-local RTC fallback only if both data send and receive are allowed; IVS Real-Time has no RTC data |
+| Owner ends room | Logical owner ends the room on leave; guest/viewer leaves self; remote clients detect backend closure by 5-second presence heartbeat | Logical-room closure is **not** instantaneous vendor-level disconnect; RTC cleanup and network delays vary |
+| iOS system sharing | iOS 27+ ScreenCaptureKit source pathways added for all six RTC engines; LiveKit 15–26 has ReplayKit Broadcast Extension fallback | Signed host configuration, actual background cross-app frames, remote media and per-vendor real-device E2E pending |
+| Video effects | Android/macOS/Web bridge code; iOS native bridge built unsigned, Windows native/ONNX source present | iOS remote processed pixels and Windows native builds/devices not fully accepted |
+| Classroom/live/recording | Whiteboard, Q&A, polls, gifts, recording control plane; historical live recording success feedback on LiveKit/Chime/IVS | Course-specific recording/replay management and comprehensive vendor recording/audio acceptance remain incomplete |
+
 **English** | [简体中文](SDK_CAPABILITY_MATRIX.zh-CN.md)
 
 The application should branch on `MediaCapabilities` / `MediaFeature`, not
@@ -15,10 +35,15 @@ Declarations, target builds and real calls are separate evidence; the [unified a
 
 ## Optional provider-bundle platform drivers
 
-**This table describes the drivers shipped by optional Provider bundles; it
-does not mean the facade automatically installs every vendor.** Host apps
-must explicitly depend on and register the appropriate
-`flutter_realtime_provider_*` bundle using `Realtime(providers: [...])`.
+**This table describes the driver declarations in the development workspace.**
+The private development package `packages/flutter_realtime_sdk` keeps the
+provider modules optional. **The published `flutter_realtime_sdk 0.1.0-dev.27`
+is instead a single assembled Pub package**: external apps declare only this
+one dependency, then explicitly register their chosen providers with
+`Realtime(providers: [...])`. There is no need to add internal provider
+packages to the host, but the aggregate still resolves native dependencies
+that may be unused at runtime. Runtime lazy registration is not native-binary
+installation pruning.
 Runtime resolves the registered provider for the current platform. A dash
 means that the selected bundle lacks that target's driver, which yields a
 typed unsupported-platform/unregistered-provider failure rather than an
@@ -110,8 +135,8 @@ the internal engine capabilities used by that AWS routing.
 | Pre-Join native device probe | Mic/camera | No native probe | No native probe | No native probe | No native probe | Mic/camera |
 | Pre-Join provider network probe | Unsupported without issued credentials | No native probe | No native probe | No native probe | No native probe | Unsupported without participant token |
 | Network stats | Yes | Not exposed by adapter | Yes | Yes | Not exposed by adapter | Basic RTC stats |
-| Screen share | Publishers; mobile Web restricted | Native not exposed; conditional Web | Native not exposed; conditional Web | Android/iOS publishers; conditional Web | Conditional Web | Conditional Web |
-| Processed-video sink for blur / image replacement | Android/macOS/Web | Android/macOS/Web* | Android/macOS/Web | Android/macOS/Web | Android/macOS*/Web | Android/macOS/Web* |
+| Screen share | Web/Android/macOS; iOS 27+ ScreenCaptureKit and 15–26 ReplayKit fallback; Windows source | Web Content Share; iOS 27+ source; native Android/macOS not wired | Web/Android/macOS/Windows source; iOS 27+ custom screen track; older iOS gap | Web/Android/macOS/Windows source; iOS 27+ auxiliary track; older iOS gap | Web/Android source; iOS 27+ external screen track; macOS publisher gap | Web screen replaces camera; iOS 27+ Stage camera replacement; Android/macOS publisher gap |
+| Processed-video sink for blur / image replacement | Android/macOS/Web; iOS code and unsigned release build; Windows source unverified | Android/macOS conditional/Web; iOS needs real-device verification | Android/macOS/Web; iOS code; Windows native verification pending | Android/macOS/Web; iOS code; Windows native verification pending | Android/macOS conditional/Web; iOS vendor combinations unverified | Android/macOS conditional/Web; iOS vendor combinations unverified |
 | Host participant list | Backend + logical owner | Meeting creator via logical owner credential | Backend + logical owner | Backend + logical owner | Backend + logical owner | Backend + logical owner |
 | Host remove participant | LiveKit host | No | No | No | No | IVS DisconnectParticipant |
 | Host close room | Host via backend | Meeting creator via control plane | Host via backend | Host via backend | Host via backend | Host via backend |
@@ -120,9 +145,9 @@ Virtual background has two separate capability layers:
 
 | Effects platform bridge | Android | macOS | Web | iOS | Windows |
 | --- | --- | --- | --- | --- | --- |
-| Capture + None/Blur/Replace image | Yes | Yes | Yes | Planned | Planned |
-| Realtime local preview | Flutter Texture | Flutter Texture | HTML video | Planned | Planned |
-| Processed source type | Native RGBA Frame Hub | Native `CVPixelBuffer` Frame Hub | `MediaStreamTrack` | Planned | Planned |
+| Capture + None/Blur/Replace image | Implemented | Implemented | Implemented | Vision / Core Image source and unsigned iOS Release build, device E2E pending | Media Foundation + ONNX source; Windows native build/device E2E pending |
+| Realtime local preview | Flutter Texture | Flutter Texture | HTML video | Flutter Texture source; device E2E pending | Flutter Texture source; native build pending |
+| Processed source type | Native RGBA Frame Hub | Native `CVPixelBuffer` Frame Hub | `MediaStreamTrack` | BGRA `CVPixelBuffer` Frame Hub | Windows Frame Hub / vendor-custom video source, not yet accepted |
 
 `flutter_realtime_video_effects` owns capture, segmentation and composition.
 Every provider adapter implements the sink side only (`ProcessedVideoSink`):
@@ -139,8 +164,8 @@ Every provider adapter implements the sink side only (`ProcessedVideoSink`):
 \* macOS ARTC requires the installed vendor SDK's custom-input API. macOS
 Chime/IVS require a positive WebKit canvas capture / image decode capability
 probe. These adapters reject unsupported runtimes; implementation does not
-imply support on every OS/browser version. iOS and Windows effects bridges
-are deferred, and cannot advertise virtual background support.
+imply support on every OS/browser version. iOS and Windows effects now have
+bridge/source code, **but must not be advertised as fully vendor/device-verified**.
 
 "Same frames" means one capture and one effects pipeline per source. Provider
 sinks may convert pixel formats, apply the shared rotation metadata, or clone a
@@ -160,26 +185,9 @@ a compatible bridge retain their ordinary camera path when effects are off.
 Video views default to contain the whole frame; explicit cover remains available
 where supported by the renderer.
 
-### Verification status (2026-10-01)
-
-- Android preview/effects and switching back to None: previously confirmed on the
-  attached phone by the user. The latest provider stride/rotation changes compile;
-  native geometry, frame pacing, source fan-out and error handling regressions pass.
-- Web regressions verify that the five vendor bridge engines share track clones
-  from one source and camera selection stays in the SDK; LiveKit uses the shared
-  track directly. Effects pacing and reuse of the matte buffer are covered.
-- SDK regressions cover Pre-Join, room attachment, disabled-camera preservation,
-  failure recovery and disposal. macOS Demo builds with the native/AWS changes;
-  AWS transport/display scheduling and cancellation regressions pass. A real
-  native-to-WebKit integration check uses a local 640x360 gradient at a requested
-  30 fps: the latest run sent/received 60/60 frames and verified all four corners.
-  It also exposed/fixed the invalid KVC access to the `CVPixelBufferRef` getter.
-  This short synthetic check does not measure sustained HD call performance.
-- Live remote publication/receive quality has **not** been revalidated for every
-  provider on Android, macOS and Web. Build/unit checks do not substitute for
-  that device/network acceptance. Verify portrait/landscape orientation, full
-  framing, None/Blur/Replace transitions, camera switching, mute/unmute, leaving
-  and rejoining, and capture/receive FPS on each supported runtime.
+Current video-effects source and real-device verification boundaries are
+summarized in the [2026-11-06 capability audit](SDK_CAPABILITY_AUDIT_2026-11-06.zh-CN.md).
+Source and build tests do not replace end-to-end multi-provider acceptance.
 
 ## Product chat
 
@@ -290,117 +298,13 @@ severity supplied by Core.
 
 ## Teaching tools and Live interactions
 
-> **Architecture update (2026-10-10):** These business features are optional,
-> not part of the base `flutter_realtime_sdk` or Runtime dependency graph.
-> Hosts explicitly register `ClassroomPreset` from
-> `flutter_realtime_classroom_preset` or `LivePreset` from
-> `flutter_realtime_live_preset`. Custom transient interactions can use
-> `room.interactions` with no preset or SDK UI at all. The platform/build
-> evidence below remains a **2026-10-08 snapshot** and does not certify new
-> real-device acceptance for every vendor.
+This section documents **current source coverage** without embedding obsolete October implementation snapshots.
 
-This is a **2026-10-08 working-tree snapshot**, including uncommitted
-implementation, not a published-release claim. Features live in the
-provider-neutral SDK; the reference backend authorizes state/actions and the
-Demo opens the common SDK widgets.
+| Domain | Implemented | Remaining limitations |
+| --- | --- | --- |
+| Classroom | Raise hand, teacher speaking grants, Q&A, quizzes, polls, announcements, timers, attendance and participation metrics | Server-enforced microphone permissions vary by vendor; homework submission and material upload/preview are incomplete |
+| Whiteboard and shared content | Paged drawing, annotation, undo/clear, late-join snapshots, revision control and shared stage | Cross-app system capture requires the correct platform bridge, permissions, remote tracks and real-device tests |
+| Live interactions | Likes, virtual gifts, recent gift banners, subscribe-only viewer roles and owner room closure | Gifts do not implement real payments; product chat is independent from RTC Data and subject to role limits |
+| Cloud recording | Common start/stop/status/results APIs driven by a trusted vendor backend | Full course recording history/replay and provider-wide real-device audio/video acceptance are incomplete |
 
-Legend: **✅ basic implementation exists; △ partial or conditional;
-❌ unimplemented; — not applicable.** Implementation is separate from real-device
-acceptance. Web, Android, iOS and macOS application builds have passed;
-registered Windows combinations still need a native build and new-interaction
-acceptance for this snapshot.
-
-### Requirements and platform implementation
-
-| Planned feature | Web | Android | iOS | macOS | Implementation and remaining gap |
-| --- | :---: | :---: | :---: | :---: | --- |
-| Live with Chat | ✅ | ✅ | ✅ | △ | Independent media/product Chat composition; ARTC macOS needs its official framework; real combinations remain pending |
-| Web client | ✅ | — | — | — | Standard JavaScript Flutter Web implemented and built; full SDK is not Wasm-ready |
-| Live gifts without payments | ✅ | ✅ | ✅ | ✅ | Virtual gifts, quantity, shared history/totals, animation and retry; no balances or settlement |
-| Raise hand | ✅ | ✅ | ✅ | ✅ | Student raise/lower and teacher queue |
-| Allow a student to speak | △ | △ | △ | △ | LiveKit has server microphone grants; other vendors only gate SDK UI, not vendor publishing |
-| Classroom chat | ✅ | ✅ | ✅ | ✅ | Independent product Chat; absent product Chat, RTC fallback needs bidirectional data |
-| Q&A | ✅ | ✅ | ✅ | ✅ | Ask, answer, resolve, search and filter |
-| Student roster | △ | △ | △ | △ | Presence, hands and speaking grants; missing camera/mic telemetry stays unknown |
-| Interaction reminders | ✅ | ✅ | ✅ | ✅ | Hand, question, answer and speak-grant reminders; Chat unread indicator |
-| Participation stats | ✅ | ✅ | ✅ | ✅ | Online members/students, hands and questions; chat count is device-local cached messages |
-| Independent paged whiteboard | ✅ | ✅ | ✅ | ✅ | Pure Dart Core + optional UI, default 20-page limit; real devices pending |
-| Unified content stage | ✅ | ✅ | ✅ | ✅ | Members/whiteboard/screen, teacher control and student follow; capture follows vendor capabilities below |
-| Pen | △ | △ | △ | △ | Standalone whiteboard implemented; screen requires a renderable track; operates in SDK preview |
-| Highlight | △ | △ | △ | △ | Standalone whiteboard implemented; screen requires a renderable track |
-| Circle | △ | △ | △ | △ | Standalone whiteboard implemented; screen requires a renderable track |
-| Arrow | △ | △ | △ | △ | Standalone whiteboard implemented; screen requires a renderable track |
-| Text annotation | △ | △ | △ | △ | Standalone whiteboard implemented; screen requires a renderable track |
-| Undo | △ | △ | △ | △ | Removes the last mark on the current canvas |
-| Clear | △ | △ | △ | △ | Clears the current canvas |
-| Synchronized annotations | △ | △ | △ | △ | Sync, late-join restore and source resets exist; remote pixels pending; two-second polling without hints |
-| Quiz | ✅ | ✅ | ✅ | ✅ | Single choice, answer replacement and teacher results; correct answer hidden from students until close |
-| Poll | ✅ | ✅ | ✅ | ✅ | Single choice, replacement, close and result counts |
-| Announcement | ✅ | ✅ | ✅ | ✅ | Teacher publication and student delivery |
-| Focus reminder | ✅ | ✅ | ✅ | ✅ | Text reminder; no app-switch monitoring |
-| Homework | ✅ | ✅ | ✅ | ✅ | Title, instructions, deadline, publish/view; no submission or grading extension |
-| Attendance | ✅ | ✅ | ✅ | ✅ | Session first join, last leave and online duration; no expected roster or absence determination |
-| Teaching materials | △ | △ | △ | △ | Link sharing/opening exists; file picker, actual uploads and embedded document preview are absent; host uploader hook only |
-| Classroom timer | ✅ | ✅ | ✅ | ✅ | Server deadline, synchronized countdown and stop |
-| Course recording/replay | ❌ | ❌ | ❌ | ❌ | Deferred by current scope; neither recording nor replay implemented |
-
-A ✅ requires an appropriate control plane and configured media/Chat drivers.
-New teaching-tool and gift state lasts for the room lifecycle, without
-cross-course history. Storage and recording remain outside this delivery.
-
-### Live and product Chat platform coverage
-
-The built-in driver tables above cover five media vendors and three product
-Chat vendors. Live uses LiveKit, Agora, TRTC, ARTC or AWS IVS; AWS Meeting uses
-Chime. ARTC macOS is conditional on its native framework. Windows registers
-LiveKit/Agora/TRTC media and Tencent Chat; AWS/ARTC media and IVS/Agora Chat have
-no Windows driver. Linux has no default driver.
-
-AWS Live no longer forces IVS Chat. A room retains the Chat binding selected
-at creation; dashboard changes affect new rooms. Without product Chat,
-user-chat fallback requires bidirectional RTC data. Agora/TRTC/ARTC viewers and
-IVS cannot rely on that fallback to send user messages. Gift/classroom state
-has an independent polling control plane.
-
-### Teacher screen-share publishing by platform
-
-Annotation tools exist, but publishing shared content still depends on media:
-
-| Meeting vendor | Desktop Web | Android | iOS | macOS |
-| --- | :---: | :---: | :---: | :---: |
-| LiveKit | ✅ if browser supports capture | ✅ | △ current in-app capture | ✅ screen-recording permission required |
-| TRTC | ✅ if browser supports capture | ✅ | △ native SDK call exists; full device flow pending | ❌ adapter not exposed |
-| Agora | ✅ if browser supports capture | ❌ | ❌ | ❌ |
-| ARTC | ✅ if browser supports capture | ❌ | ❌ | ❌ |
-| AWS Chime | ✅ if browser supports capture | ❌ | ❌ | ❌ |
-
-Desktop Web support does not imply mobile-browser capture support. LiveKit iOS
-currently sets `useiOSBroadcastExtension: false`; in-app capture must not be
-advertised as cross-app whole-screen sharing. Receiving a share/annotations
-does not imply publishing capability. Annotation operates in the SDK preview;
-a system-wide desktop drawing layer is not implemented.
-
-### Outstanding work and acceptance
-
-- **Unimplemented:** material file selection/actual upload/embedded preview and
-  course recording/replay. Upload storage and recording were deferred;
-  applications may supply their own uploader.
-- **Vendor coverage gaps:** server-enforced speaking permissions beyond LiveKit,
-  missing native screen-sharing paths above and iOS cross-app capture.
-- **Real acceptance pending:** media × Chat × platform combinations, viewer
-  chat, actual LiveKit microphone denial, remote annotation coordinates/pixels,
-  orientation, reconnect and resource cleanup.
-- **Outside current extensions:** homework submission/grading, expected
-  attendance roster/absence rules, server-wide chat analytics and long-lived
-  course history. Do not present these as implemented.
-
-The implementation run recorded 55 backend + 156 Dart/Flutter tests (**211**)
-and successful Web/Android/iOS/macOS builds. This is separate from real-provider,
-multi-device and remote-pixel acceptance. See
-[delivery and acceptance](INTERACTION_ACCEPTANCE.md),
-[Classroom SDK](CLASSROOM_SDK.md) and
-[Live interaction SDK](LIVE_INTERACTIONS_SDK.md).
-
-See [Whiteboard SDK](WHITEBOARD_SDK.md) for public APIs and compatibility. The current whiteboard
-delivery records 306 targeted passing tests in the [acceptance record](INTERACTION_ACCEPTANCE.md#independent-whiteboard-delivery--2026-10-08).
-State/drawing code is shared across all four platforms; capture and remote-pixel acceptance remain separate.
+**Read:** [current provider/platform audit](SDK_CAPABILITY_AUDIT_2026-11-06.zh-CN.md), [classroom](CLASSROOM_SDK.md), [whiteboard](WHITEBOARD_SDK.md), [live](LIVE_INTERACTIONS_SDK.md), [screen share](SCREEN_SHARING_PROVIDER_STATUS.md), and [cloud recording](CLOUD_RECORDING.md).
