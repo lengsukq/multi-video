@@ -534,7 +534,10 @@ class VideoEffectsPlugin final : public flutter::Plugin {
         return;
       }
       const auto source_id = "win_effects_" + std::to_string(++next_source_);
-      const auto device = requested.empty() ? cameras.front().id : requested;
+      // An omitted selection means "first camera that can actually open".
+      // Do not lock the source to the first enumerated device: Windows may
+      // enumerate an unplugged or already busy USB camera ahead of a usable one.
+      const auto device = requested;
       auto source = std::make_shared<Source>(
           textures_, &hub_, source_id, device, background, frame_rate,
           [this](const std::string& id, const std::string& reason) {

@@ -22,7 +22,7 @@ Provider ProcessedVideoSink      published track
 | macOS | Implemented | Native `CVPixelBuffer` frame hub + Flutter Texture preview |
 | Web | Implemented | Processed `MediaStreamTrack` + HTML video preview |
 | iOS | Native bridge + iOS Release build verified; real-device E2E pending | Vision + Core Image BGRA `CVPixelBuffer` hub / Flutter Texture; LiveKit, Agora, TRTC native sinks |
-| Windows | Native plugin and three provider sinks written; Windows native build and device E2E pending | Media Foundation, PPHumanSeg ONNX, BGRA compositing, Flutter Texture, LiveKit/Agora/TRTC custom video tracks |
+| Windows | Windows Debug build and local camera/ONNX/blur smoke tests passed; remote RTC subscriber E2E pending | Media Foundation, PPHumanSeg ONNX, BGRA compositing, Flutter Texture, LiveKit/Agora/TRTC custom video tracks |
 
 Provider adapters own only the sink side (`ProcessedVideoSink`). When an
 adapter cannot consume the platform output directly, attachment fails closed
@@ -34,15 +34,19 @@ acceptance record yet. LiveKit, Agora and Tencent TRTC have native iOS
 processed-video sink code and the iOS unsigned Release build passes.
 Windows now has native camera and ONNX person-segmentation source code, with
 verified model bytes/Apache-2.0 license and portable C++ compositor tests.
-**This code has not been built or tested on Windows**. Windows CMake fetches
+The Windows x64 Debug Demo and native plugins build successfully with
+MSVC 2026. Real Media Foundation camera capture and the full
+camera -> ONNX mask -> blur composite -> preview RGBA path pass local
+device tests; this is not a substitute for a two-device RTC publication test.
+Windows CMake fetches
 the official, SHA256-pinned ONNX Runtime 1.23.2 x64 distribution, linking and
 bundling the DLL and license. Offline builds can set
 `REALTIME_ONNXRUNTIME_ROOT` to the installed C++ SDK. A missing or invalid
 runtime is a build error; it must not silently disable requested effects.
 LiveKit, Agora and TRTC have native Windows processed-video
 publisher bridges in source, including a custom VideoSource patch in the
-vendored `flutter_webrtc` fork. Their implementation is not considered verified
-until a Windows x64 native build and dual-device RTC test pass. A local Texture
+vendored `flutter_webrtc` fork. Their remote publication implementation is not
+considered verified until a dual-device RTC test passes. A local Texture
 must never be mistaken for successful remote camera publication.
 The Windows C++ Frame Hub rejects raw frames when a virtual background is
 required. Verify real remote pixels before claiming Windows production support.

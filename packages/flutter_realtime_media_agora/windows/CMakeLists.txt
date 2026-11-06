@@ -23,6 +23,9 @@ apply_standard_settings(${PLUGIN_NAME})
 set_target_properties(${PLUGIN_NAME} PROPERTIES CXX_VISIBILITY_PRESET hidden)
 target_compile_features(${PLUGIN_NAME} PRIVATE cxx_std_17)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL NOMINMAX)
+# Agora's vendor headers contain signed/unsigned enum conversions. Keep
+# /WX for our code but tolerate this known external-header diagnostic.
+target_compile_options(${PLUGIN_NAME} PRIVATE /wd4245)
 target_include_directories(${PLUGIN_NAME} PRIVATE
   "${AGORA_NATIVE_INCLUDE}"
   "${REALTIME_PROCESSED_VIDEO_INCLUDE}")

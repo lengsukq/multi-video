@@ -13,6 +13,8 @@ endif()
 add_library(${PLUGIN_NAME} SHARED "flutter_realtime_video_effects_plugin.cpp")
 apply_standard_settings(${PLUGIN_NAME})
 target_compile_features(${PLUGIN_NAME} PRIVATE cxx_std_17)
+# Media Foundation's SDK enum flags trigger C4245 under /WX in MSVC 2026.
+target_compile_options(${PLUGIN_NAME} PRIVATE /wd4245)
 set_target_properties(${PLUGIN_NAME} PROPERTIES CXX_VISIBILITY_PRESET hidden)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL NOMINMAX)
 target_include_directories(${PLUGIN_NAME} PRIVATE
