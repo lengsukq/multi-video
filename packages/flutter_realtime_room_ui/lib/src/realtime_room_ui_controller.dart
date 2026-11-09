@@ -1,5 +1,6 @@
 import 'realtime_room_ui_action.dart';
 import 'dart:async';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
@@ -404,6 +405,7 @@ class RealtimeRoomUiController extends ChangeNotifier {
   Future<void> _leaveOnce({bool? closeForEveryone}) async {
     try {
       await execute(RealtimeRoomUiAction.leave, () async {
+        var remoteRoomClosed = false;
         // An owner leaves by ending the room for everyone, regardless of
         // meeting/broadcast mode or RTC role. Owners may have participant
         // media roles and an authoritative room-owner credential instead.
@@ -431,6 +433,7 @@ class RealtimeRoomUiController extends ChangeNotifier {
             await room.stopRecording();
           }
           await room.media.closeRoom();
+          remoteRoomClosed = true;
         }
         // Release provider subscriptions before room teardown, but leave
         // ChangeNotifier and ChatUiController alive until the host's UI
@@ -438,7 +441,21 @@ class RealtimeRoomUiController extends ChangeNotifier {
         // subscribes to a disposed notifier and triggers a red error screen.
         await _mediaSubscription?.cancel();
         await _failureSubscription?.cancel();
-        await room.dispose();
+        try {
+          await room.dispose();
+        } catch (error, stack) {
+          if (!remoteRoomClosed) rethrow;
+          // Once the authoritative backend has successfully ended the room,
+          // a local WebRTC/feature disposal error must not tell the host that
+          // the room is still active. The SDK already attempts all cleanup
+          // steps via Cleanup; keep details in the debug log instead.
+          assert(() {
+            debugPrint('[room/close] room closed on backend; '
+                'local cleanup reported: $error');
+            debugPrint('[room/close] $stack');
+            return true;
+          }());
+        }
       });
     } catch (_) {
       // End-room authorization or stopping a recording may fail before we

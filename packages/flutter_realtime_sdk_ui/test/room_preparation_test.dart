@@ -9,6 +9,41 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/meeting_sharing_fixture.dart';
 
 void main() {
+  test('room entry prepares the selected effect only once', () async {
+    final room = _Room();
+    addTearDown(room.dispose);
+    await prepareRoomPage(
+      room,
+      const MediaLocalPreviewSettings(cameraEnabled: false),
+      isCurrent: () => true,
+    );
+    expect(room.preparedCameraChoices, [false]);
+    expect(
+      room.effectSelections,
+      0,
+      reason: 'room.prepareVideoEffects already applied the background, '
+          'so native/RTC source update must not run twice on entry',
+    );
+  });
+
+  test('room entry identifies native effect preparation errors', () async {
+    final room = _Room()
+      ..pending = Future<void>.error(StateError('The update failed.'));
+    addTearDown(room.dispose);
+    await expectLater(
+      prepareRoomPage(
+        room,
+        const MediaLocalPreviewSettings(cameraEnabled: false),
+        isCurrent: () => true,
+      ),
+      throwsA(
+        isA<RealtimeException>()
+            .having((error) => error.operation, 'operation',
+                'prepareVideoEffects'),
+      ),
+    );
+  });
+
   for (final live in [false, true]) {
     testWidgets(
       '${live ? 'live' : 'meeting'} preparation times out visibly and retry succeeds without late camera enable',

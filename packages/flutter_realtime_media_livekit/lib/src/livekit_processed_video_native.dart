@@ -9,6 +9,31 @@ import 'package:livekit_client/livekit_client.dart' as lk;
 const _channel = MethodChannel(
   'flutter_realtime_media_livekit/processed_video',
 );
+
+/// Validate the native Flutter WebRTC descriptor before passing it to
+/// MediaStreamNative.fromMap, which uses non-nullable String fields and
+/// otherwise throws an unhelpful "Null is not a subtype of String".
+Map<String, dynamic> checkedProcessedLiveKitStreamDescriptor(
+  Map<String, dynamic>? map,
+) {
+  if (map == null) {
+    throw StateError('The processed-video plugin did not create a stream.');
+  }
+  if (map['streamId'] is! String ||
+      (map['streamId'] as String).isEmpty ||
+      map['ownerTag'] is! String ||
+      (map['ownerTag'] as String).isEmpty ||
+      map['audioTracks'] is! List ||
+      map['videoTracks'] is! List ||
+      (map['videoTracks'] as List).length != 1) {
+    throw StateError(
+      'The processed-video plugin returned an invalid WebRTC stream '
+      'descriptor (streamId, ownerTag, or videoTracks missing).',
+    );
+  }
+  return map;
+}
+
 Future<lk.LocalVideoTrack> createProcessedLiveKitTrack(
   ProcessedVideoSource source, {
   bool screenShare = false,
@@ -16,8 +41,9 @@ Future<lk.LocalVideoTrack> createProcessedLiveKitTrack(
   final map = await _channel.invokeMapMethod<String, dynamic>('create', {
     'sourceId': source.id,
   });
-  if (map == null) throw StateError('No WebRTC track was created.');
-  final stream = MediaStreamNative.fromMap(map);
+  final stream = MediaStreamNative.fromMap(
+    checkedProcessedLiveKitStreamDescriptor(map),
+  );
   // Externally supplied tracks must not invoke camera capture.
   // ignore: invalid_use_of_internal_member
   return lk.LocalVideoTrack(

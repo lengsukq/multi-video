@@ -28,6 +28,7 @@ class RealtimeLeaveButton extends StatelessWidget {
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
+        final strings = RealtimeStrings.of(context);
         final leaveAction = controller.isPending(RealtimeRoomUiAction.leave)
             ? null
             : () async {
@@ -39,15 +40,23 @@ class RealtimeLeaveButton extends StatelessWidget {
                 try {
                   await controller.leave(closeForEveryone: closeForEveryone);
                   if (context.mounted) onLeft?.call();
-                } catch (error) {
+                } catch (error, stack) {
+                  assert(() {
+                    debugPrint('[realtime/leave] failed: $error');
+                    debugPrint('[realtime/leave] $stack');
+                    return true;
+                  }());
                   if (context.mounted) {
                     ScaffoldMessenger.maybeOf(
                       context,
-                    )?.showSnackBar(SnackBar(content: Text('$error')));
+                    )?.showSnackBar(
+                      SnackBar(
+                        content: Text(strings.displayRealtimeError(error)),
+                      ),
+                    );
                   }
                 }
               };
-        final strings = RealtimeStrings.of(context);
         final media = controller.room.media;
         final label = media.isLogicalOwner
             ? (media.backendMetadata['roomMode'] == 'broadcast'

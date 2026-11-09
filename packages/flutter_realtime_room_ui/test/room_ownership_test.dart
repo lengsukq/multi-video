@@ -6,6 +6,52 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'remote close success is not reported as failure after local WebRTC cleanup error',
+    () async {
+      final media = _FakeMediaSession(role: MediaRole.host)
+        ..failDispose = true;
+      final management = _FakeRoomManagement();
+      final room = RealtimeRoom(
+        media: MediaRoomSession.attach(
+          roomCode: 'completed-room',
+          participantId: 'creator',
+          session: media,
+          management: management,
+          presence: _FakeRoomPresence(),
+          heartbeatInterval: Duration.zero,
+        ),
+        renderer: const _FakeRenderer(),
+        disposeClients: () {},
+      );
+      final controller = RealtimeRoomUiController(room);
+      await controller.leave();
+      expect(management.closeCalls, 1);
+      expect(media.disposeCalls, 1);
+      await controller.close();
+    },
+  );
+
+  test(
+    'local cleanup error still propagates when no backend close occurred',
+    () async {
+      final media = _FakeMediaSession(role: MediaRole.participant)
+        ..failDispose = true;
+      final room = RealtimeRoom(
+        media: MediaRoomSession.direct(
+          roomCode: 'participant-room',
+          participantId: 'viewer',
+          session: media,
+        ),
+        renderer: const _FakeRenderer(),
+        disposeClients: () {},
+      );
+      final controller = RealtimeRoomUiController(room);
+      await expectLater(controller.leave(closeForEveryone: false),
+          throwsA(isA<RealtimeException>()));
+      await controller.close();
+    },
+  );
+  test(
     'meeting owner exit closes the room even with participant media role',
     () async {
       for (final role in [MediaRole.participant, MediaRole.host]) {
@@ -519,6 +565,7 @@ class _FakeMediaSession extends InteractiveMediaSession {
     ],
   );
   bool failMute = false;
+  bool failDispose = false;
   int muteCalls = 0;
   int cameraCalls = 0;
   final cameraPositions = <MediaCameraPosition>[];
@@ -557,6 +604,7 @@ class _FakeMediaSession extends InteractiveMediaSession {
     await _snapshots.close();
     await _states.close();
     await _events.close();
+    if (failDispose) throw StateError('simulated native WebRTC disposal error');
   }
 
   @override

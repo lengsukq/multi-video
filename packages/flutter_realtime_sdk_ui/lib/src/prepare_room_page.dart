@@ -61,7 +61,20 @@ Future<void> prepareRoomPage(
   if (settings == null || room.media.role == MediaRole.viewer) return;
   // Preparation must not publish on its own: a timed-out operation can still
   // finish later. Only the current settings application may enable the camera.
-  await room.prepareVideoEffects(settings.copyWith(cameraEnabled: false));
+  try {
+    await room.prepareVideoEffects(settings.copyWith(cameraEnabled: false));
+  } catch (error, stack) {
+    Error.throwWithStackTrace(
+      normalizeRealtimeException(
+        error,
+        domain: 'roomPage',
+        operation: 'prepareVideoEffects',
+        providerId: room.providerId,
+        stackTrace: stack,
+      ),
+      stack,
+    );
+  }
   if (!isCurrent()) return;
   await InitialMediaSettingsController().apply(
     session: room.media.session,
@@ -72,6 +85,7 @@ Future<void> prepareRoomPage(
       }
     },
     settings: settings,
+    backgroundAlreadyPrepared: true,
     isCurrent: isCurrent,
     canEnableMicrophone: () {
       final classroom = room.classroom;

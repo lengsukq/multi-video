@@ -1,5 +1,6 @@
 import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
 import 'dart:async';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 import 'package:flutter_realtime_video_effects/flutter_realtime_video_effects.dart';
 
@@ -85,7 +86,10 @@ class RoomVideoEffectsController
 
   @override
   Future<void> prepareVideoEffects(MediaLocalPreviewSettings settings) =>
-      _serializeVideoOperation(() => _prepareVideoEffects(settings));
+      _serializeVideoOperation(
+        () => _prepareVideoEffects(settings),
+        operation: 'prepareVideoEffects',
+      );
 
   @override
   Future<void> setCameraEnabled(bool enabled) =>
@@ -137,7 +141,7 @@ class RoomVideoEffectsController
           }
           rethrow;
         }
-      });
+      }, operation: enabled ? 'enableCamera' : 'disableCamera');
 
   Future<void> _prepareVideoEffects(MediaLocalPreviewSettings settings) async {
     final active = media.session;
@@ -290,11 +294,18 @@ class RoomVideoEffectsController
     providerId: media.providerId,
   );
 
-  Future<void> _serializeVideoOperation(Future<void> Function() action) {
-    final operation = _videoOperation.then((_) async {
+  Future<void> _serializeVideoOperation(
+    Future<void> Function() action, {
+    String operation = 'update',
+  }) {
+    final pending = _videoOperation.then((_) async {
       try {
         await action();
       } on MissingPluginException catch (error) {
+        assert(() {
+          debugPrint('[videoEffects/$operation] missing plugin: $error');
+          return true;
+        }());
         throw RealtimeException(
           code: RealtimeErrorCode.unsupportedFeature,
           providerId: providerId,
@@ -302,6 +313,11 @@ class RoomVideoEffectsController
           details: error,
         );
       } on PlatformException catch (error) {
+        assert(() {
+          debugPrint('[videoEffects/$operation] native error '
+              'code=${error.code} message=${error.message}');
+          return true;
+        }());
         final code = error.code.toLowerCase();
         throw RealtimeException(
           code: _isUnavailableBridge(error)
@@ -312,15 +328,22 @@ class RoomVideoEffectsController
               ? RealtimeErrorCode.permissionDenied
               : RealtimeErrorCode.providerError,
           providerId: providerId,
+          domain: 'videoEffects',
+          operation: operation,
           message: error.message ?? 'Video processing failed.',
           details: error,
         );
       } catch (error, stack) {
+        assert(() {
+          debugPrint('[videoEffects/$operation] ${error.runtimeType}: $error');
+          debugPrint('[videoEffects/$operation] $stack');
+          return true;
+        }());
         Error.throwWithStackTrace(
           normalizeRealtimeException(
             error,
             domain: 'videoEffects',
-            operation: 'update',
+            operation: operation,
             providerId: providerId,
             stackTrace: stack,
           ),
@@ -328,11 +351,11 @@ class RoomVideoEffectsController
         );
       }
     });
-    _videoOperation = operation.then<void>(
+    _videoOperation = pending.then<void>(
       (_) {},
       onError: (Object error, StackTrace stack) {},
     );
-    return operation;
+    return pending;
   }
 
   @override
@@ -348,7 +371,7 @@ class RoomVideoEffectsController
           return;
         }
         await media.setBackgroundEffect(effect);
-      });
+      }, operation: 'setBackgroundEffect');
 
   Future<void> _disposeProcessedVideoSource() async {
     final source = _processedVideoSource;
@@ -370,7 +393,10 @@ class RoomVideoEffectsController
 
   @override
   Future<void> release() =>
-      _serializeVideoOperation(_disposeProcessedVideoSource);
+      _serializeVideoOperation(
+        _disposeProcessedVideoSource,
+        operation: 'releaseSource',
+      );
 
   /// Invalidate in-flight creation synchronously when the owning room starts
   /// disposal. Room cleanup may first await recording/annotation resources,

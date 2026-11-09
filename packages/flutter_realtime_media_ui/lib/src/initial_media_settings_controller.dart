@@ -7,6 +7,9 @@ class InitialMediaSettingsController {
     required MediaBackgroundEffectsController effects,
     Future<void> Function(bool enabled)? setCameraEnabled,
     required MediaLocalPreviewSettings settings,
+    // Used after room.prepareVideoEffects: do not send a second provider
+    // background update while an RTC processed track is being attached.
+    bool backgroundAlreadyPrepared = false,
     required bool Function() isCurrent,
     required bool Function() canEnableMicrophone,
     required void Function(RealtimeException) onError,
@@ -38,27 +41,31 @@ class InitialMediaSettingsController {
     }
     if (!isCurrent()) return;
     var allowVideo = true;
-    try {
-      await effects.setBackgroundEffect(settings.backgroundEffect);
-    } catch (error, stack) {
-      allowVideo = !settings.backgroundEffect.enabled;
-      if (isCurrent()) {
-        onError(
-          normalizeRealtimeException(
-            error,
-            domain: 'videoEffects',
-            operation: 'setBackgroundEffect',
-            stackTrace: stack,
-          ),
-        );
+    if (!backgroundAlreadyPrepared) {
+      try {
+        await effects.setBackgroundEffect(settings.backgroundEffect);
+      } catch (error, stack) {
+        allowVideo = !settings.backgroundEffect.enabled;
+        if (isCurrent()) {
+          onError(
+            normalizeRealtimeException(
+              error,
+              domain: 'videoEffects',
+              operation: 'setBackgroundEffect',
+              stackTrace: stack,
+            ),
+          );
+        }
       }
     }
     if (!isCurrent() || session is! InteractiveMediaSession) return;
+    var stage = 'initialSettings.setMuted';
     try {
       await session.setMuted(
         !settings.microphoneEnabled || !canEnableMicrophone(),
       );
       if (!isCurrent()) return;
+      stage = 'initialSettings.setVideoEnabled';
       await (setCameraEnabled ?? session.setVideoEnabled)(
         settings.cameraEnabled && allowVideo,
       );
@@ -68,7 +75,7 @@ class InitialMediaSettingsController {
           normalizeRealtimeException(
             error,
             domain: 'media',
-            operation: 'initialSettings',
+            operation: stage,
             stackTrace: stack,
           ),
         );
