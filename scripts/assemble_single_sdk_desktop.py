@@ -116,7 +116,16 @@ void FlutterRealtimeSdkPluginCApiRegisterWithRegistrar(FlutterDesktopPluginRegis
         '  "${CMAKE_CURRENT_SOURCE_DIR}/processed_video/include"\n'
         ')\n'
         'target_link_libraries(${PLUGIN_NAME} PRIVATE '
-        'mfplat mfreadwrite mf mfuuid windowscodecs ole32)\n'
+        'mfplat mfreadwrite mf mfuuid windowscodecs ole32 '
+        'd3d11 d3dcompiler dxgi)\n'
+        '# Keep Windows background effects responsive in Flutter Debug, and '
+        'tolerate Media Foundation C4245 in recent MSVC.\n'
+        'if(MSVC)\n'
+        '  string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")\n'
+        '  string(REPLACE "/Od" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")\n'
+        '  target_compile_options(${PLUGIN_NAME} PRIVATE '
+        '"$<$<CONFIG:Debug>:/O2>" /wd4245)\n'
+        'endif()\n'
         # The Agora Windows Flutter plugin downloads pinned native SDK
         # headers during its CMake configure step; this module compiles only
         # after that dependency has been added.
@@ -134,8 +143,12 @@ void FlutterRealtimeSdkPluginCApiRegisterWithRegistrar(FlutterDesktopPluginRegis
         'target_include_directories(${PLUGIN_NAME} PRIVATE "${AGORA_NATIVE_INCLUDE}" "${TRTC_WINDOWS}/include")\n'
         'include("${CMAKE_CURRENT_SOURCE_DIR}/effects/onnxruntime.cmake")\n'
         'realtime_effects_configure_ort(${PLUGIN_NAME})\n'
+        'if(REALTIME_EFFECTS_ORT_BUNDLED_PROVIDER_DLL)\n'
+        '  target_sources(${PLUGIN_NAME} PRIVATE "effects/directml_provider.cpp")\n'
+        'endif()\n'
         'set(flutter_realtime_sdk_bundled_libraries\n'
         '  "${REALTIME_EFFECTS_ORT_BUNDLED_DLL}"\n'
+        '  "${REALTIME_EFFECTS_ORT_BUNDLED_PROVIDER_DLL}"\n'
         '  "${REALTIME_EFFECTS_ORT_BUNDLED_LICENSE}" PARENT_SCOPE)\n'
     )
     cmake.write_text(source)

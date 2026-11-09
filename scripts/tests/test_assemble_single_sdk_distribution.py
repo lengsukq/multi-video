@@ -292,6 +292,16 @@ class SingleSdkDistributionTest(unittest.TestCase):
         windows_cmake = (self.root / "windows/CMakeLists.txt").read_text()
         self.assertIn("effects/flutter_realtime_video_effects_plugin.cpp", windows_cmake)
         self.assertIn("realtime_effects_configure_ort", windows_cmake)
+        self.assertIn("d3d11 d3dcompiler dxgi", windows_cmake)
+        self.assertIn("effects/directml_provider.cpp", windows_cmake)
+        self.assertIn("REALTIME_EFFECTS_ORT_BUNDLED_PROVIDER_DLL", windows_cmake)
+        self.assertIn("$<$<CONFIG:Debug>:/O2>", windows_cmake)
+        self.assertTrue(
+            (self.root / "windows/effects/d3d11_video_compositor.h").is_file()
+        )
+        self.assertTrue(
+            (self.root / "windows/effects/d3d11_compositor_shaders.h").is_file()
+        )
         ort_setup = (self.root / "windows/effects/onnxruntime.cmake").read_text()
         self.assertIn("REALTIME_ONNXRUNTIME_ROOT", ort_setup)
         self.assertIn("EXPECTED_HASH", ort_setup)

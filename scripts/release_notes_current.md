@@ -1,4 +1,13 @@
-## 0.1.0-dev.27
+## 0.1.0-dev.28
+
+- Synchronize the Windows native LiveKit processed video track bridge with Flutter WebRTC's required stream descriptor fields, including ownerTag, and validate descriptors before publication.
+- Add a D3D11 GPU compositor for Windows virtual backgrounds, with low/medium/high separable multi-pass blur, native person mask composition, replacement images, and dynamic CPU fallback.
+- Add optional SHA-256-pinned ONNX Runtime DirectML acceleration and preserve its runtime/provider DLLs in the bundled Windows SDK.
+- Improve Windows camera capture and processed frame pooling to reduce callback contention and allocations, with native smoke tests and a real-camera performance probe.
+- Prevent duplicate video-effects initialization during room entry, improve effect operation diagnostics, and avoid reporting an already-closed room as active when local teardown fails.
+- Add backend room-closure diagnostics and retry/ownership regression tests (backend implementation is separately deployed; this SDK package does not contain the demo server).
+- Update the one-package Windows assembler to link D3D11/D3DCompiler/DXGI, include the optional DirectML provider and DLL, and retain Windows Debug/native compiler settings.
+- Windows functional end-to-end tests, other platform real-device regressions, and vendor binary redistribution/license review remain pending; do not treat source and synthetic tests as cross-vendor certification.
 
 - Make the meeting creator or livestream host end the room for everyone when leaving; ordinary participants and viewers leave only themselves, with one confirmation instead of a leave-mode selector.
 - Resolve ownership by the logical room owner credential or host role, including meetings where the creator has participant-level media permissions; preserve the room and surface an error if closure fails.
