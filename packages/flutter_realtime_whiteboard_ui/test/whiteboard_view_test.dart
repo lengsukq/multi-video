@@ -53,90 +53,89 @@ void main() {
     },
   );
 
-  testWidgets(
-    'mobile pinch gestures only pan and never zoom or leave ink',
-    (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(390, 760);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(tester.view.resetPhysicalSize);
-      final session = WhiteboardSession.local();
-      await session.start();
-      addTearDown(session.dispose);
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(body: WhiteboardView(session: session)),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final surface = find.byType(AnnotationSurface);
-      final rect = tester.getRect(surface);
-      final transform = tester
-          .widget<AnnotationSurface>(surface)
-          .transformationController!;
-      final origin = rect.center - rect.topLeft;
-      final initialScene = transform.toScene(origin);
+  testWidgets('mobile pinch gestures only pan and never zoom or leave ink', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 760);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final session = WhiteboardSession.local();
+    await session.start();
+    addTearDown(session.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: WhiteboardView(session: session)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final surface = find.byType(AnnotationSurface);
+    final rect = tester.getRect(surface);
+    final transform = tester
+        .widget<AnnotationSurface>(surface)
+        .transformationController!;
+    final origin = rect.center - rect.topLeft;
+    final initialScene = transform.toScene(origin);
 
-      final first = await tester.startGesture(
-        rect.center + const Offset(-40, 0),
-        pointer: 31,
-      );
-      final second = await tester.startGesture(
-        rect.center + const Offset(40, 0),
-        pointer: 32,
-      );
-      await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
+    final first = await tester.startGesture(
+      rect.center + const Offset(-40, 0),
+      pointer: 31,
+    );
+    final second = await tester.startGesture(
+      rect.center + const Offset(40, 0),
+      pointer: 32,
+    );
+    await tester.pump();
+    expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
 
-      // Move one finger at a time as iOS delivers touch events. Both fingers
-      // eventually return to their starting positions, so zoom and the world
-      // point at the viewport center must return exactly to their origin.
-      await first.moveBy(const Offset(-40, 0));
-      await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
-      await second.moveBy(const Offset(40, 0));
-      await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
+    // Move one finger at a time as iOS delivers touch events. Both fingers
+    // eventually return to their starting positions, so zoom and the world
+    // point at the viewport center must return exactly to their origin.
+    await first.moveBy(const Offset(-40, 0));
+    await tester.pump();
+    expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
+    await second.moveBy(const Offset(40, 0));
+    await tester.pump();
+    expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
 
-      await first.moveBy(const Offset(40, 0));
-      await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
-      await second.moveBy(const Offset(-40, 0));
-      await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .01));
-      expect(transform.toScene(origin).dx, closeTo(initialScene.dx, .01));
-      expect(transform.toScene(origin).dy, closeTo(initialScene.dy, .01));
+    await first.moveBy(const Offset(40, 0));
+    await tester.pump();
+    expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
+    await second.moveBy(const Offset(-40, 0));
+    await tester.pump();
+    expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .01));
+    expect(transform.toScene(origin).dx, closeTo(initialScene.dx, .01));
+    expect(transform.toScene(origin).dy, closeTo(initialScene.dy, .01));
 
-      // A third finger replaces the first one. Its down event must only
-      // rebase the pinch, not move the board, and the remaining finger must
-      // not start drawing when the first is lifted.
-      await first.up();
-      await tester.pump();
-      await second.moveBy(const Offset(15, 0));
-      await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .01));
-      final beforeReplacement = transform.value.clone();
-      final third = await tester.startGesture(
-        rect.center + const Offset(-40, 0),
-        pointer: 33,
-      );
-      await tester.pump();
-      expect(transform.value.storage, orderedEquals(beforeReplacement.storage));
+    // A third finger replaces the first one. Its down event must only
+    // rebase the pinch, not move the board, and the remaining finger must
+    // not start drawing when the first is lifted.
+    await first.up();
+    await tester.pump();
+    await second.moveBy(const Offset(15, 0));
+    await tester.pump();
+    expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .01));
+    final beforeReplacement = transform.value.clone();
+    final third = await tester.startGesture(
+      rect.center + const Offset(-40, 0),
+      pointer: 33,
+    );
+    await tester.pump();
+    expect(transform.value.storage, orderedEquals(beforeReplacement.storage));
 
-      await third.moveBy(const Offset(-25, 0));
-      await tester.pump();
-      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
-      await second.up();
-      await third.up();
-      await tester.pumpAndSettle();
-      expect(session.canvas.shapes, isEmpty);
+    await third.moveBy(const Offset(-25, 0));
+    await tester.pump();
+    expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
+    await second.up();
+    await third.up();
+    await tester.pumpAndSettle();
+    expect(session.canvas.shapes, isEmpty);
 
-      // Subsequent independent one-finger drawing is still permitted.
-      await tester.dragFrom(rect.center, const Offset(25, 15));
-      await tester.pumpAndSettle();
-      expect(session.canvas.shapes, hasLength(1));
-    },
-  );
+    // Subsequent independent one-finger drawing is still permitted.
+    await tester.dragFrom(rect.center, const Offset(25, 15));
+    await tester.pumpAndSettle();
+    expect(session.canvas.shapes, hasLength(1));
+  });
 
   testWidgets(
     'eraser deletes real ink, undo restores it without covering ink',
@@ -485,6 +484,98 @@ void main() {
       expect(session.canvas.shapes, isEmpty);
       await tester.pumpWidget(const SizedBox());
       await tester.runAsync(session.dispose);
+    },
+  );
+  testWidgets(
+    'mobile viewer stays at 25 percent after touching and panning shared board',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 760);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final session = WhiteboardSession.local(canEdit: false);
+      await session.start();
+      addTearDown(session.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: WhiteboardView(session: session)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final surface = find.byType(AnnotationSurface);
+      final transform = tester
+          .widget<AnnotationSurface>(surface)
+          .transformationController!;
+      double scale() => transform.value.entry(0, 0);
+
+      for (var i = 0; i < 3; i++) {
+        await tester.tap(find.byTooltip('Zoom out'));
+        await tester.pumpAndSettle();
+      }
+      expect(scale(), closeTo(0.25, .001));
+      expect(
+        tester
+            .widget<IconButton>(
+              find
+                  .ancestor(
+                    of: find.byTooltip('Zoom out'),
+                    matching: find.byType(IconButton),
+                  )
+                  .first,
+            )
+            .onPressed,
+        isNull,
+      );
+
+      final rect = tester.getRect(surface);
+      final localCenter = rect.center - rect.topLeft;
+      final before = transform.toScene(localCenter);
+      await tester.tapAt(rect.center);
+      await tester.pumpAndSettle();
+      expect(scale(), closeTo(0.25, .001));
+      await tester.dragFrom(rect.center, const Offset(40, 20));
+      await tester.pumpAndSettle();
+      expect(scale(), closeTo(0.25, .001));
+      expect(transform.toScene(localCenter).dx, lessThan(before.dx));
+
+      final first = await tester.startGesture(
+        rect.center + const Offset(-40, 0),
+        pointer: 71,
+      );
+      final second = await tester.startGesture(
+        rect.center + const Offset(40, 0),
+        pointer: 72,
+      );
+      await tester.pump();
+      await first.moveBy(const Offset(-15, 25));
+      await second.moveBy(const Offset(15, 25));
+      await tester.pump();
+      expect(scale(), closeTo(0.25, .001));
+      await first.up();
+      await second.up();
+      await tester.pumpAndSettle();
+
+      // A viewport change must preserve the actual zoom, not the Z-axis
+      // scale of the 4x4 transform (which remains 1.0).
+      tester.view.physicalSize = const Size(430, 760);
+      await tester.pumpAndSettle();
+      expect(scale(), closeTo(0.25, .001));
+      await tester.tap(find.byTooltip('Zoom in'));
+      await tester.pumpAndSettle();
+      expect(scale(), closeTo(0.50, .001));
+      expect(
+        tester
+            .widget<IconButton>(
+              find
+                  .ancestor(
+                    of: find.byTooltip('Zoom out'),
+                    matching: find.byType(IconButton),
+                  )
+                  .first,
+            )
+            .onPressed,
+        isNotNull,
+      );
     },
   );
   testWidgets(

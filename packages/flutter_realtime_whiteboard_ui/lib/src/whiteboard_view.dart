@@ -5,6 +5,7 @@ import 'package:flutter_realtime_whiteboard_core/flutter_realtime_whiteboard_cor
 import 'annotation_surface.dart';
 import 'color_picker_dialog.dart';
 import 'whiteboard_strings.dart';
+import 'whiteboard_viewport_scale.dart';
 
 const _quickPenColors = <int>[0xff1f2a3c, 0xff2563eb, 0xffd93a3f, 0xfff5c518];
 
@@ -168,7 +169,7 @@ class _WhiteboardViewState extends State<WhiteboardView> {
         // Window rotations/resizes keep the viewed world point centered.
         final previousCenter = Offset(previous.width / 2, previous.height / 2);
         final scene = _transform.toScene(previousCenter);
-        final scale = _transform.value.getMaxScaleOnAxis();
+        final scale = whiteboardViewportScale(_transform.value);
         final nextCenter = Offset(size.width / 2, size.height / 2);
         final translation = nextCenter - scene * scale;
         _transform.value = Matrix4.identity()

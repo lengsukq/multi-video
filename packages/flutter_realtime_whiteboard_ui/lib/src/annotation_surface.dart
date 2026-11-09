@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_realtime_design_ui/flutter_realtime_design_ui.dart';
 import 'package:flutter_realtime_whiteboard_core/flutter_realtime_whiteboard_core.dart';
@@ -8,6 +9,7 @@ import 'whiteboard_strings.dart';
 import 'movable_annotation_toolbar.dart';
 import 'annotation_toolbar.dart';
 import 'annotation_hit_test.dart';
+import 'whiteboard_viewport_scale.dart';
 
 enum AnnotationToolbarPlacement { floating, fixedTop, none }
 
@@ -114,7 +116,7 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
     final anchor = _mobilePanAnchorScene;
     if (anchor == null || _pointerPositions.length < 2) return;
     final center = _pointerCentroid();
-    final scale = _transform.value.getMaxScaleOnAxis();
+    final scale = whiteboardViewportScale(_transform.value);
     final translation = center - anchor * scale;
     _transform.value = Matrix4.identity()
       ..translateByDouble(translation.dx, translation.dy, 0, 1)
@@ -133,7 +135,7 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
       canvas.shapes.where((shape) => !_pendingErasures.contains(shape.id)),
       _transform.toScene(offset),
       size,
-      radius: 14 / _transform.value.getMaxScaleOnAxis(),
+      radius: 14 / whiteboardViewportScale(_transform.value),
       fontFamily: RealtimeFonts.bodyOf(context),
     );
     if (target == null) return;
@@ -165,7 +167,7 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
       _previousFocal = focal;
       return;
     }
-    final current = _transform.value.getMaxScaleOnAxis();
+    final current = whiteboardViewportScale(_transform.value);
     final anchor = _transform.toScene(previous);
     final offset = focal - anchor * current;
     _transform.value = Matrix4.identity()
@@ -192,7 +194,7 @@ class _AnnotationSurfaceState extends State<AnnotationSurface> {
     }
     final (center, radius) = _pinchGeometry();
     _pinchAnchorScene = _transform.toScene(center);
-    _pinchStartScale = _transform.value.getMaxScaleOnAxis();
+    _pinchStartScale = whiteboardViewportScale(_transform.value);
     _pinchStartRadius = radius;
   }
 
@@ -805,7 +807,7 @@ class _InfiniteWhiteboardPainter extends CustomPainter {
     const step = 80.0;
     final grid = Paint()
       ..color = const Color(0xFFEAF0F7)
-      ..strokeWidth = 1 / transform.value.getMaxScaleOnAxis();
+      ..strokeWidth = 1 / whiteboardViewportScale(transform.value);
     final left = math.min(a.dx, b.dx);
     final right = math.max(a.dx, b.dx);
     final top = math.min(a.dy, b.dy);
