@@ -35,6 +35,48 @@ int main(int argc, char** argv) {
     for (auto n : outputShape) std::cout << ' ' << n;
     std::cout << '\n';
 
+    // Verify whether the deployed model already returns Softmax probabilities
+    // rather than logits. Applying Softmax a second time will wash out the
+    // person alpha, blurring even fully recognized foreground pixels.
+    float expected_foreground = -1.0f;
+    {
+      constexpr std::size_t plane = 192 * 192;
+      std::vector<float> input(plane * 3, (127.0f / 255.0f - .5f) / .5f);
+      const std::array<int64_t, 4> input_dims{1, 3, 192, 192};
+      auto memory = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+      auto tensor = Ort::Value::CreateTensor<float>(
+          memory, input.data(), input.size(), input_dims.data(), input_dims.size());
+      Ort::AllocatorWithDefaultOptions allocator;
+      auto input_name = model.GetInputNameAllocated(0, allocator);
+      auto output_name = model.GetOutputNameAllocated(0, allocator);
+      const char* names_in[]{input_name.get()};
+      const char* names_out[]{output_name.get()};
+      auto output = model.Run(Ort::RunOptions{nullptr}, names_in, &tensor,
+                              1, names_out, 1);
+      if (output.size() == 1 && output[0].IsTensor()) {
+        const auto* values = output[0].GetTensorData<float>();
+        const auto shape = output[0].GetTensorTypeAndShapeInfo().GetShape();
+        if (shape.size() == 4 && shape[1] == 2 &&
+            shape[2] == 192 && shape[3] == 192) {
+          float min_bg = 2, max_bg = -2, min_fg = 2, max_fg = -2;
+          double sum_error = 0;
+          for (std::size_t i = 0; i < plane; ++i) {
+            min_bg = std::min(min_bg, values[i]);
+            max_bg = std::max(max_bg, values[i]);
+            min_fg = std::min(min_fg, values[plane + i]);
+            max_fg = std::max(max_fg, values[plane + i]);
+            sum_error += std::abs(values[i] + values[plane + i] - 1.0f);
+          }
+          std::cout << "raw channels: bg=[" << min_bg << ',' << max_bg
+                    << "] fg=[" << min_fg << ',' << max_fg
+                    << "] avg_sum_error=" << sum_error / plane
+                    << " first bg=" << values[0]
+                    << " fg=" << values[plane] << '\n';
+          expected_foreground = values[plane];
+        }
+      }
+    }
+
     realtime_video_effects::PersonSegmenter segmenter;
     if (!segmenter.Open(wide)) {
       std::cerr << "Model could not be opened by PersonSegmenter\n";
@@ -53,6 +95,12 @@ int main(int argc, char** argv) {
     }
     std::cout << "Segmentation OK: " << mask.width << 'x' << mask.height
               << " alpha=" << mask.alpha[0] << '\n';
+    if (expected_foreground < 0 ||
+        std::abs(mask.alpha[0] - expected_foreground) > 0.0001f) {
+      std::cerr << "Regression: person alpha differs from model Softmax foreground"
+                << " (possible duplicate Softmax)\n";
+      return 7;
+    }
     if (argc == 3) {
       std::atomic<int> composed{0};
       std::atomic<int> capture_failed{0};

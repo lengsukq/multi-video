@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
@@ -17,6 +18,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -24,9 +26,11 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 
+#include "d3d11_video_compositor.h"
 #include "mf_camera_capture.h"
 #include "pphumanseg_inference.h"
 #include "processed_video_frame_api.h"
+#include "video_effects_pixel_pool.h"
 
 namespace {
 using Value = flutter::EncodableValue;
@@ -216,7 +220,8 @@ class Source final : public std::enable_shared_from_this<Source> {
          std::string id, std::wstring camera, BackgroundSettings settings,
          int fps, FailureCallback on_failure)
       : textures_(textures), hub_(hub), id_(std::move(id)),
-        camera_id_(std::move(camera)), settings_(std::move(settings)),
+        camera_id_(std::move(camera)),
+        settings_(std::make_shared<BackgroundSettings>(std::move(settings))),
         frame_rate_(fps), on_failure_(std::move(on_failure)) {
     texture_ = std::make_unique<flutter::TextureVariant>(
         flutter::PixelBufferTexture([this](size_t, size_t)
@@ -235,12 +240,13 @@ class Source final : public std::enable_shared_from_this<Source> {
           return &holder->buffer;
         }));
     texture_id_ = textures_->RegisterTexture(texture_.get());
-    hub_->Activate(id_, settings_.mode != BackgroundMode::none);
+    hub_->Activate(id_, settings_->mode != BackgroundMode::none);
   }
 
   ~Source() {
     if (!disposed_.load()) {
       capture_.Stop();
+      StopWorkers();
       hub_->Clear(id_);
       if (texture_id_ >= 0) textures_->UnregisterTexture(texture_id_);
     }
@@ -251,6 +257,7 @@ class Source final : public std::enable_shared_from_this<Source> {
     if (disposed_.exchange(true)) return;
     enabled_.store(false);
     capture_.Stop();
+    StopWorkers();
     hub_->Clear(id_);
     {
       std::lock_guard<std::mutex> guard(lock_);
@@ -267,17 +274,26 @@ class Source final : public std::enable_shared_from_this<Source> {
 
   bool Start(const std::filesystem::path& model) {
     if (texture_id_ < 0 || !segmenter_.Open(model.wstring())) return false;
+    // The camera reader must not wait for inference or video publication.
+    inference_worker_ = std::thread([this] { InferenceLoop(); });
+    composition_worker_ = std::thread([this] { CompositionLoop(); });
     RestartCapture();
     return true;
   }
 
   bool SetEffect(BackgroundSettings settings) {
     const auto previously_failed = failed_.exchange(false);
+    const bool release_gpu = settings.mode == BackgroundMode::none;
     {
       std::lock_guard<std::mutex> guard(lock_);
-      settings_ = std::move(settings);
-      hub_->SetEffectRequired(id_, settings_.mode != BackgroundMode::none);
+      settings_ = std::make_shared<BackgroundSettings>(std::move(settings));
+      hub_->SetEffectRequired(id_, settings_->mode != BackgroundMode::none);
       preview_ = Frame{};
+    }
+    InvalidateFrames();
+    if (release_gpu) {
+      std::lock_guard<std::mutex> guard(compositor_mutex_);
+      gpu_compositor_.Release();
     }
     textures_->MarkTextureFrameAvailable(texture_id_);
     if (previously_failed && enabled_.load()) RestartCapture();
@@ -289,9 +305,16 @@ class Source final : public std::enable_shared_from_this<Source> {
     if (enabled && failed_.load()) return false;
     if (enabled == enabled_.load()) return true;
     enabled_.store(enabled);
-    if (enabled) RestartCapture();
-    else {
+    if (enabled) {
+      InvalidateFrames();
+      RestartCapture();
+    } else {
       capture_.Stop();
+      InvalidateFrames();
+      {
+        std::lock_guard<std::mutex> guard(compositor_mutex_);
+        gpu_compositor_.Release();
+      }
       {
         std::lock_guard<std::mutex> guard(lock_);
         preview_ = Frame{};
@@ -310,9 +333,9 @@ class Source final : public std::enable_shared_from_this<Source> {
     // newly attached device is the explicit recovery path: stop the old
     // worker first, reset the failure and throttle, then start the new one.
     capture_.Stop();
+    InvalidateFrames();
     camera_id_ = std::move(id);
     failed_.store(false);
-    last_processed_ = {};
     if (enabled_.load()) RestartCapture();
     return true;
   }
@@ -339,54 +362,180 @@ class Source final : public std::enable_shared_from_this<Source> {
     on_failure_(id_, reason);
   }
 
+  struct PendingFrame {
+    Frame frame;
+    std::uint64_t generation = 0;
+  };
+
+  void InvalidateFrames() {
+    // A different camera/effect must never reuse a previous person's mask.
+    generation_.fetch_add(1);
+    {
+      std::lock_guard<std::mutex> guard(queue_mutex_);
+      pending_composition_ = {};
+      pending_inference_ = {};
+    }
+    {
+      std::lock_guard<std::mutex> guard(mask_mutex_);
+      latest_mask_ = {};
+      mask_generation_ = 0;
+    }
+    composition_cv_.notify_one();
+    inference_cv_.notify_one();
+  }
+
+  void StopWorkers() {
+    {
+      std::lock_guard<std::mutex> guard(queue_mutex_);
+      stop_workers_ = true;
+      pending_composition_ = {};
+      pending_inference_ = {};
+    }
+    composition_cv_.notify_all();
+    inference_cv_.notify_all();
+    if (inference_worker_.joinable()) inference_worker_.join();
+    if (composition_worker_.joinable()) composition_worker_.join();
+  }
+
   void OnCameraFrame(const Frame& camera) {
-    if (!enabled_.load() || failed_.load()) return;
-    const auto now = std::chrono::steady_clock::now();
+    if (!enabled_.load() || failed_.load() || disposed_.load()) return;
+    // Shared immutable pixels: overwrite stale work without copying pixels.
+    {
+      std::lock_guard<std::mutex> guard(queue_mutex_);
+      if (stop_workers_) return;
+      const PendingFrame next{camera, generation_.load()};
+      pending_composition_ = next;
+      pending_inference_ = next;
+    }
+    composition_cv_.notify_one();
+    inference_cv_.notify_one();
+  }
+
+  void InferenceLoop() {
+    constexpr auto kInferenceInterval = std::chrono::milliseconds(83);
+    auto next_inference = std::chrono::steady_clock::time_point{};
+    while (true) {
+      PendingFrame item;
+      {
+        std::unique_lock<std::mutex> lock(queue_mutex_);
+        inference_cv_.wait(lock, [this] {
+          return stop_workers_ || pending_inference_.frame.IsValid();
+        });
+        if (stop_workers_) return;
+        if (next_inference != std::chrono::steady_clock::time_point{}) {
+          inference_cv_.wait_until(lock, next_inference,
+                                   [this] { return stop_workers_; });
+          if (stop_workers_) return;
+        }
+        item = std::move(pending_inference_);
+        pending_inference_ = {};
+      }
+      if (!item.frame.IsValid() || item.generation != generation_.load() ||
+          !enabled_.load() || failed_.load()) continue;
+      BackgroundMode mode;
+      {
+        std::lock_guard<std::mutex> guard(lock_);
+        mode = settings_->mode;
+      }
+      if (mode == BackgroundMode::none) continue;
+      PersonMask mask;
+      const bool ok = segmenter_.Infer(item.frame, &mask);
+      next_inference = std::chrono::steady_clock::now() + kInferenceInterval;
+      if (item.generation != generation_.load() || !enabled_.load() ||
+          disposed_.load()) continue;
+      if (!ok) {
+        Fail("videoEffects.segmentation.failed");
+        continue;
+      }
+      {
+        std::lock_guard<std::mutex> guard(mask_mutex_);
+        latest_mask_ = std::move(mask);
+        mask_generation_ = item.generation;
+      }
+    }
+  }
+
+  void CompositionLoop() {
     const auto interval = std::chrono::nanoseconds(
         1000000000LL / std::max(1, frame_rate_));
-    if (last_processed_ != std::chrono::steady_clock::time_point{} &&
-        now - last_processed_ < interval) return;
-    last_processed_ = now;
-    BackgroundSettings settings;
-    {
-      std::lock_guard<std::mutex> guard(lock_);
-      settings = settings_;
+    auto last_output = std::chrono::steady_clock::time_point{};
+    std::uint64_t last_generation = 0;
+    while (true) {
+      PendingFrame item;
+      {
+        std::unique_lock<std::mutex> lock(queue_mutex_);
+        composition_cv_.wait(lock, [this] {
+          return stop_workers_ || pending_composition_.frame.IsValid();
+        });
+        if (stop_workers_) return;
+        item = std::move(pending_composition_);
+        pending_composition_ = {};
+      }
+      if (!item.frame.IsValid() || item.generation != generation_.load() ||
+          !enabled_.load() || failed_.load()) continue;
+      if (item.generation != last_generation) {
+        last_generation = item.generation;
+        last_output = {};
+      }
+      const auto now = std::chrono::steady_clock::now();
+      if (last_output != std::chrono::steady_clock::time_point{} &&
+          now - last_output < interval) continue;
+      std::shared_ptr<const BackgroundSettings> settings;
+      {
+        std::lock_guard<std::mutex> guard(lock_);
+        settings = settings_;
+      }
+      PersonMask mask;
+      if (settings->mode != BackgroundMode::none) {
+        std::lock_guard<std::mutex> guard(mask_mutex_);
+        if (mask_generation_ != item.generation || !latest_mask_.Valid())
+          continue;  // Never publish an unsegmented background on failure.
+        mask = latest_mask_;
+      }
+      Frame result;
+      bool gpu_composed = false;
+      if (settings->mode != BackgroundMode::none) {
+        std::lock_guard<std::mutex> guard(compositor_mutex_);
+        gpu_composed = gpu_compositor_.Compose(
+            item.frame, mask, settings, &result);
+      }
+      if (!gpu_composed &&
+          !realtime_processed_video::Compose(item.frame, mask, *settings,
+                                             &result)) {
+        Fail("videoEffects.composite.failed");
+        continue;
+      }
+      if (item.generation != generation_.load() || !enabled_.load() ||
+          failed_.load() || disposed_.load()) continue;
+      if (!hub_->Publish(result)) continue;
+      auto preview_rgba =
+          realtime_video_effects::PreviewRgbaPooled(result, preview_buffers_);
+      if (!preview_rgba) {
+        Fail("videoEffects.preview.invalidFrame");
+        continue;
+      }
+      result.pixels = std::move(preview_rgba);
+      {
+        std::lock_guard<std::mutex> guard(lock_);
+        preview_ = std::move(result);
+      }
+      if (texture_id_ >= 0) textures_->MarkTextureFrameAvailable(texture_id_);
+      last_output = std::chrono::steady_clock::now();
     }
-    PersonMask mask;
-    if (settings.mode != BackgroundMode::none &&
-        !segmenter_.Infer(camera, &mask)) {
-      Fail("videoEffects.segmentation.failed");
-      return;
-    }
-    Frame result;
-    if (!realtime_processed_video::Compose(camera, mask, settings, &result)) {
-      Fail("videoEffects.composite.failed");
-      return;
-    }
-    // A concurrent none->blur switch can reject a stale raw frame. Ignore
-    // that obsolete frame rather than permanently disabling a healthy source.
-    if (!hub_->Publish(result)) return;
-    auto preview_rgba = realtime_processed_video::PreviewRgba(result);
-    if (!preview_rgba) {
-      Fail("videoEffects.preview.invalidFrame");
-      return;
-    }
-    result.pixels = std::move(preview_rgba);
-    {
-      std::lock_guard<std::mutex> guard(lock_);
-      preview_ = std::move(result);
-    }
-    textures_->MarkTextureFrameAvailable(texture_id_);
   }
 
   flutter::TextureRegistrar* textures_;
   FrameHub* hub_;
   const std::string id_;
   std::wstring camera_id_;
-  BackgroundSettings settings_;
+  // Image replacement bitmaps may be several MB: never copy them per frame.
+  std::shared_ptr<const BackgroundSettings> settings_;
   const int frame_rate_;
   FailureCallback on_failure_;
   realtime_video_effects::PersonSegmenter segmenter_;
+  realtime_video_effects::VideoPixelPool preview_buffers_;
+  realtime_video_effects::WindowsGpuCompositor gpu_compositor_;
+  std::mutex compositor_mutex_;
   realtime_video_effects::CameraCapture capture_;
   std::unique_ptr<flutter::TextureVariant> texture_;
   std::int64_t texture_id_ = -1;
@@ -395,7 +544,18 @@ class Source final : public std::enable_shared_from_this<Source> {
   std::atomic<bool> disposed_{false};
   std::mutex lock_;
   Frame preview_;
-  std::chrono::steady_clock::time_point last_processed_{};
+  std::atomic<std::uint64_t> generation_{1};
+  std::mutex queue_mutex_;
+  std::condition_variable composition_cv_;
+  std::condition_variable inference_cv_;
+  PendingFrame pending_composition_;
+  PendingFrame pending_inference_;
+  bool stop_workers_ = false;
+  std::thread inference_worker_;
+  std::thread composition_worker_;
+  std::mutex mask_mutex_;
+  PersonMask latest_mask_;
+  std::uint64_t mask_generation_ = 0;
 };
 
 class VideoEffectsPlugin final : public flutter::Plugin {

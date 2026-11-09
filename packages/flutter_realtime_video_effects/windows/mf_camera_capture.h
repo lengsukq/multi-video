@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -23,6 +24,7 @@
 #include <vector>
 
 #include "processed_video_frame_hub.h"
+#include "video_effects_pixel_pool.h"
 
 namespace realtime_video_effects {
 
@@ -73,7 +75,8 @@ inline std::vector<Camera> FindCameras() {
 }
 
 // Owns the Media Foundation SourceReader and camera on a single MTA thread.
-// RGB32 is treated as little-endian BGRA; IMF2DBuffer preserves signed stride.
+// Prefer native NV12 at >=24fps; avoid Media Foundation's slow legacy RGB32
+// video-processing path when possible. RGB32 is a compatibility fallback.
 class CameraCapture final {
  public:
   using Callback = std::function<void(const realtime_processed_video::Frame&)>;
@@ -141,21 +144,86 @@ class CameraCapture final {
   }
 
  private:
+  static bool SelectNativeNv12(IMFSourceReader* reader) {
+    ComPtr<IMFMediaType> best;
+    double best_score = -1.0e20;
+    for (DWORD i = 0; i < 128; ++i) {
+      ComPtr<IMFMediaType> type;
+      if (FAILED(reader->GetNativeMediaType(
+              MF_SOURCE_READER_FIRST_VIDEO_STREAM, i, &type))) break;
+      GUID subtype{};
+      UINT32 width = 0, height = 0, numerator = 0, denominator = 1;
+      if (FAILED(type->GetGUID(MF_MT_SUBTYPE, &subtype)) ||
+          subtype != MFVideoFormat_NV12 ||
+          FAILED(MFGetAttributeSize(type.Get(), MF_MT_FRAME_SIZE,
+                                    &width, &height)) ||
+          FAILED(MFGetAttributeRatio(type.Get(), MF_MT_FRAME_RATE,
+                                     &numerator, &denominator)) ||
+          !denominator || numerator < 24 * denominator ||
+          !width || !height || (width & 1) || (height & 1) ||
+          width > 1920 || height > 1080) continue;
+      // Prefer the camera's true 720p/30fps mode, not its first offered mode.
+      const double score =
+          -static_cast<double>(std::abs(static_cast<int>(width) - 1280)) -
+          2.0 * std::abs(static_cast<int>(height) - 720) +
+          std::min(60.0, static_cast<double>(numerator) / denominator);
+      if (score > best_score) {
+        best = type;
+        best_score = score;
+      }
+    }
+    return best && SUCCEEDED(reader->SetCurrentMediaType(
+        MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, best.Get()));
+  }
+
+  static void Nv12ToBgra(const BYTE* base, std::size_t pitch,
+                         UINT32 width, UINT32 height, BYTE* out) {
+    const BYTE* chroma = base + pitch * height;
+    for (UINT32 y = 0; y < height; ++y) {
+      const BYTE* luma_row = base + static_cast<std::size_t>(y) * pitch;
+      const BYTE* uv_row = chroma + static_cast<std::size_t>(y / 2) * pitch;
+      BYTE* out_row = out + static_cast<std::size_t>(y) * width * 4;
+      for (UINT32 x = 0; x < width; x += 2) {
+        const int u = static_cast<int>(uv_row[x]) - 128;
+        const int v = static_cast<int>(uv_row[x + 1]) - 128;
+        const int ruv = 409 * v + 128;
+        const int guv = -100 * u - 208 * v + 128;
+        const int buv = 516 * u + 128;
+        for (UINT32 k = 0; k < 2; ++k) {
+          const int cy = 298 * std::max(0, static_cast<int>(luma_row[x + k]) - 16);
+          const auto pos = (x + k) * 4;
+          out_row[pos] = static_cast<BYTE>(std::clamp((cy + buv) >> 8, 0, 255));
+          out_row[pos + 1] = static_cast<BYTE>(std::clamp((cy + guv) >> 8, 0, 255));
+          out_row[pos + 2] = static_cast<BYTE>(std::clamp((cy + ruv) >> 8, 0, 255));
+          out_row[pos + 3] = 255;
+        }
+      }
+    }
+  }
+
   bool OpenReader(IMFMediaSource* source, const std::string& id,
                   const Callback& callback) {
     ComPtr<IMFAttributes> reader_settings;
     if (FAILED(MFCreateAttributes(&reader_settings, 1))) return false;
-    reader_settings->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
     ComPtr<IMFSourceReader> reader;
     if (FAILED(MFCreateSourceReaderFromMediaSource(source, reader_settings.Get(),
                                                   &reader))) return false;
-    ComPtr<IMFMediaType> type;
-    if (FAILED(MFCreateMediaType(&type)) ||
-        FAILED(type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video)) ||
-        FAILED(type->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32)) ||
-        FAILED(reader->SetCurrentMediaType(
-            MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, type.Get())))
-      return false;
+    const bool native_nv12 = SelectNativeNv12(reader.Get());
+    if (!native_nv12) {
+      // Only legacy devices without usable 30fps NV12 need the slow
+      // built-in video processor. Recreate the reader with that flag.
+      reader.Reset();
+      reader_settings->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
+      if (FAILED(MFCreateSourceReaderFromMediaSource(
+              source, reader_settings.Get(), &reader))) return false;
+      ComPtr<IMFMediaType> type;
+      if (FAILED(MFCreateMediaType(&type)) ||
+          FAILED(type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video)) ||
+          FAILED(type->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32)) ||
+          FAILED(reader->SetCurrentMediaType(
+              MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, type.Get())))
+        return false;
+    }
     ComPtr<IMFMediaType> current;
     UINT32 width = 0, height = 0;
     if (FAILED(reader->GetCurrentMediaType(
@@ -177,10 +245,35 @@ class CameraCapture final {
       ComPtr<IMFMediaBuffer> buffer;
       if (FAILED(sample->ConvertToContiguousBuffer(&buffer))) continue;
       ComPtr<IMF2DBuffer> two_d;
-      auto bgra = std::make_shared<std::vector<std::uint8_t>>(
+      auto bgra = frame_buffers_.Acquire(
           static_cast<std::size_t>(width) * height * 4);
       bool copied = false;
-      if (SUCCEEDED(buffer.As(&two_d))) {
+      if (native_nv12) {
+        if (SUCCEEDED(buffer.As(&two_d))) {
+          BYTE* bytes = nullptr;
+          LONG pitch = 0;
+          if (SUCCEEDED(two_d->Lock2D(&bytes, &pitch))) {
+            if (bytes && pitch >= static_cast<LONG>(width)) {
+              Nv12ToBgra(bytes, static_cast<std::size_t>(pitch),
+                         width, height, bgra->data());
+              copied = true;
+            }
+            two_d->Unlock2D();
+          }
+        }
+        if (!copied) {
+          BYTE* bytes = nullptr;
+          DWORD max_length = 0, length = 0;
+          if (SUCCEEDED(buffer->Lock(&bytes, &max_length, &length))) {
+            const auto needed = static_cast<std::size_t>(width) * height * 3 / 2;
+            if (bytes && length >= needed) {
+              Nv12ToBgra(bytes, width, width, height, bgra->data());
+              copied = true;
+            }
+            buffer->Unlock();
+          }
+        }
+      } else if (SUCCEEDED(buffer.As(&two_d))) {
         BYTE* bytes = nullptr;
         LONG stride = 0;
         if (SUCCEEDED(two_d->Lock2D(&bytes, &stride))) {
@@ -219,6 +312,7 @@ class CameraCapture final {
   }
 
   std::atomic<bool> running_{false};
+  VideoPixelPool frame_buffers_;
   std::thread worker_;
 };
 
