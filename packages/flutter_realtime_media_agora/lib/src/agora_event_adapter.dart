@@ -233,6 +233,7 @@ class _AgoraEventAdapter {
         if (state == agora.LocalVideoStreamState.localVideoStreamStateFailed) {
           if (source == agora.VideoSourceType.videoSourceScreen &&
               _session._publishing._localScreenShareEnabled) {
+            _session._publishing._stopScreenShareAnnouncements();
             final track = _session._publishing._localScreenTrack;
             _session._publishing._localScreenShareEnabled = false;
             _session._publishing._localScreenTrack = null;

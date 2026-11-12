@@ -52,7 +52,11 @@ class AgoraRemoteScreenState {
   bool videoAvailable(int uid) => _available.contains(uid);
   bool isScreenPublisher(int uid) => _screenPublishers.contains(uid);
   bool showsCamera(int uid) => videoAvailable(uid) && !isScreenPublisher(uid);
-  bool showsScreen(int uid) => videoAvailable(uid) && isScreenPublisher(uid);
+  // Screen capture is a separate Agora video source. Camera mute/stopped
+  // callbacks do not imply that a published screen stream has disappeared.
+  // A confirmed start signal is sufficient to expose the remote screen
+  // renderer; its frame arrives asynchronously through the RTC video source.
+  bool showsScreen(int uid) => isScreenPublisher(uid);
 
   void onVideo(int uid, {required bool available}) {
     if (available) {

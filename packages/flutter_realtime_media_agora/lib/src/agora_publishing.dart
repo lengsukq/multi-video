@@ -16,6 +16,33 @@ class _AgoraPublishing {
   bool _localVideoEnabled = false;
   bool _localMuted = true;
   final AgoraScreenCapture _screenCapture = const AgoraScreenCapture();
+  MediaScreenShareSource? _selectedScreenSource;
+  Timer? _screenShareAnnouncementTimer;
+
+  void _stopScreenShareAnnouncements() {
+    _screenShareAnnouncementTimer?.cancel();
+    _screenShareAnnouncementTimer = null;
+  }
+
+  void _startScreenShareAnnouncements() {
+    _stopScreenShareAnnouncements();
+    // Agora data messages are transient. A late join, packet loss or the
+    // camera track stopping can otherwise leave a remote viewer indefinitely
+    // waiting for the separate screen video source. Reannounce until stopped.
+    _screenShareAnnouncementTimer = Timer.periodic(
+      const Duration(seconds: 4),
+      (timer) {
+        if (!_localScreenShareEnabled ||
+            _session._disposed ||
+            _session._joinCancelled ||
+            _session._engine == null) {
+          _stopScreenShareAnnouncements();
+          return;
+        }
+        unawaited(_session._data._announceScreenShareState(true));
+      },
+    );
+  }
   final _iosScreenSink = NativeProcessedVideoSink(providerId: 'agora');
   ProcessedVideoSource? _iosScreenCaptureSource;
   int? _iosScreenTrackId;
@@ -53,6 +80,33 @@ class _AgoraPublishing {
       },
     );
     await _updatePublishOptions();
+  }
+
+  Future<List<MediaScreenShareSource>> listScreenShareSources() {
+    _ensurePublisherActive('screen source selection');
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.windows &&
+            defaultTargetPlatform != TargetPlatform.macOS)) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        providerId: _agoraProviderId,
+        message: 'Desktop capture sources are not available on this platform.',
+      );
+    }
+    return _screenCapture.listSources(_session._requireEngine());
+  }
+
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
+    final sources = await listScreenShareSources();
+    if (!sources.any((item) =>
+        item.id == source.id && item.kind == source.kind)) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.invalidArgument,
+        providerId: _agoraProviderId,
+        message: 'The selected screen or window is no longer available.',
+      );
+    }
+    _selectedScreenSource = source;
   }
 
   Future<void> _startIosScreenCapture(agora.RtcEngine engine) async {
@@ -181,10 +235,23 @@ class _AgoraPublishing {
         ? _iosScreenTrackId
         : _customVideoTrackId,
     publishScreenCaptureAudio: false,
+    // Agora 6.6.x has platform-specific publication switches:
+    // Android/iOS publishScreenCaptureVideo, Windows/macOS publishScreenTrack.
+    // Starting a capture only creates a local preview; the wrong switch
+    // silently leaves remote subscribers with a black screen.
     publishScreenCaptureVideo:
         _session._canPublish &&
         _localScreenShareEnabled &&
-        _iosScreenTrackId == null,
+        _iosScreenTrackId == null &&
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS),
+    publishScreenTrack:
+        _session._canPublish &&
+        _localScreenShareEnabled &&
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.macOS),
     enableAudioRecordingOrPlayout: true,
   );
 
@@ -218,7 +285,11 @@ class _AgoraPublishing {
       } else {
         await _processedSink.setEnabled(enabled);
       }
-      await engine.muteLocalVideoStream(!enabled);
+      // This call mutes *all* outgoing video, including an active screen
+      // track. Keep publication unmuted while sharing even if camera is off.
+      await engine.muteLocalVideoStream(
+        !enabled && !_localScreenShareEnabled,
+      );
       _localVideoEnabled = enabled;
       await _updatePublishOptions();
       final localId = _session._localUid;
@@ -288,10 +359,17 @@ class _AgoraPublishing {
         if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
           await _startIosScreenCapture(engine);
         } else {
-          await _screenCapture.start(engine, defaultTargetPlatform);
+          await _screenCapture.start(
+            engine,
+            defaultTargetPlatform,
+            selectedSource: _selectedScreenSource,
+          );
         }
         _localScreenShareEnabled = true;
         try {
+          // Camera-off may have set a channel-wide video publish mute.
+          // Local screen capture can preview while peers see only black.
+          await engine.muteLocalVideoStream(false);
           await _updatePublishOptions();
         } catch (_) {
           _localScreenShareEnabled = false;
@@ -300,8 +378,12 @@ class _AgoraPublishing {
           } else {
             await _screenCapture.stop(engine);
           }
+          if (!_localVideoEnabled) {
+            await engine.muteLocalVideoStream(true);
+          }
           rethrow;
         }
+        _startScreenShareAnnouncements();
         final uid = _session._localUid;
         if (uid != null) {
           final track = AgoraMediaVideoTrack(
@@ -315,6 +397,7 @@ class _AgoraPublishing {
           _session._emit(MediaTrackPublished(track));
         }
       } else {
+        _stopScreenShareAnnouncements();
         // Announce while screen video is still published. Agora can reject
         // data-stream packets after the last AV track is unpublished.
         await _session._data._announceScreenShareState(false);
@@ -336,6 +419,11 @@ class _AgoraPublishing {
           );
         }
         await _updatePublishOptions();
+        // Restore the original camera-off state without affecting the screen
+        // track while it was being shared.
+        if (!_localVideoEnabled) {
+          await engine.muteLocalVideoStream(true);
+        }
       }
       _session._refreshSnapshot();
       // Metadata is separate from media publication. If data transport fails,

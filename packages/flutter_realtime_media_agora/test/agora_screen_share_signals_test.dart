@@ -67,22 +67,25 @@ void main() {
   });
 
   group('remote screen publisher state', () {
-    test('out-of-order signalling never creates a phantom track', () {
+    test('screen signalling is independent of camera video availability', () {
       final state = AgoraRemoteScreenState();
       state.onSignal(10, AgoraScreenShareSignal.started);
       expect(state.isScreenPublisher(10), isTrue);
       expect(state.showsCamera(10), isFalse);
-      expect(state.showsScreen(10), isFalse);
+      expect(state.showsScreen(10), isTrue);
 
       state.onVideo(10, available: true);
       expect(state.showsScreen(10), isTrue);
       expect(state.showsCamera(10), isFalse);
 
+      // Switching camera off as screen capture starts must never remove
+      // the independently published screen video.
+      state.onVideo(10, available: false);
+      expect(state.showsScreen(10), isTrue);
+      expect(state.showsCamera(10), isFalse);
+
       state.onSignal(10, AgoraScreenShareSignal.stopped);
       expect(state.showsScreen(10), isFalse);
-      expect(state.showsCamera(10), isTrue);
-
-      state.onVideo(10, available: false);
       expect(state.showsCamera(10), isFalse);
     });
 

@@ -35,7 +35,8 @@ abstract class _AgoraMediaSession
         MediaDataPayloadSizer,
         MediaStatsProvider,
         ProcessedVideoSink,
-        MediaDeviceController {
+        MediaDeviceController,
+        MediaScreenShareSourceSelector {
   _AgoraMediaSession(this.role, {agora.RtcEngine Function()? engineFactory})
     : _engineFactory = engineFactory ?? agora.createAgoraRtcEngine,
       _capabilities = _capabilitiesForRole(role),
@@ -136,6 +137,12 @@ abstract class _AgoraMediaSession
       _publishing.switchCameraInternal(position);
   Future<void> setScreenShareEnabledInternal(bool enabled) =>
       _publishing.setScreenShareEnabledInternal(enabled);
+  @override
+  Future<List<MediaScreenShareSource>> listScreenShareSources() =>
+      _publishing.listScreenShareSources();
+  @override
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) =>
+      _publishing.selectScreenShareSource(source);
   Future<List<MediaAudioDevice>> listAudioDevicesInternal() =>
       _publishing.listAudioDevicesInternal();
   Future<void> selectAudioDeviceInternal(MediaAudioDevice device) =>
@@ -179,6 +186,7 @@ abstract class _AgoraMediaSession
     }
 
     _joinInfo = rawJoinInfo;
+    _publishing._stopScreenShareAnnouncements();
     _publishing._localMuted = true;
     _publishing._localVideoEnabled = false;
     _publishing._localScreenShareEnabled = false;
@@ -364,6 +372,7 @@ abstract class _AgoraMediaSession
   }
 
   Future<void> _tearDownEngine() async {
+    _publishing._stopScreenShareAnnouncements();
     final engine = _engine;
     final handler = _eventHandler;
     final customTrackId = _publishing._customVideoTrackId;
