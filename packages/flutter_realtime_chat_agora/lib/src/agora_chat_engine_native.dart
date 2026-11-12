@@ -7,11 +7,14 @@ import 'package:flutter_realtime_chat_core/flutter_realtime_chat_core.dart'
 
 import 'agora_chat_engine.dart';
 import 'agora_chat_engine_macos.dart' as macos;
+import 'agora_chat_engine_windows.dart' as windows;
 import 'agora_chat_join_info.dart';
 
 Future<AgoraChatEngine> createPlatformAgoraChatEngine() async =>
     Platform.isMacOS
     ? macos.createMacOSAgoraChatEngine()
+    : Platform.isWindows
+    ? windows.createWindowsAgoraChatEngine()
     : AgoraSdkChatEngine();
 
 // Internal implementation; not exported by the package entrypoint.
