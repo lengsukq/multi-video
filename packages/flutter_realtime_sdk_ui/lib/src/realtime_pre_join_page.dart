@@ -844,8 +844,9 @@ class _PreviewCard extends StatelessWidget {
           unawaited(controller.openAppSettings());
           return;
         }
-        if (permission != MediaPermissionState.granted &&
-            permission != MediaPermissionState.unsupported) {
+        if (preview == null ||
+            (permission != MediaPermissionState.granted &&
+                permission != MediaPermissionState.unsupported)) {
           unawaited(controller.requestPermissionAndEnable(kind));
           return;
         }
@@ -895,7 +896,7 @@ class _PreviewCard extends StatelessWidget {
                   top: 12,
                   child: _QualityChips(strings: strings),
                 ),
-                if (!viewer && preview != null)
+                if (!viewer)
                   Positioned(
                     left: 0,
                     right: 0,
@@ -911,7 +912,7 @@ class _PreviewCard extends StatelessWidget {
                           tooltip: micOn
                               ? (strings.isZh ? '关闭麦克风' : 'Turn off microphone')
                               : (strings.isZh ? '打开麦克风' : 'Turn on microphone'),
-                          onPressed: controller.busy
+                          onPressed: controller.busy || controller.result == null
                               ? null
                               : () => toggleCapture(
                                   MediaPermissionKind.microphone,
@@ -927,7 +928,7 @@ class _PreviewCard extends StatelessWidget {
                           tooltip: camOn
                               ? (strings.isZh ? '关闭摄像头' : 'Turn off camera')
                               : (strings.isZh ? '打开摄像头' : 'Turn on camera'),
-                          onPressed: controller.busy
+                          onPressed: controller.busy || controller.result == null
                               ? null
                               : () => toggleCapture(
                                   MediaPermissionKind.camera,
@@ -949,7 +950,7 @@ class _PreviewCard extends StatelessWidget {
                                   const MediaBackgroundEffect.blur()
                               ? (strings.isZh ? '取消虚化' : 'Remove blur')
                               : (strings.isZh ? '虚化背景' : 'Blur background'),
-                          onPressed: controller.busy
+                          onPressed: controller.busy || preview == null
                               ? null
                               : () {
                                   final isBlur =
@@ -1181,7 +1182,37 @@ class _SettingsCard extends StatelessWidget {
     final style = RealtimeStyle.of(context);
     final controller = RealtimePreJoinScope.of(context);
     if (controller.preview == null) {
-      return const SizedBox.shrink();
+      return RealtimeCardSurface(
+        key: const ValueKey('prejoin-preview-recovery-card'),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.videocam_off_outlined, color: style.textSecondary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    strings.isZh
+                        ? '暂时无法获取本地预览。请检查摄像头、麦克风权限及设备占用情况，也可以重新检测。'
+                        : 'Local preview is unavailable. Check camera/microphone permissions and device availability, or try again.',
+                    style: TextStyle(color: style.textSecondary, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: controller.busy || controller.result == null
+                  ? null
+                  : () => unawaited(controller.retryPreview()),
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(strings.isZh ? '重新尝试预览' : 'Retry preview'),
+            ),
+          ],
+        ),
+      );
     }
     final effectsSupported =
         controller.result?.backgroundCapabilities.isSupported == true;
@@ -1508,8 +1539,12 @@ class _SessionColumn extends StatelessWidget {
               Expanded(
                 child: Text(
                   strings.isZh
-                      ? '加入前麦克风和摄像头默认关闭。进入房间后可随时开启。'
-                      : 'Microphone and camera are off by default. You can turn them on at any time after joining.',
+                      ? viewer
+                            ? '以观众身份加入时无需开启摄像头或麦克风。'
+                            : '麦克风和摄像头默认关闭。加入前可使用预览区下方的按钮开启。'
+                      : viewer
+                      ? 'As a viewer, you do not need to enable the camera or microphone.'
+                      : 'Microphone and camera start off. Use the controls below the preview to turn them on before joining.',
                   style: TextStyle(
                     fontSize: 12,
                     height: 1.5,

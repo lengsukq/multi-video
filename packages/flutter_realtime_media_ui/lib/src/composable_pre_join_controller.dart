@@ -195,16 +195,45 @@ class RealtimePreJoinController extends ChangeNotifier {
   }
 
   /// When a switch is tapped, permission granting should immediately turn on
-  /// the requested capture track without requiring a second click.
+  /// the requested capture track without requiring a second click. A provider
+  /// may not have returned a preview during the first readiness check: retry
+  /// opening one before enabling capture rather than silently doing nothing.
   Future<void> requestPermissionAndEnable(MediaPermissionKind kind) async {
-    await requestPermission(kind);
     if (_disposed || busy) return;
-    final permission = _permissionStates[kind];
-    if (permission != MediaPermissionState.granted &&
-        permission != MediaPermissionState.unknown) {
+    var permission = _permissionStates[kind];
+    if (permission == MediaPermissionState.permanentlyDenied ||
+        permission == MediaPermissionState.restricted) {
       return;
     }
-    if (preview == null) await retryPreview();
+    if (permission != MediaPermissionState.granted &&
+        permission != MediaPermissionState.unsupported) {
+      await requestPermission(kind);
+      if (_disposed || busy) return;
+      permission = _permissionStates[kind];
+    }
+    if (permission != MediaPermissionState.granted &&
+        permission != MediaPermissionState.unknown &&
+        permission != MediaPermissionState.unsupported) {
+      return;
+    }
+    if (preview == null) {
+      await retryPreview();
+      if (_disposed || busy) return;
+      if (preview == null) {
+        _previewError ??= _recordFailure(
+          const RealtimeException(
+            code: RealtimeErrorCode.unsupportedPlatform,
+            message:
+                'Local camera/microphone preview is unavailable for this '
+                'provider. Check the device and provider support, then retry.',
+            providerId: 'media.prejoin',
+          ),
+          StackTrace.current,
+        );
+        _notify();
+        return;
+      }
+    }
     // Some iOS SPM hosts cannot query permission_handler status although the
     // underlying AVFoundation capture can still request/confirm permission.
     // Allow that native capture to decide; failure remains visible to the UI.
@@ -356,9 +385,13 @@ class RealtimePreJoinController extends ChangeNotifier {
   ) async {
     if (!canEnter) return;
     final generation = ++_generation;
+    final currentPreview = preview;
     final selected =
         (_retrySettings ??
-                preview?.settings ??
+                (currentPreview is MediaLocalPreviewRoomSettings
+                    ? (currentPreview as MediaLocalPreviewRoomSettings)
+                        .roomSettings
+                    : currentPreview?.settings) ??
                 const MediaLocalPreviewSettings())
             .copyWith(backgroundEffect: _setup.backgroundEffect);
     _retrySettings = selected;

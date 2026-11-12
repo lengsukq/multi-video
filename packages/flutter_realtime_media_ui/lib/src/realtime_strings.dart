@@ -64,8 +64,8 @@ class RealtimeStrings {
       ? '作为观众，无需开启摄像头和麦克风'
       : 'As a viewer, no camera or microphone is needed';
   String get previewDisabledHelp => isZh
-      ? '摄像头默认关闭，可在设备设置中开启预览'
-      : 'Camera is off by default. Enable it in audio & video settings';
+      ? '摄像头已关闭，点击下方摄像头按钮开启预览'
+      : 'Camera is off. Use the camera button below to enable preview';
   String get cloudRecording => isZh ? '云录制' : 'Cloud recording';
   String get stopCloudRecording => isZh ? '停止云录制' : 'Stop cloud recording';
   String get viewRecordingResult => isZh ? '查看录制结果' : 'View recording result';

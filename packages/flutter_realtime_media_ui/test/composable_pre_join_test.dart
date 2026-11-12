@@ -7,6 +7,42 @@ import 'package:flutter_realtime_media_ui/flutter_realtime_media_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('camera toggle recovers an initially missing pre-join preview', () async {
+    var attempts = 0;
+    final recovered = _Preview();
+    final controller = RealtimePreJoinController(
+      runCheck: () async => _check(role: MediaRole.participant),
+      openPreview: (_, _) async {
+        attempts++;
+        return attempts == 1 ? null : recovered;
+      },
+      permissionRequester: const _PermissionRequester(),
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    expect(controller.preview, isNull);
+    await controller.requestPermissionAndEnable(MediaPermissionKind.camera);
+    expect(attempts, 2);
+    expect(controller.preview, same(recovered));
+    expect(recovered.settings.cameraEnabled, isTrue);
+  });
+
+  test('missing local preview reports a recoverable error, not silent no-op',
+      () async {
+    final controller = RealtimePreJoinController(
+      runCheck: () async => _check(role: MediaRole.participant),
+      openPreview: (_, _) async => null,
+      permissionRequester: const _PermissionRequester(),
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.requestPermissionAndEnable(MediaPermissionKind.microphone);
+    expect(controller.preview, isNull);
+    expect(controller.previewError, isNotNull);
+    expect(controller.canEnter, isTrue,
+        reason: 'A missing preview does not block joining with media off');
+  });
+
   test(
     'unknown iOS permission result still lets native microphone capture decide',
     () async {

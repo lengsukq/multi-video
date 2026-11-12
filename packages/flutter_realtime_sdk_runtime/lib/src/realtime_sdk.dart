@@ -182,18 +182,16 @@ class RealtimeSdk {
           // A processed-video preview does not own microphone capture.
           // Compose the provider's credential-free local audio preview so
           // volume levels and input selection are backed by real capture.
-          final factory = plugins.media.lookup(engineProvider)?.sessionFactory;
-          if (factory is MediaLocalPreviewFactory) {
-            try {
-              final audio = await (factory as MediaLocalPreviewFactory)
-                  .createLocalPreview(role: role);
-              return ComposedLocalPreview(video: camera, audio: audio);
-            } catch (_) {
-              await camera.dispose();
-              rethrow;
-            }
+          try {
+            final audio = await _createDevicePreview(
+              providerId: engineProvider,
+              role: role,
+            );
+            return ComposedLocalPreview(video: camera, audio: audio);
+          } catch (_) {
+            await camera.dispose();
+            rethrow;
           }
-          return ComposedLocalPreview(video: camera, audio: null);
         } catch (error, stack) {
           if (_diagnostics.length == 64) _diagnostics.removeAt(0);
           _diagnostics.add(
@@ -208,10 +206,24 @@ class RealtimeSdk {
         }
       }
     }
-    final factory = plugins.media.lookup(engineProvider)?.sessionFactory;
-    if (factory is! MediaLocalPreviewFactory) return null;
-    return (factory as MediaLocalPreviewFactory).createLocalPreview(role: role);
+    return _createDevicePreview(providerId: engineProvider, role: role);
   });
+
+  Future<MediaLocalPreviewSession?> _createDevicePreview({
+    required String providerId,
+    required MediaRole role,
+  }) async {
+    final factory = plugins.media.lookup(providerId)?.sessionFactory;
+    if (factory is MediaLocalPreviewFactory) {
+      return (factory as MediaLocalPreviewFactory).createLocalPreview(
+        role: role,
+      );
+    }
+    final fallback = services.localPreviewFallbackFactory;
+    return fallback == null
+        ? null
+        : fallback(providerId: providerId, role: role);
+  }
 
   RealtimeClient createClient() =>
       clientFactory?.call() ??

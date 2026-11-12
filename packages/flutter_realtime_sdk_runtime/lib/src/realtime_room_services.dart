@@ -7,6 +7,14 @@ typedef RealtimeRecordingSessionFactory =
     MediaCloudRecordingSession? Function(MediaRoomSession room);
 typedef RealtimeStandaloneChatProvisionerFactory =
     StandaloneChatProvisioner Function();
+/// Optional credential-free local device check used when the selected RTC
+/// provider does not expose its own pre-join preview. The returned session
+/// must start with capture disabled and is released before joining the room.
+typedef RealtimeLocalPreviewFallbackFactory =
+    Future<MediaLocalPreviewSession> Function({
+      required String providerId,
+      required MediaRole role,
+    });
 
 /// Factories return room-scoped objects owned by the SDK. Shared underlying
 /// transports injected by the host remain host-owned.
@@ -18,6 +26,7 @@ class RealtimeRoomServices {
     this.interactionControlPlaneFactory,
     this.recordingSessionFactory,
     this.videoEffectsFactory,
+    this.localPreviewFallbackFactory,
   });
   final RealtimeMediaClientFactory? mediaClientFactory;
   final RealtimeChatClientFactory? chatClientFactory;
@@ -26,4 +35,7 @@ class RealtimeRoomServices {
   final InteractionControlPlaneFactory? interactionControlPlaneFactory;
   final RealtimeVideoEffectsFactory? videoEffectsFactory;
   final RealtimeRecordingSessionFactory? recordingSessionFactory;
+  /// A host-provided local hardware preview, not a replacement for the
+  /// selected room's RTC provider or proof that provider publishing works.
+  final RealtimeLocalPreviewFallbackFactory? localPreviewFallbackFactory;
 }
