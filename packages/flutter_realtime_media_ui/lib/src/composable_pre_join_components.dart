@@ -41,6 +41,93 @@ class RealtimePreJoinScope extends InheritedWidget {
       !identical(controller, oldWidget.controller);
 }
 
+/// Always-visible permission guidance. A collapsed diagnostics card or a
+/// missing local preview must never hide why native capture is unavailable.
+class RealtimePreJoinPermissionNotice extends StatelessWidget {
+  const RealtimePreJoinPermissionNotice({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = RealtimePreJoinScope.of(context);
+    final strings = RealtimeStrings.of(context);
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        if (controller.result?.role == MediaRole.viewer) {
+          return const SizedBox.shrink();
+        }
+        final missing = MediaPermissionKind.values.where((kind) {
+          final state = controller.permissions[kind];
+          return state == MediaPermissionState.denied ||
+              state == MediaPermissionState.permanentlyDenied ||
+              state == MediaPermissionState.restricted;
+        }).toList();
+        if (missing.isEmpty) return const SizedBox.shrink();
+        final colors = Theme.of(context).colorScheme;
+        final labels = missing.map((kind) =>
+            kind == MediaPermissionKind.microphone
+                ? strings.microphone
+                : strings.camera).join(strings.isZh ? '、' : ' and ');
+        return Material(
+          key: const ValueKey('prejoin-permission-notice'),
+          color: colors.errorContainer.withValues(alpha: 0.60),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.shield_outlined, size: 18,
+                        color: colors.onErrorContainer),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        strings.isZh
+                            ? '尚未获得$labels权限。可以授权后开启音视频，也可以保持麦克风和摄像头关闭加入。'
+                            : '$labels access is not granted. Allow it to use your devices, or join with camera and microphone off.',
+                        style: TextStyle(
+                          color: colors.onErrorContainer,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final kind in missing)
+                      TextButton.icon(
+                        onPressed: controller.busy
+                            ? null
+                            : () => unawaited(
+                                controller.permissions[kind] ==
+                                        MediaPermissionState.permanentlyDenied ||
+                                    controller.permissions[kind] ==
+                                        MediaPermissionState.restricted
+                                    ? controller.openAppSettings()
+                                    : controller.requestPermission(kind),
+                              ),
+                        icon: const Icon(Icons.settings_outlined, size: 16),
+                        label: Text(
+                          '${kind == MediaPermissionKind.microphone ? strings.microphone : strings.camera} · ${controller.permissions[kind] == MediaPermissionState.permanentlyDenied || controller.permissions[kind] == MediaPermissionState.restricted ? strings.openAppSettings : strings.requestPermission}',
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// Displays only the SDK local preview, no fixed page or device panel.
 class RealtimePreJoinPreview extends StatelessWidget {
   const RealtimePreJoinPreview({super.key, this.placeholder});

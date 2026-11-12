@@ -7,6 +7,51 @@ import 'package:flutter_realtime_media_ui/flutter_realtime_media_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('denied Android/iOS device permissions are not passed to RTC startup',
+      () async {
+    final preview = _Preview();
+    final controller = RealtimePreJoinController(
+      runCheck: () async => _check(role: MediaRole.participant),
+      openPreview: (_, _) async => preview,
+      permissionRequester: const _DenyingPermissionRequester(),
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    expect(controller.canEnter, isTrue,
+        reason: 'Listeners may join with their camera and microphone off');
+    // A permission may have been revoked after capture was selected, or a
+    // retry may carry stale media-on settings from a previous attempt.
+    await controller.setMicrophoneEnabled(true);
+    await controller.setCameraEnabled(true);
+    await controller.enter((settings) async {
+      expect(settings.microphoneEnabled, isFalse);
+      expect(settings.cameraEnabled, isFalse);
+    });
+  });
+
+  testWidgets('denied device permissions have visible actions without preview',
+      (tester) async {
+    final controller = RealtimePreJoinController(
+      runCheck: () async => _check(role: MediaRole.participant),
+      openPreview: (_, _) async => null,
+      permissionRequester: const _DenyingPermissionRequester(),
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await tester.pumpWidget(MaterialApp(
+      home: RealtimePreJoinScope(
+        controller: controller,
+        child: const Scaffold(body: RealtimePreJoinPermissionNotice()),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('prejoin-permission-notice')),
+        findsOneWidget);
+    expect(find.textContaining('Microphone'), findsWidgets);
+    expect(find.textContaining('Camera'), findsWidgets);
+    expect(find.byType(TextButton), findsNWidgets(2));
+  });
+
   test('camera toggle recovers an initially missing pre-join preview', () async {
     var attempts = 0;
     final recovered = _Preview();

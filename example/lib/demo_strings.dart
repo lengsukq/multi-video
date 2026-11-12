@@ -18,6 +18,11 @@ class DemoStrings {
   /// exception class names to users. All screens share the same guidance.
   String displayRealtimeError(Object error) {
     if (error is! RealtimeException) return error.toString();
+    if (error.code == RealtimeErrorCode.permissionDenied) {
+      return isZh
+          ? '缺少麦克风或摄像头授权。请在系统弹窗中允许访问；若已拒绝且无法再次申请，请进入应用的系统权限设置开启后重试。'
+          : 'Microphone or camera permission is missing. Allow access in the system prompt, or enable it in the app permission settings and retry.';
+    }
     final details = error.details;
     final backendCode = details is Map ? details['backendCode'] : null;
     if (backendCode == 'room-exists') {

@@ -260,6 +260,13 @@ class _RealtimePreJoinPageState extends State<RealtimePreJoinPage>
                                 },
                               ),
                             ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 4,
+                              ),
+                              child: RealtimePreJoinPermissionNotice(),
+                            ),
                             if (_showsError)
                               Padding(
                                 padding: const EdgeInsets.symmetric(

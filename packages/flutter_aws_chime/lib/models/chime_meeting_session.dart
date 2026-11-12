@@ -93,7 +93,6 @@ class ChimeMeetingSession {
     _joinCompletion = joinCompletion;
 
     try {
-      RealtimeException? permissionError;
       for (final method in [
         'manageAudioPermissions',
         'manageVideoPermissions',
@@ -103,15 +102,11 @@ class ChimeMeetingSession {
           await _channel.invoke(method);
         } on RealtimeException catch (error) {
           if (error.code != RealtimeErrorCode.permissionDenied) rethrow;
-          permissionError ??= error;
+          // Device capture is optional at join time on Android and iOS too.
+          // A denied permission must not prevent listening with camera/mic
+          // off. The host Pre-Join UI shows the permission and offers a retry
+          // or system settings action before the user enables capture.
         }
-      }
-      // On macOS an attendee must be able to join as a listener even when
-      // camera or microphone access is denied. WebKit capture is activated
-      // separately; it must not gate the underlying Chime signaling session.
-      if (permissionError != null &&
-          (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS)) {
-        throw permissionError;
       }
       _ensureNotDisposed();
       _nativeJoinStarted = true;

@@ -273,8 +273,9 @@ void main() {
   );
 
   test(
-    'requests camera as well as microphone when one permission is denied',
+    'Android joins Chime muted when microphone permission is denied',
     () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
       final session = activeSession = ChimeMeetingSession();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(_channel, (call) async {
@@ -291,25 +292,39 @@ void main() {
             return _success();
           });
 
-      await expectLater(
-        session.join(_joinInfo()),
-        throwsA(
-          isA<RealtimeException>().having(
-            (error) => error.code,
-            'error code',
-            RealtimeErrorCode.permissionDenied,
-          ),
-        ),
-      );
+      await session.join(_joinInfo());
       expect(calls.map((call) => call.method), [
         'manageAudioPermissions',
         'manageVideoPermissions',
+        'join',
+        'listAudioDevices',
       ]);
-      expect(session.state, MeetingState.failed);
+      expect(session.state, MeetingState.connecting);
     },
   );
 
-  test('maps native response errors to stable typed exceptions', () async {
+  test('iOS Chime joins without device capture permission', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final session = activeSession = ChimeMeetingSession();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_channel, (call) async {
+      calls.add(call);
+      if (call.method == 'manageAudioPermissions' ||
+          call.method == 'manageVideoPermissions') {
+        return {
+          'success': false,
+          'code': 'permission_denied',
+          'message': 'Device permission denied',
+        };
+      }
+      return _success();
+    });
+    await session.join(_joinInfo());
+    expect(session.state, MeetingState.connecting);
+    expect(calls.map((call) => call.method), contains('join'));
+  });
+
+  test('maps other native response errors to stable typed exceptions', () async {
     final session = activeSession = ChimeMeetingSession();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_channel, (call) async {
@@ -317,8 +332,8 @@ void main() {
           if (call.method == 'manageAudioPermissions') {
             return {
               'success': false,
-              'code': 'permission_denied',
-              'message': 'No microphone permission.',
+              'code': 'invalid_state',
+              'message': 'Native audio session unavailable.',
               'data': null,
               'details': {'source': 'native'},
             };
@@ -330,8 +345,8 @@ void main() {
       await session.join(_joinInfo());
       fail('Expected join to fail.');
     } on RealtimeException catch (error) {
-      expect(error.code, RealtimeErrorCode.permissionDenied);
-      expect(error.message, 'No microphone permission.');
+      expect(error.code, RealtimeErrorCode.invalidState);
+      expect(error.message, 'Native audio session unavailable.');
       expect(error.details, {'source': 'native'});
     }
   });
