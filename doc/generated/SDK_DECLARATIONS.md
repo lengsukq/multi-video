@@ -6,15 +6,15 @@ Generated from optional driver registrations and adapter declarations. This is i
 | --- | --- | --- | --- | --- |
 | agora | agora | native | android, ios, macos, windows | participant, host, viewer |
 | agora | agora | web | web | participant, host, viewer |
-| agora-chat | agora-chat | native | android, ios, macos | participant, host, viewer (credential-dependent) |
+| agora-chat | agora-chat | native | android, ios, macos, windows | participant, host, viewer (credential-dependent) |
 | agora-chat | agora-chat | web | web | participant, host, viewer (credential-dependent) |
-| artc | artc | native | android, ios, macos | participant, host, viewer |
+| artc | artc | native | android, ios, macos, windows | participant, host, viewer |
 | artc | artc | web | web | participant, host, viewer |
-| aws | chime | native | android, ios, macos | participant |
-| aws | ivs | native | android, ios, macos | participant, host, viewer |
+| aws | chime | native | android, ios, macos, windows | participant |
+| aws | ivs | native | android, ios, macos, windows | participant, host, viewer |
 | aws | chime | web | web | participant |
 | aws | ivs | web | web | participant, host, viewer |
-| ivs-chat | ivs-chat | native | android, ios, macos | participant, host, viewer (credential-dependent) |
+| ivs-chat | ivs-chat | native | android, ios, macos, windows | participant, host, viewer (credential-dependent) |
 | ivs-chat | ivs-chat | web | web | participant, host, viewer (credential-dependent) |
 | livekit | livekit | native | android, ios, macos, windows | participant, host, viewer |
 | livekit | livekit | web | web | participant, host, viewer |
@@ -104,22 +104,22 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_media_artc/lib/src/artc_broadcast_viewer_session.dart`: `e15645b56ceea688`
 - `packages/flutter_realtime_media_artc/lib/src/artc_credential_refresh.dart`: `9cdc196c81564737`
 - `packages/flutter_realtime_media_artc/lib/src/artc_data_messenger.dart`: `fc81f3876fa354aa`
-- `packages/flutter_realtime_media_artc/lib/src/artc_media_session.dart`: `b389d2784b8fb2ec`
+- `packages/flutter_realtime_media_artc/lib/src/artc_media_session.dart`: `ab90ea8b8c33d6c6`
 - `packages/flutter_realtime_media_artc/lib/src/artc_participant_session.dart`: `f8c90be8f374dc08`
 - `packages/flutter_realtime_media_artc/lib/src/artc_publishing.dart`: `01456d514a670bed`
-- `packages/flutter_realtime_media_artc/lib/src/artc_session_factory.dart`: `518680ef5600f7b5`
+- `packages/flutter_realtime_media_artc/lib/src/artc_session_factory.dart`: `160ebd4e1282f901`
 - `packages/flutter_realtime_media_artc/lib/src/artc_snapshot_mapper.dart`: `b1817fc7cb34a16c`
 - `packages/flutter_realtime_media_chime/lib/src/chime_media_controls.dart`: `59082cb633492609`
-- `packages/flutter_realtime_media_chime/lib/src/chime_media_session.dart`: `eadd61e3c93274d4`
-- `packages/flutter_realtime_media_chime/lib/src/chime_session_factory.dart`: `0ab5d595b8d7c8e8`
+- `packages/flutter_realtime_media_chime/lib/src/chime_media_session.dart`: `04c5c0accb9a3b5a`
+- `packages/flutter_realtime_media_chime/lib/src/chime_session_factory.dart`: `d844e1a084c96c2d`
 - `packages/flutter_realtime_media_chime/lib/src/chime_snapshot_mapper.dart`: `c79f472b3d0635b4`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_broadcast_host_session.dart`: `419130ac44a9a34b`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_broadcast_viewer_session.dart`: `cf9f5aa536c39095`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_credential_refresh.dart`: `951fd54c0fe4fc47`
-- `packages/flutter_realtime_media_ivs/lib/src/ivs_media_session.dart`: `231ed4db3169c798`
+- `packages/flutter_realtime_media_ivs/lib/src/ivs_media_session.dart`: `a11ad5af4f50d8cf`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_participant_session.dart`: `634406307146399e`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_publishing.dart`: `0276deee5b360bd8`
-- `packages/flutter_realtime_media_ivs/lib/src/ivs_session_factory.dart`: `0313e54a89b103ba`
+- `packages/flutter_realtime_media_ivs/lib/src/ivs_session_factory.dart`: `0830f4acb412d1f8`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_snapshot_mapper.dart`: `055c449e5e113946`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_statistics.dart`: `f3d94cb05a2b89b9`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_capabilities.dart`: `8c2a6ce7df32ad0d`
@@ -148,21 +148,21 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_media_trtc/lib/src/trtc_viewer_session.dart`: `a3962250ad983979`
 - `packages/flutter_realtime_media_web/lib/src/provider_web_profile.dart`: `767eba65b2f9f5ea`
 - `packages/flutter_realtime_media_web/lib/src/provider_web_session_factory.dart`: `209ed9f6a0846624`
-- `packages/flutter_realtime_provider_agora/lib/src/drivers_native.dart`: `2c208f9a627d1cad`
+- `packages/flutter_realtime_provider_agora/lib/src/drivers_native.dart`: `33e2cdd9241a02cd`
 - `packages/flutter_realtime_provider_agora/lib/src/drivers_web.dart`: `bd81a8d666ea0441`
-- `packages/flutter_realtime_provider_agora_chat/lib/src/drivers_native.dart`: `d08d482cbe94ac72`
+- `packages/flutter_realtime_provider_agora_chat/lib/src/drivers_native.dart`: `92e27a762ff096e8`
 - `packages/flutter_realtime_provider_agora_chat/lib/src/drivers_web.dart`: `ea37a522e2246302`
-- `packages/flutter_realtime_provider_artc/lib/src/drivers_native.dart`: `8a7597c818ca21c5`
+- `packages/flutter_realtime_provider_artc/lib/src/drivers_native.dart`: `33c9137940c95cb5`
 - `packages/flutter_realtime_provider_artc/lib/src/drivers_web.dart`: `7aa589413c8e9665`
-- `packages/flutter_realtime_provider_aws/lib/src/drivers_native.dart`: `22bde5d25b6fc764`
+- `packages/flutter_realtime_provider_aws/lib/src/drivers_native.dart`: `0545e3f656d8c97c`
 - `packages/flutter_realtime_provider_aws/lib/src/drivers_web.dart`: `8ebcb8186e43b6ef`
-- `packages/flutter_realtime_provider_ivs_chat/lib/src/drivers_native.dart`: `1fcf7e18de32be5d`
+- `packages/flutter_realtime_provider_ivs_chat/lib/src/drivers_native.dart`: `518e02066e51d0c2`
 - `packages/flutter_realtime_provider_ivs_chat/lib/src/drivers_web.dart`: `ef1e144fa3e3f879`
-- `packages/flutter_realtime_provider_livekit/lib/src/drivers_native.dart`: `cb07e880bf1de859`
+- `packages/flutter_realtime_provider_livekit/lib/src/drivers_native.dart`: `e7ba056dce3d2f60`
 - `packages/flutter_realtime_provider_livekit/lib/src/drivers_web.dart`: `caf4095823a79672`
 - `packages/flutter_realtime_provider_tencent_chat/lib/src/drivers_native.dart`: `5862c1fea875fdfb`
 - `packages/flutter_realtime_provider_tencent_chat/lib/src/drivers_web.dart`: `83276f7af33054a5`
-- `packages/flutter_realtime_provider_trtc/lib/src/drivers_native.dart`: `578e9790ecde26a9`
+- `packages/flutter_realtime_provider_trtc/lib/src/drivers_native.dart`: `d75eade782a5a47d`
 - `packages/flutter_realtime_provider_trtc/lib/src/drivers_web.dart`: `fe51dd06f5757189`
 - `packages/flutter_realtime_sdk/pubspec.yaml`: `e6ae8e6ae3779bcb`
 - `packages/flutter_realtime_sdk_runtime/lib/src/provider_web_session_wrapper.dart`: `da906bcbf530dfe3`

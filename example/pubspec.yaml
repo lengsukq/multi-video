@@ -72,6 +72,12 @@ dev_dependencies:
     path: ../packages/flutter_realtime_media_artc
   flutter_realtime_media_chime:
     path: ../packages/flutter_realtime_media_chime
+  flutter_realtime_chat_agora:
+    path: ../packages/flutter_realtime_chat_agora
+  flutter_realtime_media_ivs:
+    path: ../packages/flutter_realtime_media_ivs
+  flutter_realtime_media_aws_desktop:
+    path: ../packages/flutter_realtime_media_aws_desktop
   flutter_realtime_media_livekit:
     path: ../packages/flutter_realtime_media_livekit
   flutter_realtime_media_trtc:

@@ -587,6 +587,72 @@ void main() {
     );
   }, skip: kIsWeb);
 
+  group('Host-owned local device preview fallback', () {
+    test('unsupported RTC adapter uses explicit hardware preview fallback',
+        () async {
+      final fallback = _FakePreviewMediaSessionFactory(providerId: 'livekit');
+      String? requestedProvider;
+      final sdk = RealtimeSdk(
+        plugins: [
+          RealtimeProviderPlugin(
+            id: 'trtc',
+            metadata: const RealtimeProviderMetadata(displayName: 'TRTC'),
+            mediaFactory: FakeMediaSessionFactory(providerId: 'trtc'),
+            renderer: const _FakeRenderer(),
+          ),
+        ],
+        services: RealtimeRoomServices(
+          localPreviewFallbackFactory: ({
+            required String providerId,
+            required MediaRole role,
+          }) {
+            requestedProvider = providerId;
+            return fallback.createLocalPreview(role: role);
+          },
+        ),
+      );
+      final preview = await sdk.createLocalPreview(
+        providerId: 'trtc',
+        role: MediaRole.participant,
+      );
+      expect(requestedProvider, 'trtc');
+      expect(preview, same(fallback.preview));
+      expect(fallback.localPreviewCalls, 1);
+    });
+
+    test('native provider preview takes precedence over host fallback',
+        () async {
+      final native = _FakePreviewMediaSessionFactory(providerId: 'livekit');
+      var fallbackCalls = 0;
+      final sdk = RealtimeSdk(
+        plugins: [
+          RealtimeProviderPlugin(
+            id: 'livekit',
+            metadata: const RealtimeProviderMetadata(displayName: 'LiveKit'),
+            mediaFactory: native,
+            renderer: const _FakeRenderer(),
+          ),
+        ],
+        services: RealtimeRoomServices(
+          localPreviewFallbackFactory: ({
+            required String providerId,
+            required MediaRole role,
+          }) {
+            fallbackCalls++;
+            return native.createLocalPreview(role: role);
+          },
+        ),
+      );
+      final preview = await sdk.createLocalPreview(
+        providerId: 'livekit',
+        role: MediaRole.participant,
+      );
+      expect(preview, same(native.preview));
+      expect(native.localPreviewCalls, 1);
+      expect(fallbackCalls, 0);
+    });
+  });
+
   group('RealtimeMediaAdapters', () {
     test('keeps session factory and renderer under one provider id', () {
       final factory = FakeMediaSessionFactory();
@@ -806,9 +872,18 @@ void main() {
               },
             ),
             RealtimeRuntimePlatform.windows: (
-              media: {'livekit', 'agora', 'trtc'},
-              chat: {'tencent-chat'},
-              public: {'livekit', 'agora', 'trtc', 'tencent-chat'},
+              media: {'livekit', 'agora', 'trtc', 'artc', 'chime', 'ivs'},
+              chat: {'agora-chat', 'ivs-chat', 'tencent-chat'},
+              public: {
+                'livekit',
+                'agora',
+                'trtc',
+                'artc',
+                'aws',
+                'agora-chat',
+                'ivs-chat',
+                'tencent-chat',
+              },
             ),
             RealtimeRuntimePlatform.web: (
               media: {'livekit', 'agora', 'trtc', 'artc', 'chime', 'ivs'},

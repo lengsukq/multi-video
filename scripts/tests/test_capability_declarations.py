@@ -8,6 +8,21 @@ from scripts import generate_capability_matrix as declarations
 
 
 class CapabilityDeclarationsTest(unittest.TestCase):
+    def test_nested_platform_sets_and_windows_chat_do_not_drop_mobile(self):
+        source = declarations.generate()
+        self.assertIn(
+            '| agora | agora | native | android, ios, macos, windows |',
+            source,
+        )
+        self.assertIn(
+            '| ivs-chat | ivs-chat | native | android, ios, macos, windows |',
+            source,
+        )
+        self.assertIn(
+            '| agora-chat | agora-chat | native | android, ios, macos, windows |',
+            source,
+        )
+
     def test_split_role_and_capability_parts_remain_in_declaration_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

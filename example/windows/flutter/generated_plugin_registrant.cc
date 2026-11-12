@@ -9,6 +9,7 @@
 #include <agora_rtc_engine/agora_rtc_engine_plugin.h>
 #include <connectivity_plus/connectivity_plus_windows_plugin.h>
 #include <flutter_realtime_media_agora/flutter_realtime_media_agora_plugin_c_api.h>
+#include <flutter_realtime_media_artc/flutter_realtime_media_artc_plugin_c_api.h>
 #include <flutter_realtime_media_livekit/flutter_realtime_media_livekit_plugin_c_api.h>
 #include <flutter_realtime_media_trtc/flutter_realtime_media_trtc_plugin_c_api.h>
 #include <flutter_realtime_screen_annotation/flutter_realtime_screen_annotation_plugin_c_api.h>
@@ -20,6 +21,7 @@
 #include <tencent_cloud_chat_sdk/tencent_cloud_chat_sdk_plugin_c_api.h>
 #include <tencent_rtc_sdk/trtc_plugin_c_api.h>
 #include <url_launcher_windows/url_launcher_windows.h>
+#include <webview_flutter_windows/webview_windows_plugin.h>
 
 void RegisterPlugins(flutter::PluginRegistry* registry) {
   AgoraRtcEnginePluginRegisterWithRegistrar(
@@ -28,6 +30,8 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("ConnectivityPlusWindowsPlugin"));
   FlutterRealtimeMediaAgoraPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FlutterRealtimeMediaAgoraPluginCApi"));
+  FlutterRealtimeMediaArtcPluginCApiRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FlutterRealtimeMediaArtcPluginCApi"));
   FlutterRealtimeMediaLivekitPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FlutterRealtimeMediaLivekitPluginCApi"));
   FlutterRealtimeMediaTrtcPluginCApiRegisterWithRegistrar(
@@ -50,4 +54,6 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("TrtcPluginCApi"));
   UrlLauncherWindowsRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("UrlLauncherWindows"));
+  WebviewWindowsPluginRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("WebviewWindowsPlugin"));
 }
