@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../models/chime_exception.dart';
+import 'chime_windows_webview2.dart';
 
 typedef NativeCallHandler = FutureOr<void> Function(MethodCall call);
 
@@ -19,6 +20,7 @@ class ChimeNativeChannel {
 
   Object? _owner;
   NativeCallHandler? _eventHandler;
+  ChimeWindowsWebview2Transport? _windowsTransport;
 
   void reserve(Object owner, NativeCallHandler eventHandler) {
     _ensureSupportedPlatform();
@@ -30,20 +32,37 @@ class ChimeNativeChannel {
     }
     _owner = owner;
     _eventHandler = eventHandler;
-    _channel.setMethodCallHandler(_handleNativeCall);
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      final transport = ChimeWindowsWebview2Transport(_handleNativeCall);
+      transport.reserve();
+      _windowsTransport = transport;
+    } else {
+      _channel.setMethodCallHandler(_handleNativeCall);
+    }
   }
 
   void release(Object owner) {
     if (!identical(_owner, owner)) return;
     _owner = null;
     _eventHandler = null;
-    _channel.setMethodCallHandler(null);
+    _windowsTransport?.release();
+    _windowsTransport = null;
+    if (defaultTargetPlatform != TargetPlatform.windows) {
+      _channel.setMethodCallHandler(null);
+    }
   }
 
   Future<Object?> invoke(String method, [Object? arguments]) async {
     _ensureSupportedPlatform();
     try {
-      final raw = await _channel.invokeMethod<Object?>(method, arguments);
+      final raw = defaultTargetPlatform == TargetPlatform.windows
+          ? await (_windowsTransport?.invoke(method, arguments) ??
+              Future<Map<String, dynamic>>.value({
+                'success': false,
+                'code': 'invalid_state',
+                'message': 'Chime Windows session is not reserved.',
+              }))
+          : await _channel.invokeMethod<Object?>(method, arguments);
       if (raw is! Map) {
         throw RealtimeException(
           code: RealtimeErrorCode.providerError,
@@ -74,7 +93,8 @@ class ChimeNativeChannel {
     } on MissingPluginException {
       throw const RealtimeException(
         code: RealtimeErrorCode.unsupportedPlatform,
-        message: 'AWS Chime meetings are supported on iOS and Android only.',
+        message:
+            'The AWS Chime native media bridge is not registered on this platform.',
       );
     }
   }
@@ -93,10 +113,17 @@ class ChimeNativeChannel {
     if (kIsWeb ||
         (defaultTargetPlatform != TargetPlatform.iOS &&
             defaultTargetPlatform != TargetPlatform.android &&
-            defaultTargetPlatform != TargetPlatform.macOS)) {
+            defaultTargetPlatform != TargetPlatform.macOS &&
+            !(defaultTargetPlatform == TargetPlatform.windows &&
+                const bool.fromEnvironment(
+                  'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL',
+                  defaultValue: true,
+                )))) {
       throw const RealtimeException(
         code: RealtimeErrorCode.unsupportedPlatform,
-        message: 'AWS Chime meetings are supported on iOS, Android, and macOS.',
+        message:
+            'AWS Chime is unavailable on this platform or its Windows WebView2 '
+            'experiment was explicitly disabled at build time.',
       );
     }
   }

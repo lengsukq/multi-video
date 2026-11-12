@@ -90,6 +90,19 @@ void main() {
     },
   );
 
+  test('Windows Chime transport is registered by default', () {
+    // Enabling the transport never grants camera/microphone permissions;
+    // availability is checked separately by ChimeSessionFactory.
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    expect(const bool.fromEnvironment(
+      'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL',
+      defaultValue: true,
+    ), isTrue);
+    final owner = Object();
+    ChimeNativeChannel.instance.reserve(owner, (_) {});
+    ChimeNativeChannel.instance.release(owner);
+  });
+
   test('macOS may join Chime as a listener when both media permissions are denied', () async {
     // ignore: deprecated_member_use
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
@@ -453,7 +466,7 @@ void main() {
         ),
       );
       // ignore: deprecated_member_use
-      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
       await expectLater(
         session.join(_joinInfo()),
         throwsA(

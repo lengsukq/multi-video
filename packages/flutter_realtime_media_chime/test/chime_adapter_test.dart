@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_realtime_media_aws_desktop/aws_windows_diagnostics.dart';
 import 'package:flutter_aws_chime/flutter_aws_chime.dart' as chime;
 import 'package:flutter_realtime_media_chime/flutter_realtime_media_chime.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
@@ -10,6 +11,131 @@ import 'support/fake_chime_session.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('Windows Chime defaults on but fails closed when runtime is missing', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    // Windows WebView2 is enabled without an explicit dart-define, but
+    // readiness must still depend on loading the real runtime.
+    expect(const bool.fromEnvironment(
+      'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL',
+      defaultValue: true,
+    ), isTrue);
+    expect(await probeNativeChimeAvailability(), isFalse);
+    final factory = ChimeSessionFactory();
+    final report = await factory.runPreJoinProbe(
+      const MediaPreJoinProbeRequest(
+        providerId: 'chime',
+        role: MediaRole.participant,
+        requirements: MediaPreJoinRequirements(),
+      ),
+    );
+    expect(report.checks.single.type, MediaPreJoinCheckType.provider);
+    expect(report.checks.single.isBlocking, isTrue);
+    // Keep injected probes testable without loading a real desktop browser.
+    final ready = await ChimeSessionFactory(
+      availabilityProbe: () async => true,
+    ).runPreJoinProbe(
+      const MediaPreJoinProbeRequest(
+        providerId: 'chime',
+        role: MediaRole.participant,
+        requirements: MediaPreJoinRequirements(),
+      ),
+    );
+    expect(
+      ready.checks.where((check) => check.type == MediaPreJoinCheckType.provider),
+      isEmpty,
+    );
+  });
+
+  test('Windows Chime reports SDK load failure rather than absent WebView2', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final report = await ChimeSessionFactory(
+      availabilityProbe: () async => false,
+      windowsDiagnosticProbe: () =>
+          AwsWindowsRuntimeDiagnostic.providerSdkUnavailable('chime'),
+    ).runPreJoinProbe(const MediaPreJoinProbeRequest(
+      providerId: 'chime',
+      role: MediaRole.participant,
+      requirements: MediaPreJoinRequirements(),
+    ));
+    final check = report.checks.single;
+    expect(check.status, MediaPreJoinStatus.failed);
+    expect(check.message, contains('JavaScript SDK did not initialize'));
+    expect(check.message, isNot(contains('not installed')));
+    expect(check.details,
+        {'diagnosticCode': 'providerSdkUnavailable'});
+  });
+
+  test('Windows Chime distinguishes an inaccessible camera from WebView2', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final report = await ChimeSessionFactory(
+      availabilityProbe: () async => true,
+      windowsDeviceProbe: () async => (microphones: 1, cameras: 0),
+    ).runPreJoinProbe(const MediaPreJoinProbeRequest(
+      providerId: 'chime',
+      role: MediaRole.participant,
+      requirements: MediaPreJoinRequirements(
+        microphone: MediaPreJoinRequirement.required,
+        camera: MediaPreJoinRequirement.required,
+      ),
+    ));
+    final camera = report.checks.singleWhere(
+      (check) => check.type == MediaPreJoinCheckType.cameraDevice);
+    expect(camera.status, MediaPreJoinStatus.failed);
+    expect(camera.message, contains('Windows Settings'));
+    expect(camera.message, isNot(contains('WebView2 Runtime was not detected')));
+  });
+
+  test('Windows Chime prejoin uses actual browser device enumeration', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final factory = ChimeSessionFactory(
+      availabilityProbe: () async => true,
+      windowsDeviceProbe: () async => (microphones: 2, cameras: 1),
+    );
+    final report = await factory.runPreJoinProbe(
+      const MediaPreJoinProbeRequest(
+        providerId: 'chime',
+        role: MediaRole.participant,
+        requirements: MediaPreJoinRequirements(
+          microphone: MediaPreJoinRequirement.required,
+          camera: MediaPreJoinRequirement.required,
+        ),
+      ),
+    );
+    final deviceChecks = report.checks.where((check) =>
+        check.type == MediaPreJoinCheckType.microphoneDevice ||
+        check.type == MediaPreJoinCheckType.cameraDevice);
+    expect(deviceChecks, hasLength(2));
+    expect(deviceChecks.every((check) =>
+        check.status == MediaPreJoinStatus.passed), isTrue);
+    expect(report.checks.singleWhere((check) =>
+        check.type == MediaPreJoinCheckType.providerNetwork).isBlocking, isFalse);
+  });
+
+  test('Chime pre-join still reports device and network limitations on iOS', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final report = await ChimeSessionFactory().runPreJoinProbe(
+      const MediaPreJoinProbeRequest(
+        providerId: 'chime',
+        role: MediaRole.participant,
+        requirements: MediaPreJoinRequirements(
+          microphone: MediaPreJoinRequirement.required,
+          camera: MediaPreJoinRequirement.recommended,
+          network: MediaPreJoinRequirement.recommended,
+        ),
+      ),
+    );
+    expect(report.checks, hasLength(3));
+    final mic = report.checks.singleWhere(
+      (check) => check.type == MediaPreJoinCheckType.microphoneDevice,
+    );
+    expect(mic.status, MediaPreJoinStatus.unsupported);
+    expect(mic.isBlocking, isTrue);
+  });
   Map<String, dynamic> backendJson({String role = 'participant'}) => {
     'contractVersion': 1,
     'provider': 'chime',

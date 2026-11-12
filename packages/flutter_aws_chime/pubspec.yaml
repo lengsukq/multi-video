@@ -17,6 +17,8 @@ dependencies:
     sdk: flutter
   flutter_realtime_processed_video:
     path: ../flutter_realtime_processed_video
+  flutter_realtime_media_aws_desktop:
+    path: ../flutter_realtime_media_aws_desktop
 
 dev_dependencies:
   flutter_test:
