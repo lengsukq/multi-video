@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
@@ -7,6 +8,26 @@ import 'ivs_join_info.dart';
 
 typedef IvsEngineFactory = Future<IvsEngine> Function();
 typedef IvsDeviceProbe = Future<IvsDeviceCounts> Function();
+typedef IvsAvailabilityProbe = Future<bool> Function();
+
+/// A Windows Stage bridge must explicitly opt into availability.
+///
+/// IVS publishes Web, Android and iOS broadcast SDKs. A working Windows
+/// implementation cannot be inferred merely because the Dart adapter exists.
+Future<bool> probeNativeIvsAvailability() async {
+  if (kIsWeb) return false;
+  if (defaultTargetPlatform != TargetPlatform.windows) return true;
+  const methods = MethodChannel(
+    'com.oneplusdream.flutter_realtime_media_ivs/methods',
+  );
+  try {
+    return await methods.invokeMethod<bool>('isAvailable') ?? false;
+  } on MissingPluginException {
+    return false;
+  } on PlatformException {
+    return false;
+  }
+}
 
 class IvsDeviceCounts {
   const IvsDeviceCounts({required this.microphones, required this.cameras});
@@ -48,7 +69,18 @@ class IvsEngineEvents {
   final void Function(Map<String, Object?> values)? onStats;
 }
 
-Future<IvsEngine> createNativeIvsEngine() async => _NativeIvsEngine();
+Future<IvsEngine> createNativeIvsEngine() async {
+  if (defaultTargetPlatform == TargetPlatform.windows &&
+      !await probeNativeIvsAvailability()) {
+    throw const RealtimeException(
+      code: RealtimeErrorCode.unsupportedPlatform,
+      providerId: 'ivs',
+      message:
+          'Amazon IVS Stage Windows media bridge is not installed or ready.',
+    );
+  }
+  return _NativeIvsEngine();
+}
 
 Future<IvsDeviceCounts> probeNativeIvsDevices() async {
   const channel = MethodChannel(

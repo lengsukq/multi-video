@@ -74,7 +74,8 @@ class ChimeNativeChannel {
     } on MissingPluginException {
       throw const RealtimeException(
         code: RealtimeErrorCode.unsupportedPlatform,
-        message: 'AWS Chime meetings are supported on iOS and Android only.',
+        message:
+            'The AWS Chime native media bridge is not registered on this platform.',
       );
     }
   }
@@ -96,7 +97,9 @@ class ChimeNativeChannel {
             defaultTargetPlatform != TargetPlatform.macOS)) {
       throw const RealtimeException(
         code: RealtimeErrorCode.unsupportedPlatform,
-        message: 'AWS Chime meetings are supported on iOS, Android, and macOS.',
+        message:
+            'AWS Chime Windows C++ media bridge is not implemented yet; '
+            'the existing bridge supports iOS, Android and macOS.',
       );
     }
   }

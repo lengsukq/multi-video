@@ -75,6 +75,56 @@ Map<String, dynamic> _joinJson({
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
+    'Windows IVS Stage rejects missing native bridge before joining',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const channel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_ivs/methods',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      expect(await probeNativeIvsAvailability(), isFalse);
+      await expectLater(
+        createNativeIvsEngine(),
+        throwsA(
+          isA<RealtimeException>().having(
+            (error) => error.code,
+            'code',
+            RealtimeErrorCode.unsupportedPlatform,
+          ),
+        ),
+      );
+      var enumerated = false;
+      final factory = IvsSessionFactory(
+        availabilityProbe: () async => false,
+        deviceProbe: () async {
+          enumerated = true;
+          return const IvsDeviceCounts(microphones: 1, cameras: 1);
+        },
+      );
+      final report = await factory.runPreJoinProbe(
+        const MediaPreJoinProbeRequest(
+          providerId: 'ivs',
+          role: MediaRole.participant,
+          requirements: MediaPreJoinRequirements(
+            microphone: MediaPreJoinRequirement.required,
+            camera: MediaPreJoinRequirement.required,
+          ),
+        ),
+      );
+      expect(report.checks.single.isBlocking, isTrue);
+      expect(report.checks.single.type, MediaPreJoinCheckType.provider);
+      expect(enumerated, isFalse);
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'isAvailable');
+        return true;
+      });
+      expect(await probeNativeIvsAvailability(), isTrue);
+    },
+  );
+  test(
     'IVS iOS screen capture replaces its single video stream and restores camera',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;

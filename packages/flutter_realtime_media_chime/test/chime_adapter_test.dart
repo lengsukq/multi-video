@@ -10,6 +10,58 @@ import 'support/fake_chime_session.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'Windows Chime pre-join blocks when native meeting bridge is absent',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const channel = MethodChannel('com.oneplusdream.aws.chime.methodChannel');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      expect(await probeNativeChimeAvailability(), isFalse);
+      final factory = ChimeSessionFactory();
+      final report = await factory.runPreJoinProbe(
+        const MediaPreJoinProbeRequest(
+          providerId: 'chime',
+          role: MediaRole.participant,
+          requirements: MediaPreJoinRequirements(),
+        ),
+      );
+      expect(report.checks.single.type, MediaPreJoinCheckType.provider);
+      expect(report.checks.single.isBlocking, isTrue);
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'isAvailable');
+        return true;
+      });
+      expect(await probeNativeChimeAvailability(), isTrue);
+    },
+  );
+
+  test(
+    'Chime pre-join still reports device and network limitations on iOS',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final report = await ChimeSessionFactory().runPreJoinProbe(
+        const MediaPreJoinProbeRequest(
+          providerId: 'chime',
+          role: MediaRole.participant,
+          requirements: MediaPreJoinRequirements(
+            microphone: MediaPreJoinRequirement.required,
+            camera: MediaPreJoinRequirement.recommended,
+            network: MediaPreJoinRequirement.recommended,
+          ),
+        ),
+      );
+      expect(report.checks, hasLength(3));
+      final mic = report.checks.singleWhere(
+        (check) => check.type == MediaPreJoinCheckType.microphoneDevice,
+      );
+      expect(mic.status, MediaPreJoinStatus.unsupported);
+      expect(mic.isBlocking, isTrue);
+    },
+  );
   Map<String, dynamic> backendJson({String role = 'participant'}) => {
     'contractVersion': 1,
     'provider': 'chime',

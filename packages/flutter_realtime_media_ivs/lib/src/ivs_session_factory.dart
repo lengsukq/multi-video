@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
 import 'ivs_engine.dart';
@@ -8,10 +9,12 @@ class IvsSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
   const IvsSessionFactory({
     this.engineFactory = createNativeIvsEngine,
     this.deviceProbe = probeNativeIvsDevices,
+    this.availabilityProbe = probeNativeIvsAvailability,
   });
 
   final IvsEngineFactory engineFactory;
   final IvsDeviceProbe deviceProbe;
+  final IvsAvailabilityProbe availabilityProbe;
 
   @override
   String get providerId => IvsJoinInfo.providerIdValue;
@@ -54,6 +57,19 @@ class IvsSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
     MediaPreJoinProbeRequest request,
   ) async {
     final checks = <MediaPreJoinCheck>[];
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.windows &&
+        !await availabilityProbe()) {
+      return const MediaPreJoinProbeResult([
+        MediaPreJoinCheck(
+          type: MediaPreJoinCheckType.provider,
+          status: MediaPreJoinStatus.unsupported,
+          severity: MediaPreJoinSeverity.blocking,
+          message:
+              'Amazon IVS Stage Windows media bridge is not installed or ready.',
+        ),
+      ]);
+    }
     final needsMicrophone =
         request.requirements.microphone != MediaPreJoinRequirement.skipped;
     final needsCamera =
