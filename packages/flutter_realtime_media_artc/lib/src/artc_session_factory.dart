@@ -56,16 +56,19 @@ class ArtcSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
     MediaPreJoinProbeRequest request,
   ) async {
     final checks = <MediaPreJoinCheck>[];
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS) {
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.windows)) {
       final available = await availabilityProbe();
       if (!available) {
         checks.add(
-          const MediaPreJoinCheck(
+          MediaPreJoinCheck(
             type: MediaPreJoinCheckType.provider,
             status: MediaPreJoinStatus.unsupported,
             severity: MediaPreJoinSeverity.blocking,
-            message:
-                'Alibaba ARTC macOS framework is not bundled with this SDK build.',
+            message: defaultTargetPlatform == TargetPlatform.windows
+                ? 'Alibaba ARTC Windows native engine is not installed or ready.'
+                : 'Alibaba ARTC macOS framework is not bundled with this SDK build.',
           ),
         );
       }

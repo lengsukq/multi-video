@@ -1,5 +1,10 @@
 export 'src/artc_engine.dart'
-    show ArtcEngine, ArtcEngineEvents, ArtcEngineFactory;
+    show
+        ArtcEngine,
+        ArtcEngineEvents,
+        ArtcEngineFactory,
+        probeNativeArtcAvailability,
+        createNativeArtcEngine;
 export 'src/artc_join_info.dart' show ArtcJoinInfo, ArtcRoomMode;
 export 'src/artc_media_session.dart'
     show

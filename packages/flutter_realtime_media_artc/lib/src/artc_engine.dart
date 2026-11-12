@@ -12,12 +12,15 @@ typedef ArtcAvailabilityProbe = Future<bool> Function();
 /// Returns whether the native ARTC runtime required by this platform is
 /// actually available.
 ///
-/// Android/iOS ship their provider dependency normally. macOS uses an
-/// optional Alibaba framework bundled by the SDK distribution, so the native
-/// plugin reports whether that framework was discovered at runtime.
+/// Android/iOS ship their provider dependency normally. macOS and Windows
+/// require an optional native ARTC runtime; do not report those platforms
+/// as available unless the native plugin explicitly confirms readiness.
 Future<bool> probeNativeArtcAvailability() async {
   if (kIsWeb) return false;
-  if (defaultTargetPlatform != TargetPlatform.macOS) return true;
+  if (defaultTargetPlatform != TargetPlatform.macOS &&
+      defaultTargetPlatform != TargetPlatform.windows) {
+    return true;
+  }
   try {
     return await _NativeArtcEngine._methodChannel.invokeMethod<bool>(
           'isAvailable',
@@ -72,8 +75,18 @@ class ArtcEngineEvents {
   final void Function()? onAuthWillExpire;
 }
 
-/// Creates the MethodChannel-backed engine on Android and iOS.
-Future<ArtcEngine> createNativeArtcEngine() async => _NativeArtcEngine();
+/// Prevents Windows from opening an unimplemented native event stream.
+Future<ArtcEngine> createNativeArtcEngine() async {
+  if (defaultTargetPlatform == TargetPlatform.windows &&
+      !await probeNativeArtcAvailability()) {
+    throw const RealtimeException(
+      code: RealtimeErrorCode.unsupportedPlatform,
+      providerId: ArtcJoinInfo.providerIdValue,
+      message: 'Alibaba ARTC Windows native engine is not installed or ready.',
+    );
+  }
+  return _NativeArtcEngine();
+}
 
 class _NativeArtcEngine implements ArtcEngine {
   static const MethodChannel _methodChannel = MethodChannel(
