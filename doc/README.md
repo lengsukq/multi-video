@@ -1,6 +1,6 @@
 # Flutter Realtime SDK 文档
 
-> 当前公开预览版：`flutter_realtime_sdk 0.1.0-dev.27`。此目录只维护 **10 份主题文档**；自动生成的 Driver 声明单独保留在 `generated/`。旧阶段性文档已合并或删除，仍可通过 Git 历史检索。
+> 当前公开预览版：`flutter_realtime_sdk 0.1.0-dev.28`。此目录只维护 **10 份主题文档**；自动生成的 Driver 声明单独保留在 `generated/`。旧阶段性文档已合并或删除，仍可通过 Git 历史检索。
 
 | 需求 | 唯一权威文档 | 内容 |
 | --- | --- | --- |
