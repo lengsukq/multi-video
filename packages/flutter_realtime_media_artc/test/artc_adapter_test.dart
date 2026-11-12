@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_realtime_media_artc/flutter_realtime_media_artc.dart';
+import 'package:flutter_realtime_media_artc/src/artc_engine.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -36,6 +37,25 @@ Map<String, Object?> response({MediaRole role = MediaRole.participant}) => {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('ARTC Windows offers display and application window capture sources',
+      () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final engine = _FakeArtcEngine();
+    final info = joinInfo();
+    final session = ArtcSessionFactory(engineFactory: () async => engine)
+        .createSession(info);
+    addTearDown(session.dispose);
+    await session.join(info);
+    final selector = session as MediaScreenShareSourceSelector;
+    final sources = await selector.listScreenShareSources();
+    expect(sources, hasLength(2));
+    expect(sources.last.kind, MediaScreenShareSourceKind.window);
+    await selector.selectScreenShareSource(sources.last);
+    expect(engine.selectedDesktopSource?.name, 'Editor');
+    await (session as InteractiveMediaSession).setScreenShareEnabled(true);
+    expect(engine.calls, contains('screen:true'));
+  });
   test('Windows ARTC exposes native screen share, not unimplemented camera switching', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -720,7 +740,25 @@ void main() {
   });
 }
 
-class _FakeArtcEngine implements ArtcEngine {
+class _FakeArtcEngine implements ArtcEngine, ArtcDesktopScreenCapture {
+  MediaScreenShareSource? selectedDesktopSource;
+  @override
+  Future<List<MediaScreenShareSource>> listDesktopScreenSources() async =>
+      const [
+        MediaScreenShareSource(
+          id: '1', name: 'Display',
+          kind: MediaScreenShareSourceKind.display,
+        ),
+        MediaScreenShareSource(
+          id: '314', name: 'Editor',
+          kind: MediaScreenShareSourceKind.window,
+        ),
+      ];
+
+  @override
+  Future<void> selectDesktopScreenSource(MediaScreenShareSource source) async {
+    selectedDesktopSource = source;
+  }
   Future<void>? pendingJoin;
   final List<ArtcJoinInfo> joined = [];
   final List<String> calls = [];

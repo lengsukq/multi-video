@@ -3,6 +3,27 @@ part of 'artc_media_session.dart';
 class _ArtcPublishing {
   _ArtcPublishing(this._session);
   final _ArtcMediaSession _session;
+
+  Future<List<MediaScreenShareSource>> listScreenShareSources() {
+    _session._requireActive();
+    final engine = _session._engine;
+    if (kIsWeb ||
+        defaultTargetPlatform != TargetPlatform.windows ||
+        engine is! ArtcDesktopScreenCapture) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        providerId: ArtcJoinInfo.providerIdValue,
+        message: 'ARTC desktop source selection is unavailable here.',
+      );
+    }
+    return (engine as ArtcDesktopScreenCapture).listDesktopScreenSources();
+  }
+
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
+    await listScreenShareSources();
+    final engine = _session._engine as ArtcDesktopScreenCapture;
+    await engine.selectDesktopScreenSource(source);
+  }
   String get providerId => _session.providerId;
   MediaCapabilities get capabilities => _session.capabilities;
   MediaRole get role => _session.role;

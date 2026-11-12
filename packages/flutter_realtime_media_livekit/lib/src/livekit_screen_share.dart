@@ -29,6 +29,46 @@ class _LiveKitScreenShare {
   }
 
   final LiveKitMediaSessionBase _session;
+  MediaScreenShareSource? selectedSource;
+
+  Future<List<MediaScreenShareSource>> listSources() async {
+    _session._ensureActive();
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.windows &&
+            defaultTargetPlatform != TargetPlatform.macOS)) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        providerId: _session.providerId,
+        message: 'Desktop capture source selection is unavailable here.',
+      );
+    }
+    final sources = await rtc.desktopCapturer.getSources(
+      types: [rtc.SourceType.Screen, rtc.SourceType.Window],
+    );
+    return [
+      for (final source in sources)
+        MediaScreenShareSource(
+          id: source.id,
+          name: source.name,
+          kind: source.type == rtc.SourceType.Window
+              ? MediaScreenShareSourceKind.window
+              : MediaScreenShareSourceKind.display,
+        ),
+    ];
+  }
+
+  Future<void> selectSource(MediaScreenShareSource source) async {
+    final available = await listSources();
+    if (!available.any((item) =>
+        item.id == source.id && item.kind == source.kind)) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.invalidArgument,
+        providerId: _session.providerId,
+        message: 'The selected screen or window is no longer available.',
+      );
+    }
+    selectedSource = source;
+  }
   bool _androidScreenShareServiceStarted = false;
   lk.LocalVideoTrack? _screenCaptureKitTrack;
   ProcessedVideoSource? _screenCaptureKitSource;

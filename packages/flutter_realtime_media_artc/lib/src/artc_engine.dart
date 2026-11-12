@@ -46,6 +46,13 @@ abstract interface class ArtcEngine {
   Future<void> dispose();
 }
 
+/// Optional Windows-only source interface. Android/iOS test engines remain
+/// compatible without implementing desktop capture methods.
+abstract interface class ArtcDesktopScreenCapture {
+  Future<List<MediaScreenShareSource>> listDesktopScreenSources();
+  Future<void> selectDesktopScreenSource(MediaScreenShareSource source);
+}
+
 /// Typed callbacks delivered to the session from ARTC notifications.
 class ArtcEngineEvents {
   const ArtcEngineEvents({
@@ -88,7 +95,7 @@ Future<ArtcEngine> createNativeArtcEngine() async {
   return _NativeArtcEngine();
 }
 
-class _NativeArtcEngine implements ArtcEngine {
+class _NativeArtcEngine implements ArtcEngine, ArtcDesktopScreenCapture {
   static const MethodChannel _methodChannel = MethodChannel(
     'com.oneplusdream.flutter_realtime_media_artc/methods',
   );
@@ -98,6 +105,46 @@ class _NativeArtcEngine implements ArtcEngine {
 
   StreamSubscription<dynamic>? _eventSubscription;
   ArtcEngineEvents _handlers = const ArtcEngineEvents();
+  MediaScreenShareSource? _selectedDesktopSource;
+
+  @override
+  Future<List<MediaScreenShareSource>> listDesktopScreenSources() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        providerId: ArtcJoinInfo.providerIdValue,
+        message: 'ARTC desktop source selection requires Windows.',
+      );
+    }
+    final raw = await _methodChannel.invokeListMethod<dynamic>(
+      'listScreenShareSources',
+    );
+    return [
+      for (final item in raw ?? const <dynamic>[])
+        if (item is Map)
+          MediaScreenShareSource(
+            id: item['id']?.toString() ?? '',
+            name: item['name']?.toString() ?? '',
+            kind: item['kind'] == 'window'
+                ? MediaScreenShareSourceKind.window
+                : MediaScreenShareSourceKind.display,
+          ),
+    ];
+  }
+
+  @override
+  Future<void> selectDesktopScreenSource(MediaScreenShareSource source) async {
+    final sources = await listDesktopScreenSources();
+    if (!sources.any((item) =>
+        item.id == source.id && item.kind == source.kind)) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.invalidArgument,
+        providerId: ArtcJoinInfo.providerIdValue,
+        message: 'The selected ARTC screen or window is no longer available.',
+      );
+    }
+    _selectedDesktopSource = source;
+  }
 
   @override
   Future<void> join(ArtcJoinInfo info, ArtcEngineEvents events) async {
@@ -129,7 +176,16 @@ class _NativeArtcEngine implements ArtcEngine {
 
   @override
   Future<void> setScreenShareEnabled(bool enabled) =>
-      _invoke('setScreenShareEnabled', {'enabled': enabled});
+      _invoke('setScreenShareEnabled', {
+        'enabled': enabled,
+        if (enabled && _selectedDesktopSource != null) ...{
+          'sourceId': _selectedDesktopSource!.id,
+          'sourceKind':
+              _selectedDesktopSource!.kind == MediaScreenShareSourceKind.window
+              ? 'window'
+              : 'display',
+        },
+      });
 
   @override
   Future<void> switchCamera(MediaCameraPosition position) =>

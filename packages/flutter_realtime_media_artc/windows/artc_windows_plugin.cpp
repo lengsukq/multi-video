@@ -7,13 +7,16 @@
 #include <flutter/texture_registrar.h>
 #include <windows.h>
 #include <atomic>
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
 #include <deque>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -33,6 +36,20 @@ std::string ArgString(const Map* args, const char* name) {
   if (it == args->end()) return {};
   const auto* value = std::get_if<std::string>(&it->second);
   return value ? *value : std::string();
+}
+
+std::optional<unsigned int> ParseScreenShareId(const std::string& value) {
+  if (value.empty() || value.front() == '-') return std::nullopt;
+  char* end = nullptr;
+  errno = 0;
+  const int base = value.rfind("0x", 0) == 0 ||
+          value.rfind("0X", 0) == 0 ? 16 : 10;
+  const auto parsed = std::strtoul(value.c_str(), &end, base);
+  if (errno || end == value.c_str() || *end != '\0' ||
+      parsed > std::numeric_limits<unsigned int>::max()) {
+    return std::nullopt;
+  }
+  return static_cast<unsigned int>(parsed);
 }
 bool ArgBool(const Map* args, const char* name) {
   if (!args) return false;
@@ -441,6 +458,35 @@ class ArtcWindowsPlugin final : public flutter::Plugin {
       Failure(std::move(result), "ARTC engine is not initialized", "invalid_state");
       return;
     }
+    if (method == "listScreenShareSources") {
+      flutter::EncodableList sources;
+      for (const auto kind : {
+          AliRTCSdk::AliEngineScreenShareDesktop,
+          AliRTCSdk::AliEngineScreenShareWindow}) {
+        auto* list = engine_->GetScreenShareSourceInfo(kind);
+        if (!list) continue;
+        const auto count = list->GetCount();
+        for (unsigned int i = 0; i < count; ++i) {
+          const auto item = list->GetSourceInfo(i);
+          const std::string source_id = item.sourceId.c_str();
+          if (!ParseScreenShareId(source_id)) continue;
+          const std::string source_name = item.sourceName.c_str();
+          sources.emplace_back(Map{
+            {Value("id"), Value(source_id)},
+            {Value("name"), Value(source_name.empty()
+                ? (kind == AliRTCSdk::AliEngineScreenShareWindow
+                    ? "Application window" : "Entire display")
+                : source_name)},
+            {Value("kind"), Value(
+                kind == AliRTCSdk::AliEngineScreenShareWindow
+                    ? "window" : "display")},
+          });
+        }
+        list->Release();
+      }
+      result->Success(Value(std::move(sources)));
+      return;
+    }
     if (method == "leave") {
       if (pending_leave_) {
         Failure(std::move(result), "ARTC leave already pending", "invalid_state");
@@ -492,14 +538,50 @@ class ArtcWindowsPlugin final : public flutter::Plugin {
       code = engine_->SendDataChannelMessage(message);
     } else if (method == "setScreenShareEnabled") {
       if (ArgBool(args, "enabled")) {
-        AliRTCSdk::AliEngineScreenShareRegion region;
-        region.originX = static_cast<float>(GetSystemMetrics(SM_XVIRTUALSCREEN));
-        region.originY = static_cast<float>(GetSystemMetrics(SM_YVIRTUALSCREEN));
-        region.width = static_cast<float>(GetSystemMetrics(SM_CXVIRTUALSCREEN));
-        region.height = static_cast<float>(GetSystemMetrics(SM_CYVIRTUALSCREEN));
         AliRTCSdk::AliEngineScreenShareConfig config;
         config.isPushStream = true;
-        code = engine_->StartScreenShareByScreenRegion(region, config);
+        const auto source_id = ArgString(args, "sourceId");
+        const auto source_kind = ArgString(args, "sourceKind");
+        if (!source_id.empty()) {
+          const auto id = ParseScreenShareId(source_id);
+          if (!id || (source_kind != "window" &&
+                      source_kind != "display")) {
+            Failure(std::move(result), "Invalid ARTC capture source ID",
+                    "invalid_argument");
+            return;
+          }
+          const auto vendor_kind = source_kind == "window"
+              ? AliRTCSdk::AliEngineScreenShareWindow
+              : AliRTCSdk::AliEngineScreenShareDesktop;
+          auto* list = engine_->GetScreenShareSourceInfo(vendor_kind);
+          bool found = false;
+          if (list) {
+            for (unsigned int i = 0; i < list->GetCount(); ++i) {
+              if (source_id == list->GetSourceInfo(i).sourceId.c_str()) {
+                found = true;
+                break;
+              }
+            }
+            list->Release();
+          }
+          if (!found) {
+            Failure(std::move(result), "Selected ARTC window is no longer available",
+                    "invalid_argument");
+            return;
+          }
+          code = source_kind == "window"
+              ? engine_->StartScreenShareByWindowId(*id, config)
+              : engine_->StartScreenShareByDesktopId(*id, config);
+        } else {
+          // Preserve existing direct SDK call behavior for host applications
+          // that don't opt into the new window/desktop chooser.
+          AliRTCSdk::AliEngineScreenShareRegion region;
+          region.originX = static_cast<float>(GetSystemMetrics(SM_XVIRTUALSCREEN));
+          region.originY = static_cast<float>(GetSystemMetrics(SM_YVIRTUALSCREEN));
+          region.width = static_cast<float>(GetSystemMetrics(SM_CXVIRTUALSCREEN));
+          region.height = static_cast<float>(GetSystemMetrics(SM_CYVIRTUALSCREEN));
+          code = engine_->StartScreenShareByScreenRegion(region, config);
+        }
       } else {
         code = engine_->StopScreenShare();
       }

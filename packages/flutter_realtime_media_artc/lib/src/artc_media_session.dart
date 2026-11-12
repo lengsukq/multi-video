@@ -31,7 +31,8 @@ abstract class _ArtcMediaSession
         MediaCredentialRefreshable,
         MediaDataPayloadSizer,
         ProcessedVideoSink,
-        MediaDeviceController {
+        MediaDeviceController,
+        MediaScreenShareSourceSelector {
   _ArtcMediaSession({required this.role, required this.engineFactory});
 
   final ArtcSessionEngineFactory engineFactory;
@@ -55,6 +56,12 @@ abstract class _ArtcMediaSession
   Duration cleanupTimeout = const Duration(seconds: 10);
 
   late final _publishing = _ArtcPublishing(this);
+  @override
+  Future<List<MediaScreenShareSource>> listScreenShareSources() =>
+      _publishing.listScreenShareSources();
+  @override
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) =>
+      _publishing.selectScreenShareSource(source);
   late final _credentials = _ArtcCredentialRefresh(this);
   late final _data = _ArtcDataMessenger(this);
   late final _mapper = _ArtcSnapshotMapper(this);

@@ -3,6 +3,27 @@ part of 'trtc_media_session.dart';
 class _TrtcPublishing {
   _TrtcPublishing(this._session);
   final _TrtcSessionBase _session;
+  Future<List<MediaScreenShareSource>> listScreenShareSources() async {
+    _session._requireConnected();
+    final engine = _session._engine;
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.windows &&
+            defaultTargetPlatform != TargetPlatform.macOS) ||
+        engine is! TrtcDesktopScreenCapture) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        providerId: TrtcJoinInfo.providerIdValue,
+        message: 'This TRTC adapter cannot enumerate desktop capture sources.',
+      );
+    }
+    return (engine as TrtcDesktopScreenCapture).listDesktopScreenSources();
+  }
+
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
+    await listScreenShareSources();
+    final engine = _session._engine;
+    (engine as TrtcDesktopScreenCapture).selectDesktopScreenSource(source);
+  }
   bool _audioStarted = false;
 
   void _ensureAudioStarted() {

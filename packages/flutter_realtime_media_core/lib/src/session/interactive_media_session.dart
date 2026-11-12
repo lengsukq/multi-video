@@ -46,3 +46,27 @@ abstract class InteractiveMediaSession extends MediaSession
   /// Selects an audio output device returned by [listAudioDevices].
   Future<void> selectAudioDevice(MediaAudioDevice device);
 }
+
+/// Provider-neutral desktop capture source, independent of vendor source IDs.
+enum MediaScreenShareSourceKind { display, window }
+
+class MediaScreenShareSource {
+  const MediaScreenShareSource({
+    required this.id,
+    required this.name,
+    required this.kind,
+    this.primary = false,
+  });
+
+  final String id;
+  final String name;
+  final MediaScreenShareSourceKind kind;
+  final bool primary;
+}
+
+/// Optional desktop feature. A host can offer a screen/window picker without
+/// requiring its UI to import LiveKit, Agora or any native SDK.
+abstract interface class MediaScreenShareSourceSelector {
+  Future<List<MediaScreenShareSource>> listScreenShareSources();
+  Future<void> selectScreenShareSource(MediaScreenShareSource source);
+}
