@@ -70,7 +70,9 @@ abstract class _IvsMediaSession
       canScreenShare:
           publisher && !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
       canSwitchCamera:
-          publisher && defaultTargetPlatform != TargetPlatform.macOS,
+          publisher &&
+          defaultTargetPlatform != TargetPlatform.macOS &&
+          defaultTargetPlatform != TargetPlatform.windows,
       canBlurBackground: publisher && _publishing._effectsPlatform,
       canReplaceBackgroundImage: publisher && _publishing._effectsPlatform,
       canEnumerateCameras: publisher && _publishing._effectsPlatform,

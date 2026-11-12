@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_realtime_media_aws_desktop/aws_windows_diagnostics.dart';
+import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
 import 'ivs_engine.dart';
@@ -8,10 +11,17 @@ class IvsSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
   const IvsSessionFactory({
     this.engineFactory = createNativeIvsEngine,
     this.deviceProbe = probeNativeIvsDevices,
+    this.availabilityProbe = probeNativeIvsAvailability,
+    this.windowsDiagnosticProbe = defaultWindowsIvsDiagnostic,
   });
 
   final IvsEngineFactory engineFactory;
   final IvsDeviceProbe deviceProbe;
+  final IvsAvailabilityProbe availabilityProbe;
+  final AwsWindowsRuntimeDiagnostic? Function() windowsDiagnosticProbe;
+
+  static AwsWindowsRuntimeDiagnostic? defaultWindowsIvsDiagnostic() =>
+      AwsWindowsWebView2Runtime.ivs.lastDiagnostic;
 
   @override
   String get providerId => IvsJoinInfo.providerIdValue;
@@ -54,6 +64,31 @@ class IvsSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
     MediaPreJoinProbeRequest request,
   ) async {
     final checks = <MediaPreJoinCheck>[];
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.windows &&
+        !await availabilityProbe()) {
+      final disabled = !const bool.fromEnvironment(
+        'AWS_IVS_WINDOWS_WEBVIEW2_EXPERIMENTAL', defaultValue: true);
+      final diagnostic = disabled ? null : windowsDiagnosticProbe();
+      return MediaPreJoinProbeResult([
+        MediaPreJoinCheck(
+          type: MediaPreJoinCheckType.provider,
+          status: diagnostic == null || diagnostic.isUnsupported
+              ? MediaPreJoinStatus.unsupported
+              : MediaPreJoinStatus.failed,
+          severity: MediaPreJoinSeverity.blocking,
+          message: disabled
+              ? 'Windows AWS IVS WebView2 was disabled in build settings. '
+                  'Rebuild without AWS_IVS_WINDOWS_WEBVIEW2_EXPERIMENTAL=false.'
+              : diagnostic?.userMessage ??
+                  'Windows IVS media readiness could not be verified. '
+                  'Check WebView2 and the bundled AWS IVS SDK diagnostics. '
+                  'AWS does not support embedded IVS WebViews.',
+          details: diagnostic == null ? null :
+              {'diagnosticCode': diagnostic.code.name},
+        ),
+      ]);
+    }
     final needsMicrophone =
         request.requirements.microphone != MediaPreJoinRequirement.skipped;
     final needsCamera =
@@ -71,7 +106,10 @@ class IvsSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
               severity: request.requirements.microphone.severity,
               message: devices.microphones > 0
                   ? 'Found ${devices.microphones} IVS microphone device(s).'
-                  : 'No IVS microphone device is available.',
+                  : !kIsWeb &&
+                        defaultTargetPlatform == TargetPlatform.windows
+                      ? awsWindowsDeviceUnavailableMessage('microphone')
+                      : 'No IVS microphone device is available.',
             ),
           );
         }
@@ -85,7 +123,10 @@ class IvsSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
               severity: request.requirements.camera.severity,
               message: devices.cameras > 0
                   ? 'Found ${devices.cameras} IVS camera device(s).'
-                  : 'No IVS camera device is available.',
+                  : !kIsWeb &&
+                        defaultTargetPlatform == TargetPlatform.windows
+                      ? awsWindowsDeviceUnavailableMessage('camera')
+                      : 'No IVS camera device is available.',
             ),
           );
         }
@@ -96,8 +137,12 @@ class IvsSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
               type: MediaPreJoinCheckType.microphoneDevice,
               status: MediaPreJoinStatus.unknown,
               severity: request.requirements.microphone.severity,
-              message: 'Unable to enumerate IVS microphone devices.',
-              details: error,
+              message: !kIsWeb &&
+                      defaultTargetPlatform == TargetPlatform.windows
+                  ? awsWindowsDeviceEnumerationFailure(error)
+                  : 'Unable to enumerate IVS microphone devices.',
+              details: defaultTargetPlatform == TargetPlatform.windows
+                  ? null : error,
             ),
           );
         }
@@ -107,8 +152,12 @@ class IvsSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
               type: MediaPreJoinCheckType.cameraDevice,
               status: MediaPreJoinStatus.unknown,
               severity: request.requirements.camera.severity,
-              message: 'Unable to enumerate IVS camera devices.',
-              details: error,
+              message: !kIsWeb &&
+                      defaultTargetPlatform == TargetPlatform.windows
+                  ? awsWindowsDeviceEnumerationFailure(error)
+                  : 'Unable to enumerate IVS camera devices.',
+              details: defaultTargetPlatform == TargetPlatform.windows
+                  ? null : error,
             ),
           );
         }

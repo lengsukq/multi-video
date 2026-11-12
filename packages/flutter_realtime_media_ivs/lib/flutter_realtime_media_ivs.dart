@@ -1,5 +1,11 @@
 export 'src/ivs_engine.dart'
-    show IvsDeviceCounts, IvsEngine, IvsEngineEvents, IvsEngineFactory;
+    show
+        IvsDeviceCounts,
+        IvsEngine,
+        IvsEngineEvents,
+        IvsEngineFactory,
+        probeNativeIvsAvailability,
+        createNativeIvsEngine;
 export 'src/ivs_join_info.dart' show IvsJoinInfo;
 export 'src/ivs_media_session.dart'
     show

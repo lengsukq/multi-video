@@ -1,16 +1,20 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_realtime_chat_core/flutter_realtime_chat_core.dart';
 
 import 'ivs_chat_engine.dart';
 import 'ivs_chat_join_info.dart';
+import 'ivs_chat_engine_windows.dart';
 
 Future<IvsChatEngine> createNativeIvsChatEngine() async =>
     _NativeIvsChatEngine();
 
-Future<IvsChatEngine> createPlatformIvsChatEngine() =>
-    createNativeIvsChatEngine();
+Future<IvsChatEngine> createPlatformIvsChatEngine() async =>
+    Platform.isWindows
+        ? WindowsIvsChatEngine()
+        : createNativeIvsChatEngine();
 
 class _NativeIvsChatEngine implements IvsChatEngine {
   static const MethodChannel _methods = MethodChannel(

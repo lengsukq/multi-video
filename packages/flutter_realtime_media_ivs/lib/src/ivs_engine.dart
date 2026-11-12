@@ -1,12 +1,40 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
 import 'ivs_join_info.dart';
+import 'ivs_windows_webview2.dart';
 
 typedef IvsEngineFactory = Future<IvsEngine> Function();
 typedef IvsDeviceProbe = Future<IvsDeviceCounts> Function();
+typedef IvsAvailabilityProbe = Future<bool> Function();
+
+/// Windows Stage WebView2 is enabled by default but must pass a runtime probe.
+///
+/// IVS publishes Web, Android and iOS broadcast SDKs. A working Windows
+/// implementation cannot be inferred merely because the Dart adapter exists.
+Future<bool> probeNativeIvsAvailability() async {
+  if (kIsWeb) return false;
+  if (defaultTargetPlatform != TargetPlatform.windows) return true;
+  // IVS Web Broadcast does not officially support embedded WebViews.
+  // The experimental path is enabled for Windows testing by default, but
+  // availability is never reported unless the browser/media probe succeeds.
+  // Hosts may opt out at build time by setting the flag to false.
+  if (!const bool.fromEnvironment(
+    'AWS_IVS_WINDOWS_WEBVIEW2_EXPERIMENTAL',
+    defaultValue: true,
+  )) {
+    return false;
+  }
+  try {
+    return await AwsWindowsWebView2Runtime.ivs.probe();
+  } on Exception {
+    return false;
+  }
+}
 
 class IvsDeviceCounts {
   const IvsDeviceCounts({required this.microphones, required this.cameras});
@@ -48,9 +76,40 @@ class IvsEngineEvents {
   final void Function(Map<String, Object?> values)? onStats;
 }
 
-Future<IvsEngine> createNativeIvsEngine() async => _NativeIvsEngine();
+Future<IvsEngine> createNativeIvsEngine() async {
+  if (defaultTargetPlatform == TargetPlatform.windows) {
+    if (!await probeNativeIvsAvailability()) {
+      final diagnostic = AwsWindowsWebView2Runtime.ivs.lastDiagnostic;
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedPlatform,
+        providerId: 'ivs',
+        message: diagnostic?.userMessage ??
+            'Amazon IVS Stage Windows WebView2 is unavailable or disabled by '
+                'build configuration. AWS does not support IVS WebViews.',
+      );
+    }
+    return WindowsIvsWebView2Engine();
+  }
+  return _NativeIvsEngine();
+}
 
 Future<IvsDeviceCounts> probeNativeIvsDevices() async {
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    if (!await probeNativeIvsAvailability()) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.unsupportedPlatform,
+        providerId: 'ivs',
+        message: 'IVS Windows device probe requires the experimental runtime.',
+      );
+    }
+    final result = await AwsWindowsWebView2Runtime.ivs.invoke('probeDevices');
+    final devices =
+        Map<String, dynamic>.from(result as Map<Object?, Object?>);
+    return IvsDeviceCounts(
+      microphones: (devices['microphones'] as num?)?.toInt() ?? 0,
+      cameras: (devices['cameras'] as num?)?.toInt() ?? 0,
+    );
+  }
   const channel = MethodChannel(
     'com.oneplusdream.flutter_realtime_media_ivs/methods',
   );

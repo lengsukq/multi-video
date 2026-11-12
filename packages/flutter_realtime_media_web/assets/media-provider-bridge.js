@@ -1044,7 +1044,16 @@
           }
           return;
         }
-        if (name === "switchCamera") return;
+        if (name === "exchangeToken") {
+          if (!args.token || typeof stage.exchangeToken !== "function") {
+            throw new Error("IVS token exchange requires a supported SDK and a token.");
+          }
+          await stage.exchangeToken(args.token);
+          return;
+        }
+        if (name === "switchCamera") {
+          throw new Error("IVS desktop camera position switching is unavailable; select a camera device instead.");
+        }
         if (name === "selectDevice") {
           const selected = args.device || args;
           if (selected.kind !== "camera" && selected.kind !== "microphone") return;
@@ -1162,6 +1171,7 @@
     let remoteAudioElement = null;
     let microphones = [];
     let selectedMicrophoneId = null;
+    let activeMicrophoneId = null;
     let selectedCameraId = null;
     let contentShareStream = null;
     let contentShareStarted = false;
@@ -1307,6 +1317,7 @@
           }
         }
         microphones = [];
+        activeMicrophoneId = null;
         const connected = new Promise((resolve, reject) => {
           const timeout = global.setTimeout(() => {
             settleStart?.(new Error("Chime signaling timed out after 30 seconds. Check network and AWS media region."));
@@ -1338,9 +1349,15 @@
             if (!microphones.length) {
               const available = await audioVideo.listAudioInputDevices();
               if (!available.length) throw new Error("No Chime microphone is available.");
-              const selected = selectedMicrophoneId || available[0].deviceId;
-              await audioVideo.startAudioInput(selected);
               microphones = available;
+            }
+            const selected = selectedMicrophoneId || microphones[0]?.deviceId;
+            if (!selected) throw new Error("Chime could not resolve a microphone input device.");
+            // Reuse the capture on ordinary mute/unmute; switch input only
+            // when the user selected a different device while muted.
+            if (activeMicrophoneId !== selected) {
+              await audioVideo.startAudioInput(selected);
+              activeMicrophoneId = selected;
             }
             const unmuted = await audioVideo.realtimeUnmuteLocalAudio();
             if (unmuted === false) throw new Error("Chime failed to unmute local audio.");
@@ -1385,7 +1402,10 @@
           const selected = args.device || args;
           if (selected.kind === "microphone") {
             if (!selected.id) throw new Error("Chime microphone device id is required.");
-            if (!session.localMuted) await audioVideo.startAudioInput(selected.id);
+            if (!session.localMuted) {
+              await audioVideo.startAudioInput(selected.id);
+              activeMicrophoneId = selected.id;
+            }
             selectedMicrophoneId = selected.id;
           }
           if (selected.kind === "camera") {
