@@ -230,6 +230,30 @@ class RealtimeRoomUiController extends ChangeNotifier {
       _interactive != null && _snapshot.capabilities.canPublishVideo;
   bool get canShareScreen =>
       _interactive != null && _snapshot.capabilities.canScreenShare;
+  bool get canSelectScreenShareSource =>
+      canShareScreen &&
+      room.media.session is MediaScreenShareSourceSelector;
+
+  Future<List<MediaScreenShareSource>> listScreenShareSources() {
+    final session = room.media.session;
+    if (session is! MediaScreenShareSourceSelector) {
+      return Future.value(const <MediaScreenShareSource>[]);
+    }
+    return (session as MediaScreenShareSourceSelector)
+        .listScreenShareSources();
+  }
+
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
+    final session = room.media.session;
+    if (session is! MediaScreenShareSourceSelector) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        message: 'This RTC provider does not support selecting screen sources.',
+      );
+    }
+    await (session as MediaScreenShareSourceSelector)
+        .selectScreenShareSource(source);
+  }
   bool get canSwitchCamera =>
       _interactive != null && _snapshot.capabilities.canSwitchCamera;
   bool get canListAudioOutputs =>
@@ -370,13 +394,42 @@ class RealtimeRoomUiController extends ChangeNotifier {
     );
   }
 
-  Future<void> toggleScreenShare() async {
+  Future<void> toggleScreenShare({MediaScreenShareSource? source}) async {
     if (!canShareScreen) return;
     await execute(
       RealtimeRoomUiAction.screenShare,
-      () => _interactive!.setScreenShareEnabled(
-        !_snapshot.localScreenShareEnabled,
-      ),
+      () async {
+        if (!room.media.snapshot.localScreenShareEnabled) {
+          // Prefer the room's revisioned owner if available. For standalone
+          // RTC rooms, a remote screen track is the best available signal;
+          // true simultaneous arbitration still requires a backend lease.
+          final occupied =
+              room.media.snapshot.contentShareTrack?.isLocal == false;
+          if (occupied) {
+            throw const RealtimeException(
+              code: RealtimeErrorCode.roomConflict,
+              domain: 'sharedContent',
+              operation: 'screenShare',
+              message: 'Another participant is already sharing their screen.',
+              recoverable: true,
+              suggestedAction: 'wait-for-screen-sharing-to-end',
+            );
+          }
+        }
+        if (source != null) await selectScreenShareSource(source);
+        final requested = !_snapshot.localScreenShareEnabled;
+        await _interactive!.setScreenShareEnabled(requested);
+        // A local preview frame alone does not confirm that the SDK actually
+        // published a remote-readable screen track.
+        if (room.media.snapshot.localScreenShareEnabled != requested) {
+          throw RealtimeException(
+            code: RealtimeErrorCode.providerError,
+            providerId: room.media.session.providerId,
+            operation: 'screenShare',
+            message: 'RTC provider did not confirm screen-share state.',
+          );
+        }
+      },
     );
   }
 

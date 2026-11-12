@@ -8,6 +8,7 @@ import 'room_ui_controller.dart';
 import 'room_control_components.dart';
 import 'realtime_host_tools_panel.dart';
 import 'realtime_role_presentation.dart';
+import 'realtime_desktop_screen_share_picker.dart';
 
 class RoomLiveComponentsRealtimeHostToolsPanelState
     extends State<RealtimeHostToolsPanel> {
@@ -471,7 +472,10 @@ class RoomLiveComponentsRealtimeHostToolsPanelState
                                   )
                               ? () async {
                                   try {
-                                    await controller.toggleScreenShare();
+                                    await toggleScreenShareWithPicker(
+                                      context,
+                                      controller,
+                                    );
                                   } catch (err) {
                                     if (mounted) {
                                       setState(() => _error = err);
