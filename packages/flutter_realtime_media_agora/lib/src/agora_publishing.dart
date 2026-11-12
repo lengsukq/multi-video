@@ -16,6 +16,31 @@ class _AgoraPublishing {
   bool _localVideoEnabled = false;
   bool _localMuted = true;
   final AgoraScreenCapture _screenCapture = const AgoraScreenCapture();
+  Timer? _screenShareAnnouncementTimer;
+
+  void _stopScreenShareAnnouncements() {
+    _screenShareAnnouncementTimer?.cancel();
+    _screenShareAnnouncementTimer = null;
+  }
+
+  void _startScreenShareAnnouncements() {
+    _stopScreenShareAnnouncements();
+    // Provider metadata is transient, unlike the video track. Keep it
+    // discoverable for late joiners and peers that missed the first signal.
+    _screenShareAnnouncementTimer = Timer.periodic(
+      const Duration(seconds: 4),
+      (_) {
+        if (!_localScreenShareEnabled ||
+            _session._disposed ||
+            _session._joinCancelled ||
+            _session._engine == null) {
+          _stopScreenShareAnnouncements();
+          return;
+        }
+        unawaited(_session._data._announceScreenShareState(true));
+      },
+    );
+  }
   final _iosScreenSink = NativeProcessedVideoSink(providerId: 'agora');
   ProcessedVideoSource? _iosScreenCaptureSource;
   int? _iosScreenTrackId;
@@ -181,10 +206,21 @@ class _AgoraPublishing {
         ? _iosScreenTrackId
         : _customVideoTrackId,
     publishScreenCaptureAudio: false,
+    // Only Android/iOS use publishScreenCaptureVideo. Desktop capture requires
+    // publishScreenTrack or peers receive a black screen despite local preview.
     publishScreenCaptureVideo:
         _session._canPublish &&
         _localScreenShareEnabled &&
-        _iosScreenTrackId == null,
+        _iosScreenTrackId == null &&
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS),
+    publishScreenTrack:
+        _session._canPublish &&
+        _localScreenShareEnabled &&
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.macOS),
     enableAudioRecordingOrPlayout: true,
   );
 
@@ -218,7 +254,10 @@ class _AgoraPublishing {
       } else {
         await _processedSink.setEnabled(enabled);
       }
-      await engine.muteLocalVideoStream(!enabled);
+      // Muting outgoing camera video must not mute an active screen track.
+      await engine.muteLocalVideoStream(
+        !enabled && !_localScreenShareEnabled,
+      );
       _localVideoEnabled = enabled;
       await _updatePublishOptions();
       final localId = _session._localUid;
@@ -292,6 +331,7 @@ class _AgoraPublishing {
         }
         _localScreenShareEnabled = true;
         try {
+          await engine.muteLocalVideoStream(false);
           await _updatePublishOptions();
         } catch (_) {
           _localScreenShareEnabled = false;
@@ -300,8 +340,12 @@ class _AgoraPublishing {
           } else {
             await _screenCapture.stop(engine);
           }
+          if (!_localVideoEnabled) {
+            await engine.muteLocalVideoStream(true);
+          }
           rethrow;
         }
+        _startScreenShareAnnouncements();
         final uid = _session._localUid;
         if (uid != null) {
           final track = AgoraMediaVideoTrack(
@@ -315,6 +359,7 @@ class _AgoraPublishing {
           _session._emit(MediaTrackPublished(track));
         }
       } else {
+        _stopScreenShareAnnouncements();
         // Announce while screen video is still published. Agora can reject
         // data-stream packets after the last AV track is unpublished.
         await _session._data._announceScreenShareState(false);
@@ -336,6 +381,9 @@ class _AgoraPublishing {
           );
         }
         await _updatePublishOptions();
+        if (!_localVideoEnabled) {
+          await engine.muteLocalVideoStream(true);
+        }
       }
       _session._refreshSnapshot();
       // Metadata is separate from media publication. If data transport fails,

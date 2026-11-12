@@ -38,6 +38,33 @@ void main() {
       );
     }
   });
+
+  testWidgets('macOS receiver binds remote screen to Agora screen source', (
+    tester,
+  ) async {
+    late agora.AgoraVideoView rendered;
+    await tester.pumpWidget(
+      Builder(
+        builder: (context) {
+          rendered = const AgoraTrackRenderer().buildViewWithFit(
+            context,
+            AgoraMediaVideoTrack(
+              engine: _Engine(),
+              channelId: 'cross-platform',
+              uid: 998,
+              local: false,
+              screenShare: true,
+            ),
+          ) as agora.AgoraVideoView;
+          return const SizedBox.shrink();
+        },
+      ),
+    );
+    expect(
+      rendered.controller.canvas.sourceType,
+      agora.VideoSourceType.videoSourceScreen,
+    );
+  });
 }
 
 class _Engine extends Fake implements agora.RtcEngine {}

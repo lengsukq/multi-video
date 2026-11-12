@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart' as agora;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_realtime_media_agora/flutter_realtime_media_agora.dart';
+import 'package:flutter_realtime_media_agora/src/agora_screen_share_signals.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,6 +24,7 @@ class _ScreenEngine extends Fake implements agora.RtcEngine {
   int updates = 0;
   final List<bool> captureEnableCalls = [];
   final List<bool> audioMuteCalls = [];
+  final List<bool> videoMuteCalls = [];
   bool failStart = false;
   final List<Uint8List> announcedMessages = [];
   final List<int> selectedDesktopDisplays = [];
@@ -68,6 +70,10 @@ class _ScreenEngine extends Fake implements agora.RtcEngine {
   @override
   Future<void> muteLocalAudioStream(bool mute) async {
     audioMuteCalls.add(mute);
+  }
+  @override
+  Future<void> muteLocalVideoStream(bool mute) async {
+    videoMuteCalls.add(mute);
   }
   @override
   Future<void> enableVideo() async {}
@@ -175,6 +181,40 @@ void main() {
       await session.dispose();
     },
   );
+
+  test('macOS sees remote Windows screen after camera turns off', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    final engine = _ScreenEngine();
+    final session = AgoraInteractiveSession(engineFactory: () => engine);
+    await session.join(_credential());
+    const remoteUid = 998;
+    const connection = agora.RtcConnection(
+      channelId: 'channel',
+      localUid: 123,
+    );
+    engine.handler?.onUserJoined?.call(connection, remoteUid, 0);
+    engine.handler?.onUserMuteVideo?.call(connection, remoteUid, true);
+    final start = encodeAgoraScreenShareSignal(AgoraScreenShareSignal.started);
+    engine.handler?.onStreamMessage?.call(
+      connection, remoteUid, 6, start, start.length, 0,
+    );
+    expect(session.snapshot.contentShareTrack?.isScreenShare, isTrue);
+    expect(session.snapshot.contentShareTrack?.participantId, '$remoteUid');
+    engine.handler?.onRemoteVideoStateChanged?.call(
+      connection,
+      remoteUid,
+      agora.RemoteVideoState.remoteVideoStateStopped,
+      agora.RemoteVideoStateReason.values.first,
+      0,
+    );
+    expect(session.snapshot.contentShareTrack?.isScreenShare, isTrue);
+    final stop = encodeAgoraScreenShareSignal(AgoraScreenShareSignal.stopped);
+    engine.handler?.onStreamMessage?.call(
+      connection, remoteUid, 6, stop, stop.length, 0,
+    );
+    expect(session.snapshot.contentShareTrack, isNull);
+    await session.dispose();
+  });
 
   test(
     'Agora Android publishes the captured screen and restores camera options on stop',

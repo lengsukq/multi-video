@@ -179,6 +179,7 @@ abstract class _AgoraMediaSession
     }
 
     _joinInfo = rawJoinInfo;
+    _publishing._stopScreenShareAnnouncements();
     _publishing._localMuted = true;
     _publishing._localVideoEnabled = false;
     _publishing._localScreenShareEnabled = false;
@@ -364,6 +365,7 @@ abstract class _AgoraMediaSession
   }
 
   Future<void> _tearDownEngine() async {
+    _publishing._stopScreenShareAnnouncements();
     final engine = _engine;
     final handler = _eventHandler;
     final customTrackId = _publishing._customVideoTrackId;

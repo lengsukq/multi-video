@@ -66,6 +66,9 @@ class AgoraTrackRenderer extends MediaTrackRenderer {
           uid: track.uid,
           renderMode: renderMode,
           mirrorMode: agora.VideoMirrorModeType.videoMirrorModeDisabled,
+          sourceType: track.isScreenShare
+              ? agora.VideoSourceType.videoSourceScreen
+              : agora.VideoSourceType.videoSourceCamera,
         ),
         connection: agora.RtcConnection(channelId: track.channelId),
       ),
