@@ -36,7 +36,11 @@ void main() {
     (tester) async {
       expect(
         defaultTargetPlatform,
-        anyOf(TargetPlatform.android, TargetPlatform.iOS),
+        anyOf(
+          TargetPlatform.android,
+          TargetPlatform.iOS,
+          TargetPlatform.windows,
+        ),
       );
       final role = MediaRole.tryParse(_roleName);
       if (role == null) {
@@ -102,8 +106,10 @@ void main() {
           await interactive
               .setVideoEnabled(true)
               .timeout(const Duration(seconds: 20));
-          await interactive.switchCamera(MediaCameraPosition.back);
-          await interactive.switchCamera(MediaCameraPosition.front);
+          if (defaultTargetPlatform != TargetPlatform.windows) {
+            await interactive.switchCamera(MediaCameraPosition.back);
+            await interactive.switchCamera(MediaCameraPosition.front);
+          }
           expect(session.snapshot.localVideoEnabled, isTrue);
         }
       }

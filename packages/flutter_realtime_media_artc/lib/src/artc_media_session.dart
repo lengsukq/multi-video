@@ -198,7 +198,8 @@ abstract class _ArtcMediaSession
     if (role != MediaRole.viewer &&
         !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS)) {
+            defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.windows)) {
       _capabilities = _capabilities.copyWith(canScreenShare: true);
     }
     _setState(MediaSessionState.joining);

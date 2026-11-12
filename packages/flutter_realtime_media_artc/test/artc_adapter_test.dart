@@ -36,6 +36,78 @@ Map<String, Object?> response({MediaRole role = MediaRole.participant}) => {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('Windows ARTC exposes native screen share, not unimplemented camera switching', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final engine = _FakeArtcEngine();
+    final session = ArtcSessionFactory(engineFactory: () async => engine)
+        .createSession(joinInfo());
+    addTearDown(session.dispose);
+    await session.join(joinInfo());
+    expect(session.capabilities.canScreenShare, isTrue);
+    expect(session.capabilities.canSwitchCamera, isFalse);
+    final interactive = session as InteractiveMediaSession;
+    await interactive.setScreenShareEnabled(true);
+    expect(engine.calls, contains('screen:true'));
+    expect(session.snapshot.localScreenShareEnabled, isTrue);
+    await expectLater(
+      interactive.switchCamera(MediaCameraPosition.back),
+      throwsA(isA<RealtimeException>().having(
+        (error) => error.code,
+        'error code',
+        RealtimeErrorCode.unsupportedFeature,
+      )),
+    );
+    expect(engine.calls, isNot(contains('camera:back')));
+    await interactive.setScreenShareEnabled(false);
+    expect(engine.calls, contains('screen:false'));
+    expect(session.snapshot.localScreenShareEnabled, isFalse);
+  });
+  test('Windows ARTC pre-join blocks without a real native bridge', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final factory = ArtcSessionFactory(
+      availabilityProbe: () async => false,
+    );
+    final result = await factory.runPreJoinProbe(
+      const MediaPreJoinProbeRequest(
+        providerId: 'artc',
+        role: MediaRole.participant,
+        requirements: MediaPreJoinRequirements(),
+      ),
+    );
+    final provider = result.checks.singleWhere(
+      (check) => check.type == MediaPreJoinCheckType.provider,
+    );
+    expect(provider.isBlocking, isTrue);
+    expect(provider.status, MediaPreJoinStatus.unsupported);
+    expect(provider.message, contains('Windows native engine'));
+  });
+
+  test('Windows ARTC probe rejects missing plugin and accepts ready bridge', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    const methods = MethodChannel(
+      'com.oneplusdream.flutter_realtime_media_artc/methods',
+    );
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    addTearDown(() => messenger.setMockMethodCallHandler(methods, null));
+    expect(await probeNativeArtcAvailability(), isFalse);
+    await expectLater(
+      createNativeArtcEngine(),
+      throwsA(isA<RealtimeException>().having(
+        (error) => error.code,
+        'code',
+        RealtimeErrorCode.unsupportedPlatform,
+      )),
+    );
+    messenger.setMockMethodCallHandler(methods, (call) async {
+      expect(call.method, 'isAvailable');
+      return true;
+    });
+    expect(await probeNativeArtcAvailability(), isTrue);
+  });
   for (final disposing in [false, true]) {
     test(
       'late ARTC refresh preserves the next active owner after $disposing',
