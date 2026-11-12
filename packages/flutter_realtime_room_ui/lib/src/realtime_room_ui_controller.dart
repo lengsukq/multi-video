@@ -335,7 +335,31 @@ class RealtimeRoomUiController extends ChangeNotifier {
 
   Future<void> toggleMicrophone() async {
     if (!canUseMicrophone) return;
-    await execute(RealtimeRoomUiAction.microphone, _interactive!.toggleMute);
+    await execute(RealtimeRoomUiAction.microphone, () async {
+      // The room snapshot is the single source of truth. Do not delegate to
+      // provider-specific toggleMute implementations that can carry stale
+      // private state after reconnect or an initial muted join.
+      final requestedMuted = !room.media.snapshot.localMuted;
+      await _interactive!.setMuted(requestedMuted);
+      // An acknowledged command without a matching provider snapshot must
+      // not be presented as a successfully opened microphone.
+      final actual = room.media.snapshot.localMuted;
+      if (actual != requestedMuted) {
+        throw RealtimeException(
+          code: RealtimeErrorCode.providerError,
+          domain: 'media',
+          providerId: room.media.session.providerId,
+          operation: 'setMuted',
+          recoverable: true,
+          message:
+              'Microphone state was not confirmed by the RTC provider.',
+        );
+      }
+      if (!_disposed) {
+        _snapshot = room.media.snapshot;
+        notifyListeners();
+      }
+    });
   }
 
   Future<void> toggleCamera() async {
