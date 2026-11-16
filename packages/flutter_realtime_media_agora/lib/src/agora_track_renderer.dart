@@ -1,4 +1,6 @@
 import 'package:agora_rtc_engine/agora_rtc_engine.dart' as agora;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
@@ -42,11 +44,16 @@ class AgoraTrackRenderer extends MediaTrackRenderer {
     final renderMode = fit == BoxFit.contain
         ? agora.RenderModeType.renderModeFit
         : agora.RenderModeType.renderModeHidden;
+    // Avoid Android platform-view SurfaceProducer frame acquisition failures
+    // on recent Flutter engines. Keep the existing desktop renderer unchanged.
+    final androidTexture =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
     if (track.isLocal) {
       return agora.AgoraVideoView(
         controller: agora.VideoViewController(
           rtcEngine: track.engine,
+          useFlutterTexture: androidTexture,
           canvas: agora.VideoCanvas(
             uid: 0,
             renderMode: renderMode,
@@ -62,6 +69,7 @@ class AgoraTrackRenderer extends MediaTrackRenderer {
     return agora.AgoraVideoView(
       controller: agora.VideoViewController.remote(
         rtcEngine: track.engine,
+        useFlutterTexture: androidTexture,
         canvas: agora.VideoCanvas(
           uid: track.uid,
           renderMode: renderMode,

@@ -21,6 +21,8 @@ class _ScreenEngine extends Fake implements agora.RtcEngine {
   agora.RtcEngineEventHandler? handler;
   int startCount = 0;
   int stopCount = 0;
+  final List<agora.VideoSourceType> previewStarts = [];
+  final List<agora.VideoSourceType> previewStops = [];
   int updates = 0;
   final List<bool> captureEnableCalls = [];
   final List<bool> audioMuteCalls = [];
@@ -128,6 +130,21 @@ class _ScreenEngine extends Fake implements agora.RtcEngine {
   @override
   Future<void> stopScreenCapture() async {
     stopCount++;
+  }
+  @override
+  Future<void> startPreview({
+    agora.VideoSourceType sourceType =
+        agora.VideoSourceType.videoSourceCameraPrimary,
+  }) async {
+    previewStarts.add(sourceType);
+  }
+
+  @override
+  Future<void> stopPreview({
+    agora.VideoSourceType sourceType =
+        agora.VideoSourceType.videoSourceCameraPrimary,
+  }) async {
+    previewStops.add(sourceType);
   }
 
   @override
@@ -324,6 +341,7 @@ void main() {
       });
       await session.setScreenShareEnabled(true);
       expect(engine.startCount, 1);
+      expect(engine.previewStarts, [agora.VideoSourceType.videoSourceScreen]);
       expect(session.snapshot.localScreenShareEnabled, isTrue);
       expect(session.snapshot.contentShareTrack?.isScreenShare, isTrue);
       await Future<void>.delayed(Duration.zero);
@@ -335,6 +353,7 @@ void main() {
       expect(engine.startCount, 1);
       await session.setScreenShareEnabled(false);
       expect(engine.stopCount, 1);
+      expect(engine.previewStops, [agora.VideoSourceType.videoSourceScreen]);
       expect(engine.mediaOptions.last.publishScreenCaptureVideo, isFalse);
       expect(engine.videoMuteCalls, [false, true],
           reason: 'Restore camera-off state after screen share ends');
@@ -362,6 +381,7 @@ void main() {
       expect(session.snapshot.localScreenShareEnabled, isFalse);
       expect(session.snapshot.contentShareTrack, isNull);
       expect(engine.updates, 0);
+      expect(engine.previewStarts, isEmpty);
       await session.dispose();
     },
   );
