@@ -527,4 +527,53 @@ void main() {
     );
     expect(ChimeEvent.fromJson({'type': 'futureEvent'}), isNull);
   });
+
+  test(
+    'multiplexes non-chat logical topics over chat and unwraps received envelopes',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final session = activeSession = ChimeMeetingSession();
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_channel, (call) async {
+            calls.add(call);
+            return _success();
+          });
+
+      await session.join(_joinInfo());
+      await ChimeNativeChannel.instance.debugDispatchNativeCall(
+        const MethodCall('meetingEvent', {'type': 'audioSessionStarted'}),
+      );
+      await session.sendMessage(
+        '{"displayName":"iPhone"}',
+        topic: 'realtime.profile.v1',
+      );
+
+      final sendCall = calls.singleWhere((c) => c.method == 'sendMessage');
+      final sendArgs = Map<String, dynamic>.from(sendCall.arguments as Map);
+      expect(sendArgs['topic'], 'chat');
+      final wireMessage = sendArgs['message'] as String;
+      expect(session.snapshot.messages.last.topic, 'realtime.profile.v1');
+      expect(
+        session.snapshot.messages.last.message,
+        '{"displayName":"iPhone"}',
+      );
+
+      await ChimeNativeChannel.instance.debugDispatchNativeCall(
+        MethodCall('messageReceived', {
+          'attendeeId': 'remote-1',
+          'externalUserId': 'Mac',
+          'topic': 'chat',
+          'message': wireMessage,
+          'timestampMs': 9001,
+          'throttled': false,
+        }),
+      );
+
+      final decoded = session.snapshot.messages.last;
+      expect(decoded.attendeeId, 'remote-1');
+      expect(decoded.topic, 'realtime.profile.v1');
+      expect(decoded.message, '{"displayName":"iPhone"}');
+    },
+  );
 }

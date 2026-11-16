@@ -120,19 +120,54 @@ export function createChimeSession(session, context) {
     };
     audioVideo.realtimeSubscribeToAttendeeIdPresence(presenceObserver);
     const dataTopic = 'chat';
-    const dataObserver = (dataMessage) => {
-      let message = '';
-      try {
-        if (typeof dataMessage.text === 'function') message = dataMessage.text();
-        else if (dataMessage.data) message = new TextDecoder().decode(dataMessage.data);
-      } catch (_) {
-        message = '';
+    const encodeDataPayload = (topic, rawMessage) => {
+      if (topic === dataTopic) return rawMessage;
+      return JSON.stringify({
+        __chimeTopicEnvelope: 1,
+        topic,
+        message: rawMessage,
+      });
+    };
+    const decodeDataPayload = (wireTopic, rawText) => {
+      if (typeof rawText === 'string' && rawText.startsWith('{')) {
+        try {
+          const decoded = JSON.parse(rawText);
+          if (
+            decoded &&
+            typeof decoded === 'object' &&
+            decoded.__chimeTopicEnvelope === 1 &&
+            typeof decoded.topic === 'string' &&
+            decoded.topic.trim().length > 0 &&
+            typeof decoded.message === 'string'
+          ) {
+            return {
+              topic: decoded.topic.trim(),
+              message: decoded.message,
+            };
+          }
+        } catch (_) {
+          // Regular plain-text or non-envelope JSON chat message.
+        }
       }
+      return {
+        topic: wireTopic || dataTopic,
+        message: rawText,
+      };
+    };
+    const dataObserver = (dataMessage) => {
+      let rawText = '';
+      try {
+        if (typeof dataMessage.text === 'function') rawText = dataMessage.text();
+        else if (dataMessage.data) rawText = new TextDecoder().decode(dataMessage.data);
+      } catch (_) {
+        rawText = '';
+      }
+      const decoded = decodeDataPayload(dataMessage.topic || dataTopic, rawText);
       emitMessage(session, {
         participantId: dataMessage.senderAttendeeId,
         displayName: dataMessage.senderExternalUserId,
-        message,
-        topic: dataMessage.topic || dataTopic,
+        message: decoded.message,
+        topic: decoded.topic,
         timestampMs: dataMessage.timestampMs,
         throttled: dataMessage.throttled,
       });
@@ -268,11 +303,14 @@ export function createChimeSession(session, context) {
           return [...microphones.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: 'microphone' })), ...cameras.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: 'camera' })), ...outputs.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: 'audioOutput' }))];
         }
         if (name === 'sendMessage') {
-          const topic = String(args.topic || dataTopic);
+          const topic = String(args.topic || dataTopic).trim() || dataTopic;
           const message = String(args.message || '');
           const lifetimeMs = Number(args.lifetimeMs || 300000);
-          if (!message || !topic || lifetimeMs <= 0) throw new Error('Chime data message requires message, topic, and positive lifetimeMs.');
-          audioVideo.realtimeSendDataMessage(topic, message, lifetimeMs);
+          if (!message || lifetimeMs <= 0) throw new Error('Chime data message requires message, topic, and positive lifetimeMs.');
+          // Chime SDK only subscribes to 'chat' cleanly and rejects '.' in
+          // data-message topics with RealtimeApiFailed (17), so multiplex
+          // logical topics over 'chat' via a shared envelope.
+          audioVideo.realtimeSendDataMessage(dataTopic, encodeDataPayload(topic, message), lifetimeMs);
           return;
         }
         throw new Error(`Chime does not support ${name}.`);

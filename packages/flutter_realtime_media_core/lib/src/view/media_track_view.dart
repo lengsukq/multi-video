@@ -1,6 +1,29 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../model/media_track.dart';
+
+/// Temporarily hides descendant iOS platform video views while a Flutter modal
+/// dialog covers the stage, without unmounting or unbinding native tiles.
+class MediaPlatformViewOcclusion extends InheritedWidget {
+  const MediaPlatformViewOcclusion({
+    super.key,
+    required this.occluded,
+    required super.child,
+  });
+
+  final bool occluded;
+
+  static bool of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<MediaPlatformViewOcclusion>()
+          ?.occluded ??
+      false;
+
+  @override
+  bool updateShouldNotify(MediaPlatformViewOcclusion oldWidget) =>
+      occluded != oldWidget.occluded;
+}
 
 /// Renders a provider video track.
 ///
@@ -73,19 +96,29 @@ class MediaTrackView extends StatelessWidget {
     if (current == null) {
       return placeholder ?? const SizedBox.expand();
     }
-    if (rendererManagesFit) {
-      return SizedBox.expand(
-        child: renderer.buildViewWithFit(context, current, fit: fit),
+    final builtView = renderer.buildViewWithFit(context, current, fit: fit);
+    final video = rendererManagesFit
+        ? SizedBox.expand(child: builtView)
+        : FittedBox(
+            fit: fit,
+            clipBehavior: Clip.hardEdge,
+            child: SizedBox(
+              width: current.width > 0 ? current.width.toDouble() : 640,
+              height: current.height > 0 ? current.height.toDouble() : 360,
+              child: builtView,
+            ),
+          );
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      final occluded = MediaPlatformViewOcclusion.of(context);
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          if (occluded)
+            placeholder ?? const ColoredBox(color: Color(0xFF101828)),
+          Offstage(offstage: occluded, child: video),
+        ],
       );
     }
-    return FittedBox(
-      fit: fit,
-      clipBehavior: Clip.hardEdge,
-      child: SizedBox(
-        width: current.width > 0 ? current.width.toDouble() : 640,
-        height: current.height > 0 ? current.height.toDouble() : 360,
-        child: renderer.buildViewWithFit(context, current, fit: fit),
-      ),
-    );
+    return video;
   }
 }

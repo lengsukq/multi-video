@@ -1372,7 +1372,7 @@ private final class AwsDesktopRuntime: NSObject,
     case "error":
       chimeChannel?.invokeMethod("meetingEvent", arguments: [
         "type": "audioSessionStopped",
-        "statusCode": "native_error",
+        "statusCode": event["message"] as? String ?? "native_error",
       ])
     default:
       break

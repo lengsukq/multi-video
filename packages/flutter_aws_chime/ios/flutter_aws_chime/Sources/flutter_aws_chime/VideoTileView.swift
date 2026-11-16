@@ -28,8 +28,9 @@ class VideoTileView: NSObject, FlutterPlatformView {
         // Bind view to VideoView
         MeetingSession.shared.meetingSession?.audioVideo.bindVideoView(videoView: videoRenderView, tileId: tileId)
 
-        // Fix aspect ratio
+        // Fix aspect ratio and clip video rendering to the platform view bounds.
         _view.contentMode = .scaleAspectFit
+        _view.clipsToBounds = true
 
         // Declare _view as UIView for Flutter interpretation
         _view = _view as UIView

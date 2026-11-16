@@ -367,24 +367,51 @@ class RealtimeSdk {
       final requestedProvider = providerId?.trim().toLowerCase();
       var coreProvider = requestedProvider;
       final registry = driverRegistry;
-      if ((coreProvider == null || coreProvider.isEmpty) &&
-          (roomCode == null || roomCode.trim().isEmpty) &&
-          registry != null) {
+      if ((coreProvider == null || coreProvider.isEmpty) && registry != null) {
         final backend = client.backend;
         if (backend != null) {
-          final doctor = await MediaDoctor.check(
-            backend: backend,
-            registry: client.registry,
-          );
-          final activeProvider = doctor.activeProvider;
-          if (activeProvider != null &&
-              registry.knowsProvider(activeProvider)) {
-            coreProvider = registry.resolveMediaEngine(
-              providerId: activeProvider,
-              roomMode: role == MediaRole.participant
-                  ? MediaRoomMode.meeting
-                  : MediaRoomMode.broadcast,
+          final normalizedCode = roomCode?.trim() ?? '';
+          if (normalizedCode.isNotEmpty) {
+            try {
+              final rooms = await backend.listRooms();
+              for (final room in rooms) {
+                if (room.roomCode == normalizedCode) {
+                  final candidate = (room.engineId ?? room.providerId)
+                      .trim()
+                      .toLowerCase();
+                  if (candidate.isNotEmpty) {
+                    coreProvider = registry.knowsProvider(candidate)
+                        ? registry.resolveMediaEngine(
+                            providerId: candidate,
+                            roomMode:
+                                room.roomMode ??
+                                (role == MediaRole.participant
+                                    ? MediaRoomMode.meeting
+                                    : MediaRoomMode.broadcast),
+                          )
+                        : candidate;
+                  }
+                  break;
+                }
+              }
+            } catch (_) {
+              // Let runPreJoinCheck surface backend/network diagnostics cleanly.
+            }
+          } else {
+            final doctor = await MediaDoctor.check(
+              backend: backend,
+              registry: client.registry,
             );
+            final activeProvider = doctor.activeProvider;
+            if (activeProvider != null &&
+                registry.knowsProvider(activeProvider)) {
+              coreProvider = registry.resolveMediaEngine(
+                providerId: activeProvider,
+                roomMode: role == MediaRole.participant
+                    ? MediaRoomMode.meeting
+                    : MediaRoomMode.broadcast,
+              );
+            }
           }
         }
       }

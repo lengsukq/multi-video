@@ -83,6 +83,7 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
   int _classroomTab = 0;
   int _classroomPanelVisit = 0;
   bool _recordingBusy = false;
+  int _modalOcclusionCount = 0;
   bool _useGrid = false;
   bool _showFilmstrip = true;
   bool _openedInitialPanel = false;
@@ -210,31 +211,48 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
     }
   }
 
+  Future<T> _withModalOcclusion<T>(Future<T> Function() action) async {
+    if (mounted) setState(() => _modalOcclusionCount += 1);
+    try {
+      return await action();
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (_modalOcclusionCount > 0) _modalOcclusionCount -= 1;
+        });
+      }
+    }
+  }
+
   Future<bool> _confirmLeave(BuildContext context) async {
     if (!widget.confirmBeforeLeave) return true;
     final strings = RealtimeStrings.of(context);
     final isOwner = widget.room.media.isLogicalOwner;
-    return await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => RealtimeGlassDialog(
-            title: Text(
-              isOwner ? strings.endMeetingForAll : strings.leaveRoomTitle,
-            ),
-            content: Text(
-              isOwner
-                  ? strings.endMeetingForAllDesc
-                  : strings.leaveRoomConfirmation,
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: Text(strings.cancel),
+    return await _withModalOcclusion<bool?>(
+          () => showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => RealtimeGlassDialog(
+              title: Text(
+                isOwner ? strings.endMeetingForAll : strings.leaveRoomTitle,
               ),
-              FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: Text(isOwner ? strings.endMeetingForAll : strings.leave),
+              content: Text(
+                isOwner
+                    ? strings.endMeetingForAllDesc
+                    : strings.leaveRoomConfirmation,
               ),
-            ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: Text(strings.cancel),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(
+                    isOwner ? strings.endMeetingForAll : strings.leave,
+                  ),
+                ),
+              ],
+            ),
           ),
         ) ??
         false;
@@ -290,16 +308,18 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
     final classroom = widget.room.classroom;
     if (classroom == null) return;
     final strings = ClassroomStrings.of(context);
-    await showDialog<void>(
-      context: context,
-      builder: (_) => ClassroomPublishToolDialog(
-        kind: ClassroomToolKind.values.firstWhere(
-          (value) => value.name == kind,
+    await _withModalOcclusion(
+      () => showDialog<void>(
+        context: context,
+        builder: (_) => ClassroomPublishToolDialog(
+          kind: ClassroomToolKind.values.firstWhere(
+            (value) => value.name == kind,
+          ),
+          classroom: classroom,
+          strings: strings,
+          onActionError: (RealtimeException error) =>
+              RealtimeRoomUiScope.of(context).reportActionError(error),
         ),
-        classroom: classroom,
-        strings: strings,
-        onActionError: (RealtimeException error) =>
-            RealtimeRoomUiScope.of(context).reportActionError(error),
       ),
     );
   }
@@ -337,9 +357,11 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
       return RealtimeRoomUiScope(
         room: widget.room,
         onActionError: _showActionError,
-        child: Scaffold(
-          backgroundColor: RealtimeUiTokens.background,
-          body: RealtimeAmbientBackground(
+        child: MediaPlatformViewOcclusion(
+          occluded: _modalOcclusionCount > 0,
+          child: Scaffold(
+            backgroundColor: RealtimeUiTokens.background,
+            body: RealtimeAmbientBackground(
             child: SafeArea(
               bottom: false,
               child: LayoutBuilder(
@@ -533,6 +555,7 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
               ),
             ),
           ),
+        ),
         ),
       );
     },
@@ -910,9 +933,11 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
 
   void _showCloudResultDialog(BuildContext context) {
     unawaited(
-      showDialog<void>(
-        context: context,
-        builder: (_) => RealtimeRecordingResultDialog(room: widget.room),
+      _withModalOcclusion(
+        () => showDialog<void>(
+          context: context,
+          builder: (_) => RealtimeRecordingResultDialog(room: widget.room),
+        ),
       ),
     );
   }

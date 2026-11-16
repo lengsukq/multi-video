@@ -21,18 +21,23 @@ class RealtimeGlassDialog extends StatelessWidget {
   final double maxWidth;
 
   @override
-  Widget build(BuildContext context) => _RealtimeModalTheme(
-    builder: (context) => Dialog(
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxWidth),
-        child: RealtimeGlassSurface(
-          radius: RealtimeUiThemeExtension.of(context).sheetRadius,
-          opacity: 0.92,
-          padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+  Widget build(BuildContext context) {
+    final iosModal = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    return _RealtimeModalTheme(
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          // Avoid Impeller BackdropFilter compositing over iOS UiKitView tiles.
+          child: RepaintBoundary(
+            child: RealtimeGlassSurface(
+              radius: RealtimeUiThemeExtension.of(context).sheetRadius,
+              opacity: iosModal ? 0.98 : 0.92,
+              blur: iosModal ? 0.0 : null,
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
           child: Material(
             type: MaterialType.transparency,
             child: LayoutBuilder(
@@ -96,7 +101,9 @@ class RealtimeGlassDialog extends StatelessWidget {
         ),
       ),
     ),
-  );
+  ),
+);
+  }
 }
 
 // Standalone SDK modals get the same defaults as the prebuilt room pages.

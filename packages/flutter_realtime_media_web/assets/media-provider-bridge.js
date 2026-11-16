@@ -1044,16 +1044,7 @@
           }
           return;
         }
-        if (name === "exchangeToken") {
-          if (!args.token || typeof stage.exchangeToken !== "function") {
-            throw new Error("IVS token exchange requires a supported SDK and a token.");
-          }
-          await stage.exchangeToken(args.token);
-          return;
-        }
-        if (name === "switchCamera") {
-          throw new Error("IVS desktop camera position switching is unavailable; select a camera device instead.");
-        }
+        if (name === "switchCamera") return;
         if (name === "selectDevice") {
           const selected = args.device || args;
           if (selected.kind !== "camera" && selected.kind !== "microphone") return;
@@ -1171,7 +1162,6 @@
     let remoteAudioElement = null;
     let microphones = [];
     let selectedMicrophoneId = null;
-    let activeMicrophoneId = null;
     let selectedCameraId = null;
     let contentShareStream = null;
     let contentShareStarted = false;
@@ -1281,19 +1271,46 @@
     };
     audioVideo.realtimeSubscribeToAttendeeIdPresence(presenceObserver);
     const dataTopic = "chat";
-    const dataObserver = (dataMessage) => {
-      let message = "";
-      try {
-        if (typeof dataMessage.text === "function") message = dataMessage.text();
-        else if (dataMessage.data) message = new TextDecoder().decode(dataMessage.data);
-      } catch (_) {
-        message = "";
+    const encodeDataPayload = (topic, rawMessage) => {
+      if (topic === dataTopic) return rawMessage;
+      return JSON.stringify({
+        __chimeTopicEnvelope: 1,
+        topic,
+        message: rawMessage
+      });
+    };
+    const decodeDataPayload = (wireTopic, rawText) => {
+      if (typeof rawText === "string" && rawText.startsWith("{")) {
+        try {
+          const decoded = JSON.parse(rawText);
+          if (decoded && typeof decoded === "object" && decoded.__chimeTopicEnvelope === 1 && typeof decoded.topic === "string" && decoded.topic.trim().length > 0 && typeof decoded.message === "string") {
+            return {
+              topic: decoded.topic.trim(),
+              message: decoded.message
+            };
+          }
+        } catch (_) {
+        }
       }
+      return {
+        topic: wireTopic || dataTopic,
+        message: rawText
+      };
+    };
+    const dataObserver = (dataMessage) => {
+      let rawText = "";
+      try {
+        if (typeof dataMessage.text === "function") rawText = dataMessage.text();
+        else if (dataMessage.data) rawText = new TextDecoder().decode(dataMessage.data);
+      } catch (_) {
+        rawText = "";
+      }
+      const decoded = decodeDataPayload(dataMessage.topic || dataTopic, rawText);
       emitMessage(session, {
         participantId: dataMessage.senderAttendeeId,
         displayName: dataMessage.senderExternalUserId,
-        message,
-        topic: dataMessage.topic || dataTopic,
+        message: decoded.message,
+        topic: decoded.topic,
         timestampMs: dataMessage.timestampMs,
         throttled: dataMessage.throttled
       });
@@ -1317,7 +1334,6 @@
           }
         }
         microphones = [];
-        activeMicrophoneId = null;
         const connected = new Promise((resolve, reject) => {
           const timeout = global.setTimeout(() => {
             settleStart?.(new Error("Chime signaling timed out after 30 seconds. Check network and AWS media region."));
@@ -1349,15 +1365,9 @@
             if (!microphones.length) {
               const available = await audioVideo.listAudioInputDevices();
               if (!available.length) throw new Error("No Chime microphone is available.");
-              microphones = available;
-            }
-            const selected = selectedMicrophoneId || microphones[0]?.deviceId;
-            if (!selected) throw new Error("Chime could not resolve a microphone input device.");
-            // Reuse the capture on ordinary mute/unmute; switch input only
-            // when the user selected a different device while muted.
-            if (activeMicrophoneId !== selected) {
+              const selected = selectedMicrophoneId || available[0].deviceId;
               await audioVideo.startAudioInput(selected);
-              activeMicrophoneId = selected;
+              microphones = available;
             }
             const unmuted = await audioVideo.realtimeUnmuteLocalAudio();
             if (unmuted === false) throw new Error("Chime failed to unmute local audio.");
@@ -1402,10 +1412,7 @@
           const selected = args.device || args;
           if (selected.kind === "microphone") {
             if (!selected.id) throw new Error("Chime microphone device id is required.");
-            if (!session.localMuted) {
-              await audioVideo.startAudioInput(selected.id);
-              activeMicrophoneId = selected.id;
-            }
+            if (!session.localMuted) await audioVideo.startAudioInput(selected.id);
             selectedMicrophoneId = selected.id;
           }
           if (selected.kind === "camera") {
@@ -1423,11 +1430,11 @@
           return [...microphones2.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: "microphone" })), ...cameras.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: "camera" })), ...outputs.map((item) => ({ id: item.deviceId, label: item.label, groupId: item.groupId, kind: "audioOutput" }))];
         }
         if (name === "sendMessage") {
-          const topic = String(args.topic || dataTopic);
+          const topic = String(args.topic || dataTopic).trim() || dataTopic;
           const message = String(args.message || "");
           const lifetimeMs = Number(args.lifetimeMs || 3e5);
-          if (!message || !topic || lifetimeMs <= 0) throw new Error("Chime data message requires message, topic, and positive lifetimeMs.");
-          audioVideo.realtimeSendDataMessage(topic, message, lifetimeMs);
+          if (!message || lifetimeMs <= 0) throw new Error("Chime data message requires message, topic, and positive lifetimeMs.");
+          audioVideo.realtimeSendDataMessage(dataTopic, encodeDataPayload(topic, message), lifetimeMs);
           return;
         }
         throw new Error(`Chime does not support ${name}.`);

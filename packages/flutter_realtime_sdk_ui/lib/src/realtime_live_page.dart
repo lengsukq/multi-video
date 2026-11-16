@@ -47,6 +47,7 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
   _LiveSidePanel _sidePanel = _LiveSidePanel.none;
   bool _cleanScreen = false;
   BoxFit? _liveVideoFitOverride;
+  int _modalOcclusionCount = 0;
   late DateTime _enteredAt;
 
   @override
@@ -138,6 +139,19 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
     await prepareRoomPageWithDeadline(room, settings, isCurrent: isCurrent);
   }
 
+  Future<T> _withModalOcclusion<T>(Future<T> Function() action) async {
+    if (mounted) setState(() => _modalOcclusionCount += 1);
+    try {
+      return await action();
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (_modalOcclusionCount > 0) _modalOcclusionCount -= 1;
+        });
+      }
+    }
+  }
+
   Future<bool> _confirmLeave(BuildContext context) async {
     if (!widget.confirmBeforeLeave) return true;
     final strings = RealtimeStrings.of(context);
@@ -148,27 +162,29 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
       RecordingStatus.stopping,
       RecordingStatus.unknown,
     }.contains(widget.room.recordingStatus);
-    return await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => RealtimeGlassDialog(
-            title: Text(host ? strings.endLive : strings.leaveRoomTitle),
-            content: Text(
-              host
-                  ? recordingMayBeActive
-                        ? '${strings.endLiveConfirmation}\n\n${strings.isZh ? "当前云录制仍在进行或状态未确认。结束直播前会尝试停止录制；如需下载，请先停止录制并保存 MP4。" : "Cloud recording may still be running. Ending the live will first attempt to stop it. To keep the MP4, stop and download before leaving."}'
-                        : strings.endLiveConfirmation
-                  : strings.leaveRoomConfirmation,
+    return await _withModalOcclusion<bool?>(
+          () => showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => RealtimeGlassDialog(
+              title: Text(host ? strings.endLive : strings.leaveRoomTitle),
+              content: Text(
+                host
+                    ? recordingMayBeActive
+                          ? '${strings.endLiveConfirmation}\n\n${strings.isZh ? "当前云录制仍在进行或状态未确认。结束直播前会尝试停止录制；如需下载，请先停止录制并保存 MP4。" : "Cloud recording may still be running. Ending the live will first attempt to stop it. To keep the MP4, stop and download before leaving."}'
+                          : strings.endLiveConfirmation
+                    : strings.leaveRoomConfirmation,
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: Text(strings.cancel),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(host ? strings.endLive : strings.leave),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: Text(strings.cancel),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: Text(host ? strings.endLive : strings.leave),
-              ),
-            ],
           ),
         ) ??
         false;
@@ -242,9 +258,11 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
       return RealtimeRoomUiScope(
         room: widget.room,
         onActionError: _showActionError,
-        child: Scaffold(
-          backgroundColor: RealtimeUiTokens.background,
-          body: RealtimeAmbientBackground(
+        child: MediaPlatformViewOcclusion(
+          occluded: _modalOcclusionCount > 0,
+          child: Scaffold(
+            backgroundColor: RealtimeUiTokens.background,
+            body: RealtimeAmbientBackground(
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -375,6 +393,7 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
               ],
             ),
           ),
+        ),
         ),
       );
     },

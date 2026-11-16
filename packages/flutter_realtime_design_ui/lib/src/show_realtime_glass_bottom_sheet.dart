@@ -18,9 +18,12 @@ Future<T?> showRealtimeGlassBottomSheet<T>({
   builder: (sheetContext) => _RealtimeModalTheme(
     builder: (sheetContext) {
       final style = RealtimeStyle.of(sheetContext);
+      final iosModal = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
       return RepaintBoundary(
         child: RealtimeGlassSurface(
           radius: RealtimeUiThemeExtension.of(sheetContext).sheetRadius,
+          opacity: iosModal ? 0.98 : null,
+          blur: iosModal ? 0.0 : null,
           shadow: false,
           child: Material(
             type: MaterialType.transparency,

@@ -147,4 +147,28 @@ void main() {
       expect(submitted, isTrue);
     },
   );
+
+  testWidgets(
+    'RealtimeGlassDialog skips BackdropFilter on iOS even when glass is enabled',
+    (tester) async {
+      final glassTheme = ThemeData(
+        useMaterial3: true,
+        extensions: const [
+          RealtimeUiThemeExtension(glassEnabled: true, blur: 16),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: glassTheme,
+          home: RealtimeGlassDialog(
+            title: const Text('Leave room?'),
+            content: const Text('Confirm leaving'),
+            actions: [TextButton(onPressed: () {}, child: const Text('Leave'))],
+          ),
+        ),
+      );
+      expect(find.byType(BackdropFilter), findsNothing);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
 }

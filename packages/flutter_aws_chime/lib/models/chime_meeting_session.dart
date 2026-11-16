@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
@@ -288,15 +289,19 @@ class ChimeMeetingSession {
     int lifetimeMs = 300000,
   }) async {
     _ensureActive();
-    if (message.trim().isEmpty || topic.trim().isEmpty || lifetimeMs <= 0) {
+    final normalizedTopic = topic.trim();
+    if (message.trim().isEmpty || normalizedTopic.isEmpty || lifetimeMs <= 0) {
       throw const RealtimeException(
         code: RealtimeErrorCode.invalidArgument,
         message: 'Message, topic, and positive lifetime are required.',
       );
     }
+    // Chime native/Web observers subscribe only to 'chat' and reject '.' in
+    // topic names, so multiplex non-default logical topics over 'chat'.
+    final wireMessage = _encodeWireDataMessage(normalizedTopic, message);
     await _channel.invoke('sendMessage', {
-      'topic': topic,
-      'message': message,
+      'topic': _chatTopic,
+      'message': wireMessage,
       'lifetimeMs': lifetimeMs,
     });
     final attendee = _snapshot.localAttendee;
@@ -306,7 +311,7 @@ class ChimeMeetingSession {
           attendeeId: attendee.attendeeId,
           externalUserId: attendee.externalUserId,
           message: message,
-          topic: topic,
+          topic: normalizedTopic,
           timestampMs: DateTime.now().millisecondsSinceEpoch,
         ),
       );
@@ -336,8 +341,8 @@ class ChimeMeetingSession {
         if (args is Map) _removeVideoTile(Map<String, dynamic>.from(args));
       case 'messageReceived':
         if (args is Map) {
-          final message = MeetingMessage.fromJson(
-            Map<String, dynamic>.from(args),
+          final message = _decodeWireDataMessage(
+            MeetingMessage.fromJson(Map<String, dynamic>.from(args)),
           );
           if (!message.throttled) _appendMessage(message);
         }
@@ -555,5 +560,41 @@ class ChimeMeetingSession {
         message: 'Join a meeting before calling this operation.',
       );
     }
+  }
+
+  static const String _topicEnvelopeKey = '__chimeTopicEnvelope';
+
+  static String _encodeWireDataMessage(String topic, String message) {
+    if (topic == _chatTopic) return message;
+    return jsonEncode({
+      _topicEnvelopeKey: 1,
+      'topic': topic,
+      'message': message,
+    });
+  }
+
+  static MeetingMessage _decodeWireDataMessage(MeetingMessage wire) {
+    final trimmed = wire.message.trimLeft();
+    if (!trimmed.startsWith('{')) return wire;
+    try {
+      final decoded = jsonDecode(wire.message);
+      if (decoded is Map && decoded[_topicEnvelopeKey] == 1) {
+        final topic = decoded['topic'];
+        final message = decoded['message'];
+        if (topic is String && topic.trim().isNotEmpty && message is String) {
+          return MeetingMessage(
+            attendeeId: wire.attendeeId,
+            externalUserId: wire.externalUserId,
+            message: message,
+            topic: topic.trim(),
+            timestampMs: wire.timestampMs,
+            throttled: wire.throttled,
+          );
+        }
+      }
+    } on FormatException {
+      // Plain-text or non-envelope JSON chat message.
+    }
+    return wire;
   }
 }

@@ -261,6 +261,59 @@ test('Chime bridge uses the current 3.32 media input APIs', async () => {
   assert.ok(calls.includes('removeRemoteAudio'));
 });
 
+test('Chime bridge multiplexes dotted topics over chat to prevent RealtimeApiFailed', async () => {
+  const { bridge, calls, events, getDataObserver } = await createChimeHarness();
+  await bridge.create('chime', 'meeting-topics', chimePayload);
+  await bridge.join('chime', 'meeting-topics');
+
+  await bridge.command('chime', 'meeting-topics', 'sendMessage', {
+    topic: 'realtime.profile.v1',
+    message: '{"displayName":"Mac"}',
+    lifetimeMs: 300000,
+  });
+  await bridge.command('chime', 'meeting-topics', 'sendMessage', {
+    topic: 'chat',
+    message: 'hello room',
+    lifetimeMs: 300000,
+  });
+
+  const sentCalls = calls.filter((c) => c.startsWith('message:'));
+  assert.equal(sentCalls.length, 2);
+  assert.ok(sentCalls[0].startsWith('message:chat:'));
+  const envelopePayload = sentCalls[0].slice('message:chat:'.length, -':300000'.length);
+  const parsed = JSON.parse(envelopePayload);
+  assert.equal(parsed.__chimeTopicEnvelope, 1);
+  assert.equal(parsed.topic, 'realtime.profile.v1');
+  assert.equal(parsed.message, '{"displayName":"Mac"}');
+  assert.equal(sentCalls[1], 'message:chat:hello room:300000');
+
+  getDataObserver()({
+    senderAttendeeId: 'attendee-2',
+    senderExternalUserId: 'iPhone',
+    topic: 'chat',
+    text: () => envelopePayload,
+    timestampMs: 1234,
+    throttled: false,
+  });
+  getDataObserver()({
+    senderAttendeeId: 'attendee-2',
+    senderExternalUserId: 'iPhone',
+    topic: 'chat',
+    text: () => 'plain hello',
+    timestampMs: 1235,
+    throttled: false,
+  });
+
+  const messageEvents = events.filter((e) => e.event?.type === 'message');
+  assert.equal(messageEvents.length, 2);
+  assert.equal(messageEvents[0].event.topic, 'realtime.profile.v1');
+  assert.equal(messageEvents[0].event.message, '{"displayName":"Mac"}');
+  assert.equal(messageEvents[1].event.topic, 'chat');
+  assert.equal(messageEvents[1].event.message, 'plain hello');
+
+  await bridge.dispose('chime', 'meeting-topics');
+});
+
 test('Chime Web cannot resurrect a screen share stopped before capture resolves', async () => {
   const {bridge, audioVideo, events, calls} = await createChimeHarness();
   const start = audioVideo.startContentShareFromScreenCapture;

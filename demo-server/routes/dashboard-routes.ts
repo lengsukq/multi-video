@@ -213,6 +213,8 @@ app.get('/rooms/discover', (req, res) => {
     const summary = summarizeRoom(entry, req);
     return {
       provider: summary.provider,
+      ...(summary.vendor ? { vendor: summary.vendor } : {}),
+      ...(summary.engine ? { engine: summary.engine } : {}),
       ...(summary.chatProvider ? { chatProvider: summary.chatProvider } : {}),
       roomCode: summary.roomCode,
       roomMode: summary.roomMode ?? 'meeting',
