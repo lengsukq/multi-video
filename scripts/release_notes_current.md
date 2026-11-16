@@ -1,9 +1,9 @@
-## 0.1.0-dev.29
+## 0.1.0-dev.30
 
-- Merge Windows provider integrations and their native/desktop packaging into the macOS-maintained SDK release sources; reconcile adapter, UI, test and capability-matrix changes without rewriting history.
-- Correct Agora Android screen sharing: start and stop the screen-source preview with capture, and use Flutter Texture rendering on Android to avoid black local frames. Add regression coverage.
-- Preserve Windows Agora screen-share signaling, screen-source rendering selection and orientation regression tests after merging Windows changes.
-- Include the Windows Chime WebView2 bridge and experimental Amazon IVS Real-Time WebView2 Stage bridge with isolated provider RPC, diagnostics, pre-join probes and provisional JPEG frame rendering.
-- Retain native Android/iOS AWS Chime and IVS integrations, macOS WebKit bridge, and browser JavaScript SDK support from the unified source tree.
-- AWS IVS in embedded WebViews is not officially supported; Windows AWS media and all-provider bidirectional real-device acceptance remain unverified.
-- Keep this as a preview release: vendor-binary redistribution/licensing review and full native cross-platform acceptance remain pending.
+- Fix AWS Chime and IVS on macOS when consumed from the hosted one-package SDK: resolve the WebKit runtime JavaScript from the SDK's owning Flutter framework, with standalone CocoaPods and Swift Package Manager fallbacks.
+- Resolve bundled AWS vendor and media-provider JavaScript through the public SDK's `assets/bundled` layout instead of relying only on the original private package names.
+- Load a minimal browser `global` compatibility shim before AWS scripts on Web, macOS WebKit and Windows WebView2; this removes a Chime WebKit initialization failure.
+- Add an actual macOS Chime meeting integration test to the SDK's own Demo, with a separate backend, real AWS meeting/attendee creation, SDK connection and guaranteed cleanup. Validate both the development source and the assembled one-package SDK.
+- Strengthen the published-package asset checks for Web, Windows and macOS AWS runtime resources, bundled path rewrites and load order.
+- Android and iOS continue to use their native AWS SDKs. This is a preview release; real-device iOS/Android acceptance, Windows AWS media acceptance, and browser cross-device tests are separate from the passing macOS Chime E2E.
+- Amazon IVS Real-Time remains an experimental desktop WebView implementation; AWS does not officially support IVS in embedded WebViews. Vendor-binary license and redistribution review remains pending.

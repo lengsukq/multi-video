@@ -1169,29 +1169,36 @@ private final class AwsDesktopRuntime: NSObject,
       return "<script src=\"data:text/javascript;base64," + encoded + "\"></script>"
     }
     return """
-      <!doctype html><html><head><meta charset="utf-8"></head><body>
+      <!doctype html><html><head><meta charset="utf-8">
+      <script>globalThis.global = globalThis;</script></head><body>
       \(dataScript(runtime))
       </body></html>
       """
   }
 
   private func packageAssetText(_ asset: String, fromPackage package: String) throws -> String {
-    let key = registrar.lookupKey(
-      forAsset: asset,
-      fromPackage: package
+    let sourceKey = registrar.lookupKey(forAsset: asset, fromPackage: package)
+    // Original internal packages use packages/<name>/assets/*. The hosted
+    // SDK folds those packages into assets/bundled/<name>/*, so the original
+    // Flutter asset keys are absent in a one-package consumer.
+    let assetName = asset.hasPrefix("assets/")
+      ? String(asset.dropFirst("assets/".count))
+      : asset
+    let bundledKey = registrar.lookupKey(
+      forAsset: "assets/bundled/\(package)/\(assetName)",
+      fromPackage: "flutter_realtime_sdk"
     )
     let mainBundleURL = Bundle.main.bundleURL
     let appBundleURL = mainBundleURL.lastPathComponent == "Contents"
       ? mainBundleURL.deletingLastPathComponent()
       : mainBundleURL
-    let candidates: [URL?] = [
-      // Flutter's macOS lookup key already includes the path to
-      // App.framework/Resources/flutter_assets from the .app bundle root.
-      URL(fileURLWithPath: key, relativeTo: appBundleURL).standardizedFileURL,
+    let candidates: [URL] = [
+      // Flutter's macOS lookup key includes the App.framework Flutter assets
+      // directory relative to the application bundle root.
+      URL(fileURLWithPath: sourceKey, relativeTo: appBundleURL).standardizedFileURL,
+      URL(fileURLWithPath: bundledKey, relativeTo: appBundleURL).standardizedFileURL,
     ]
-    guard let url = candidates.compactMap({ $0 }).first(where: {
-      FileManager.default.fileExists(atPath: $0.path)
-    }) else {
+    guard let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
       throw AwsDesktopError.assetMissing("\(package)/\(asset)")
     }
     return try String(contentsOf: url, encoding: .utf8)
@@ -1199,23 +1206,32 @@ private final class AwsDesktopRuntime: NSObject,
 
   private func ownResourceText(_ name: String, extension ext: String) throws -> String {
 #if SWIFT_PACKAGE
-    guard let url = Bundle.module.url(forResource: name, withExtension: ext) else {
-      throw AwsDesktopError.assetMissing(name + "." + ext)
+    if let url = Bundle.module.url(forResource: name, withExtension: ext) {
+      return try String(contentsOf: url, encoding: .utf8)
     }
-    return try String(contentsOf: url, encoding: .utf8)
-#else
-    guard
-      let bundleURL = Bundle.main.url(
-        forResource: "flutter_realtime_media_aws_desktop_assets",
-        withExtension: "bundle"
-      ),
-      let bundle = Bundle(url: bundleURL),
-      let url = bundle.url(forResource: name, withExtension: ext)
-    else {
-      throw AwsDesktopError.assetMissing(name + "." + ext)
-    }
-    return try String(contentsOf: url, encoding: .utf8)
 #endif
+    // A standalone CocoaPods plugin ships an assets.bundle, whereas the
+    // public one-package SDK copies these resources into the *plugin
+    // framework* (not Bundle.main). Both forms must work in an external host.
+    let fileName = name + "." + ext
+    let resourceBundleName = "flutter_realtime_media_aws_desktop_assets.bundle"
+    let owningBundle = Bundle(for: FlutterRealtimeMediaAwsDesktopPlugin.self)
+    let roots = [owningBundle.resourceURL, Bundle.main.resourceURL]
+      .compactMap { $0 }
+    for root in roots {
+      for candidate in [
+        root.appendingPathComponent(fileName),
+        root.appendingPathComponent("flutter_realtime_media_aws_desktop")
+          .appendingPathComponent(fileName),
+        root.appendingPathComponent(resourceBundleName)
+          .appendingPathComponent(fileName),
+      ] {
+        if FileManager.default.fileExists(atPath: candidate.path) {
+          return try String(contentsOf: candidate, encoding: .utf8)
+        }
+      }
+    }
+    throw AwsDesktopError.assetMissing(fileName)
   }
 
   private func finishReady(_ error: Error?) {

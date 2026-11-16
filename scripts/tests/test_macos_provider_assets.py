@@ -8,7 +8,7 @@ from scripts import check_macos_provider_assets as checker
 
 
 class MacosProviderAssetsTest(unittest.TestCase):
-    def test_aws_native_bridge_uses_separate_provider_packages(self):
+    def test_aws_native_bridge_supports_separate_and_hosted_packages(self):
         source = (checker.ROOT /
                   'packages/flutter_realtime_media_aws_desktop/macos/'
                   'flutter_realtime_media_aws_desktop/Sources/'
@@ -23,7 +23,11 @@ class MacosProviderAssetsTest(unittest.TestCase):
             'fromPackage: package',
         ):
             self.assertIn(snippet, source)
-        self.assertNotIn('fromPackage: "flutter_realtime_sdk"', source)
+        # The one-package Pub distribution remaps provider assets under the
+        # public package; standalone development plugins retain original keys.
+        self.assertIn('fromPackage: "flutter_realtime_sdk"', source)
+        self.assertIn('forAsset: "assets/bundled/', source)
+        self.assertIn('Bundle(for: FlutterRealtimeMediaAwsDesktopPlugin.self)', source)
         self.assertNotIn('assets/provider_web_runtime/', source)
 
     def test_all_provider_dart_asset_paths_exist_in_their_packages(self):

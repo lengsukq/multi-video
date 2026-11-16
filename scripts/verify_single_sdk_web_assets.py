@@ -23,6 +23,14 @@ REQUIRED = (
     "wasm/vision_wasm_internal.js",
     "wasm/vision_wasm_nosimd_internal.js",
 )
+AWS_REQUIRED = (
+    "assets/bundled/flutter_realtime_provider_aws/browser-global-compat.js",
+    "assets/bundled/flutter_realtime_provider_aws/chime-sdk.js",
+    "assets/bundled/flutter_realtime_provider_aws/amazon-ivs-web-broadcast.js",
+    "assets/bundled/flutter_realtime_media_web/media-provider-bridge.js",
+    "assets/bundled/flutter_realtime_media_aws_desktop/windows_runtime.js",
+    "assets/bundled/flutter_realtime_media_aws_desktop/windows_host.js",
+)
 
 
 def verify(package: Path, web_build: Path | None = None) -> None:
@@ -41,6 +49,46 @@ def verify(package: Path, web_build: Path | None = None) -> None:
         asset = package / EFFECTS_PREFIX / name
         if not asset.is_file() or asset.stat().st_size == 0:
             raise AssertionError(f"Missing/empty hosted SDK asset: {asset}")
+    for name in AWS_REQUIRED:
+        asset = package / name
+        if not asset.is_file() or asset.stat().st_size == 0:
+            raise AssertionError(f"Missing/empty AWS hosted SDK asset: {asset}")
+    aws_loader = (
+        package
+        / "lib/src/_bundled/flutter_realtime_provider_aws/src/assets.dart"
+    ).read_text()
+    aws_prefix = "assets/packages/flutter_realtime_sdk/assets/bundled/"
+    expected_aws = [
+        aws_prefix + name.removeprefix("assets/bundled/")
+        for name in AWS_REQUIRED[:4]
+    ]
+    if any(path not in aws_loader for path in expected_aws):
+        raise AssertionError("AWS browser loader still points to standalone package assets.")
+    if aws_loader.index("browser-global-compat.js") > aws_loader.index("chime-sdk.js"):
+        raise AssertionError("AWS browser compatibility shim must load before Chime.")
+    windows_loader = (
+        package
+        / "lib/src/_bundled/flutter_realtime_media_aws_desktop/lib/aws_windows_webview2_runtime.dart"
+    )
+    if not windows_loader.exists():
+        # The published source is flattened from lib/, not a nested lib/.
+        windows_loader = (
+            package
+            / "lib/src/_bundled/flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart"
+        )
+    windows_code = windows_loader.read_text()
+    for name in AWS_REQUIRED[1:]:
+        expected = "packages/flutter_realtime_sdk/" + name
+        if expected not in windows_code and (
+            "media-provider-bridge.js" in name
+            or name.endswith(("windows_runtime.js", "windows_host.js"))
+        ):
+            raise AssertionError(f"Windows AWS runtime missing hosted asset: {expected}")
+    native_js = (
+        package / "macos/Resources/flutter_realtime_media_aws_desktop/aws_desktop_runtime.js"
+    )
+    if not native_js.is_file() or native_js.stat().st_size == 0:
+        raise AssertionError("macOS AWS WebKit runtime was not embedded in the native plugin.")
     bridge = (package / EFFECTS_PREFIX / "video-effects-bridge.js").read_text()
     expected_prefix = PUBLIC_PREFIX + EFFECTS_PREFIX
     if OLD_JS_PREFIX in bridge or expected_prefix not in bridge:
@@ -54,6 +102,7 @@ def verify(package: Path, web_build: Path | None = None) -> None:
     for relative in (
         EFFECTS_PREFIX + "video-effects-bridge.js",
         "assets/bundled/flutter_realtime_media_web/media-provider-bridge.js",
+        "assets/bundled/flutter_realtime_provider_aws/browser-global-compat.js",
     ):
         checked = subprocess.run(
             ["node", "--check", str(package / relative)],
@@ -74,8 +123,8 @@ def verify(package: Path, web_build: Path | None = None) -> None:
             base64.b64decode(encoded) if isinstance(encoded, str) else None
         )
         keys = encoded if isinstance(encoded, dict) else None
-        for name in REQUIRED:
-            key = (expected_prefix + name).removeprefix("assets/")
+        for name in (EFFECTS_PREFIX + name for name in REQUIRED):
+            key = (PUBLIC_PREFIX + name).removeprefix("assets/")
             if (
                 (keys is not None and key not in keys)
                 or (
@@ -84,11 +133,21 @@ def verify(package: Path, web_build: Path | None = None) -> None:
                 )
             ):
                 raise AssertionError(f"AssetManifest missing packaged asset: {key}")
-            output = web_build / PUBLIC_PREFIX / EFFECTS_PREFIX / name
+            output = web_build / PUBLIC_PREFIX / name
             if not output.is_file() or output.stat().st_size == 0:
                 raise AssertionError(f"Missing built Web asset: {output}")
-        print(f"PASS: independent Web build contains {len(REQUIRED)} required effects assets")
-    print(f"PASS: hosted SDK Web asset manifest, JS URLs and {len(REQUIRED)} resources")
+        for name in AWS_REQUIRED:
+            key = (PUBLIC_PREFIX + name).removeprefix("assets/")
+            if (
+                (keys is not None and key not in keys)
+                or (manifest_bytes is not None and key.encode("utf-8") not in manifest_bytes)
+            ):
+                raise AssertionError(f"AssetManifest missing AWS asset: {key}")
+            output = web_build / PUBLIC_PREFIX / name
+            if not output.is_file() or output.stat().st_size == 0:
+                raise AssertionError(f"Missing built Web AWS asset: {output}")
+        print(f"PASS: independent Web build contains {len(REQUIRED)} effects and {len(AWS_REQUIRED)} AWS assets")
+    print(f"PASS: hosted SDK Web/Windows/macOS asset manifest and AWS bootstrapping")
 
 
 def main() -> None:

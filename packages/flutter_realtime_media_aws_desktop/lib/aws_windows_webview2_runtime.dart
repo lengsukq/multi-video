@@ -105,7 +105,8 @@ class AwsWindowsWebView2Runtime {
 <!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy"
  content="default-src 'self' https: wss: data: blob:; script-src 'self' 'unsafe-eval' 'unsafe-inline' https:; connect-src 'self' https: wss:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; style-src 'self' 'unsafe-inline';">
-</head><body><script src="windows_runtime.js"></script>
+</head><body><script>globalThis.global = globalThis;</script>
+<script src="windows_runtime.js"></script>
 <script src="$sdkFile"></script>
 <script src="media-provider-bridge.js"></script>
 <script src="windows_host.js"></script></body></html>

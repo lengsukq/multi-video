@@ -9,6 +9,11 @@ Future<void> loadAssets({
       !mediaProviderIds.any(const <String>{'chime', 'ivs'}.contains)) {
     return;
   }
+  // Some AWS browser bundles still reference the Node-style `global` symbol.
+  // Load a small self-hosted compatibility script before any vendor code.
+  await loadRealtimeBundledWebScript(
+    'assets/packages/flutter_realtime_provider_aws/assets/browser-global-compat.js',
+  );
   if (includeAllMediaProviders || mediaProviderIds.contains('chime')) {
     await loadRealtimeBundledWebScript(
       'assets/packages/flutter_realtime_provider_aws/assets/chime-sdk.js',
