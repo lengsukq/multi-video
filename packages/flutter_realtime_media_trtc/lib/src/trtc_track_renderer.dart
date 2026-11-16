@@ -13,7 +13,15 @@ class TrtcTrackRenderer extends MediaTrackRenderer {
   bool handlesVideoFit(MediaVideoTrack track) => true;
 
   @override
-  Widget buildView(BuildContext context, MediaVideoTrack track) {
+  Widget buildView(BuildContext context, MediaVideoTrack track) =>
+      buildViewWithFit(context, track);
+
+  @override
+  Widget buildViewWithFit(
+    BuildContext context,
+    MediaVideoTrack track, {
+    BoxFit fit = BoxFit.contain,
+  }) {
     if (track is! TrtcMediaVideoTrack) {
       throw ArgumentError.value(
         track,
@@ -21,14 +29,19 @@ class TrtcTrackRenderer extends MediaTrackRenderer {
         'TrtcTrackRenderer requires a TrtcMediaVideoTrack.',
       );
     }
-    return _TrtcVideoSurface(key: ValueKey(track.id), track: track);
+    return _TrtcVideoSurface(key: ValueKey(track.id), track: track, fit: fit);
   }
 }
 
 class _TrtcVideoSurface extends StatefulWidget {
-  const _TrtcVideoSurface({super.key, required this.track});
+  const _TrtcVideoSurface({
+    super.key,
+    required this.track,
+    this.fit = BoxFit.contain,
+  });
 
   final TrtcMediaVideoTrack track;
+  final BoxFit fit;
 
   @override
   State<_TrtcVideoSurface> createState() => _TrtcVideoSurfaceState();
@@ -40,13 +53,23 @@ class _TrtcVideoSurfaceState extends State<_TrtcVideoSurface> {
   @override
   void didUpdateWidget(covariant _TrtcVideoSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.track.id != widget.track.id) _bindView();
+    if (oldWidget.track.id != widget.track.id) {
+      _bindView();
+    } else if (oldWidget.fit != widget.fit) {
+      _applyFit();
+    }
+  }
+
+  void _applyFit() {
+    if (_viewId == null) return;
+    widget.track.setFillMode?.call(widget.fit == BoxFit.contain);
   }
 
   void _bindView() {
     final viewId = _viewId;
     if (viewId == null) return;
     widget.track.startRendering(viewId);
+    _applyFit();
   }
 
   @override

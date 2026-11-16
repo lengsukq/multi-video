@@ -13,6 +13,7 @@ class RealtimeVideoGrid extends StatelessWidget {
     this.padding = const EdgeInsets.all(8),
     this.onParticipantTap,
     this.participantBuilder,
+    this.videoFit = BoxFit.contain,
   });
 
   final Widget Function(BuildContext, MediaParticipant, MediaTrackRenderer)?
@@ -22,6 +23,7 @@ class RealtimeVideoGrid extends StatelessWidget {
   final double spacing;
   final EdgeInsetsGeometry padding;
   final ValueChanged<MediaParticipant>? onParticipantTap;
+  final BoxFit videoFit;
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +74,7 @@ class RealtimeVideoGrid extends StatelessWidget {
                 return RealtimeVideoTile(
                   key: ValueKey(member.id),
                   participant: member,
+                  fit: videoFit,
                   onTap: onParticipantTap == null
                       ? null
                       : () => onParticipantTap!(member),

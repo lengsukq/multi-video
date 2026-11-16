@@ -104,6 +104,7 @@ class _TrtcSnapshotMapper {
       startRendering: (viewId) =>
           engine.startRemoteSubStreamView(userId, viewId),
       stopRendering: () => engine.stopRemoteSubStreamView(userId),
+      setFillMode: (fit) => engine.setRemoteFillMode(userId, true, fit),
     );
   }
 
@@ -288,6 +289,9 @@ class _TrtcSnapshotMapper {
       stopRendering: local
           ? engine.clearLocalView
           : () => engine.stopRemoteView(userId),
+      setFillMode: local
+          ? engine.setLocalFillMode
+          : (fit) => engine.setRemoteFillMode(userId, false, fit),
     );
   }
 }

@@ -22,6 +22,7 @@ abstract interface class TrtcEngine {
   void muteLocalVideo(bool muted);
   void stopLocalPreview();
   void startLocalPreview(int viewId);
+  void setLocalFillMode(bool fit);
   void clearLocalView();
   void startRemoteView(String userId, int viewId);
   void stopRemoteView(String userId);
@@ -322,11 +323,16 @@ class _NativeTrtcEngine implements TrtcEngine, TrtcDesktopScreenCapture {
 
   @override
   void startLocalPreview(int viewId) {
-    _cloud!.setLocalRenderParams(
-      TRTCRenderParams(fillMode: TRTCVideoFillMode.fit),
-    );
+    setLocalFillMode(true);
     _cloud!.startLocalPreview(true, viewId);
   }
+
+  @override
+  void setLocalFillMode(bool fit) => _cloud?.setLocalRenderParams(
+    TRTCRenderParams(
+      fillMode: fit ? TRTCVideoFillMode.fit : TRTCVideoFillMode.fill,
+    ),
+  );
 
   @override
   void clearLocalView() => _cloud?.updateLocalView(null);

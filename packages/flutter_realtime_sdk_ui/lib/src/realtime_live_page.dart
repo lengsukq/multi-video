@@ -46,7 +46,7 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
   late Future<List<MediaBackgroundImagePreset>> _presets;
   _LiveSidePanel _sidePanel = _LiveSidePanel.none;
   bool _cleanScreen = false;
-  BoxFit? _liveVideoFitOverride;
+  BoxFit _liveVideoFitOverride = BoxFit.contain;
   int _modalOcclusionCount = 0;
   late DateTime _enteredAt;
 

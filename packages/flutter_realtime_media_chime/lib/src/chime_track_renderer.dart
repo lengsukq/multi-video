@@ -9,7 +9,18 @@ class ChimeTrackRenderer extends MediaTrackRenderer {
   const ChimeTrackRenderer();
 
   @override
-  Widget buildView(BuildContext context, MediaVideoTrack track) {
+  bool handlesVideoFit(MediaVideoTrack track) => true;
+
+  @override
+  Widget buildView(BuildContext context, MediaVideoTrack track) =>
+      buildViewWithFit(context, track);
+
+  @override
+  Widget buildViewWithFit(
+    BuildContext context,
+    MediaVideoTrack track, {
+    BoxFit fit = BoxFit.contain,
+  }) {
     if (track is! ChimeMediaVideoTrack) {
       throw ArgumentError.value(
         track,
@@ -17,8 +28,6 @@ class ChimeTrackRenderer extends MediaTrackRenderer {
         'ChimeTrackRenderer requires a ChimeMediaVideoTrack.',
       );
     }
-    // The native tile already renders with scaleAspectFit on iOS/macOS and
-    // AspectFit on Android, so a contain request is already satisfied.
-    return chime.MeetingVideoTileView(tile: track.tile);
+    return chime.MeetingVideoTileView(tile: track.tile, fit: fit);
   }
 }

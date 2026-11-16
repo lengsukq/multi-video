@@ -252,6 +252,7 @@ test('Chime bridge uses the current 3.32 media input APIs', async () => {
   assert.ok(calls.includes('stopVideoInput'),
     'disabling Chime camera must stop capture, not merely hide the tile');
   assert.ok(calls.includes('chooseAudioOutput:speaker-2'));
+  assert.ok(calls.filter((entry) => entry === 'playRemoteAudio').length >= 2);
 
   await bridge.dispose('chime', 'meeting-1');
   assert.ok(calls.includes('unsubscribePresence'));
@@ -260,6 +261,92 @@ test('Chime bridge uses the current 3.32 media input APIs', async () => {
   assert.ok(calls.includes('unbindRemoteAudio'));
   assert.ok(calls.includes('removeRemoteAudio'));
 });
+
+test('Chime bridge mutes and plays remote video elements for WebKit autoplay', async () => {
+  const bridgeGlobal = await createChimeVideoHarness();
+  await bridgeGlobal.bridge.create('chime', 'meeting-remote-video', JSON.stringify(chimePayload));
+  await bridgeGlobal.bridge.join('chime', 'meeting-remote-video');
+  bridgeGlobal.emitRemoteTile({ tileId: 7, boundAttendeeId: 'remote-1', localTile: false, isContent: false });
+  const container = { querySelector: () => null, replaceChildren() {} };
+  await bridgeGlobal.bridge.attachVideoElement('chime', 'meeting-remote-video', 'chime:tile:7', container);
+  assert.equal(bridgeGlobal.videos[0].muted, true);
+  assert.equal(bridgeGlobal.videos[0].defaultMuted, true);
+  assert.equal(bridgeGlobal.videoPlayed, true);
+  await bridgeGlobal.bridge.dispose('chime', 'meeting-remote-video');
+});
+
+async function createChimeVideoHarness() {
+  let observer = null;
+  let videoPlayed = false;
+  const videos = [];
+  const audioVideo = {
+    addObserver(item) { observer = item; },
+    removeObserver() {},
+    addContentShareObserver() {},
+    removeContentShareObserver() {},
+    realtimeSubscribeToAttendeeIdPresence() {},
+    realtimeUnsubscribeToAttendeeIdPresence() {},
+    realtimeSubscribeToReceiveDataMessage() {},
+    realtimeUnsubscribeFromReceiveDataMessage() {},
+    bindAudioElement() {},
+    unbindAudioElement() {},
+    start() { queueMicrotask(() => observer?.audioVideoDidStart?.()); },
+    realtimeMuteLocalAudio() {},
+    getAllVideoTiles() { return []; },
+    bindVideoElement() {},
+    unbindVideoElement() {},
+    stop() {},
+  };
+  const context = vm.createContext({
+    console,
+    TextDecoder,
+    Blob,
+    document: {
+      createElement(tag) {
+        if (tag === 'audio') {
+          return { style: {}, addEventListener() {}, removeEventListener() {}, play: async () => {}, remove() {} };
+        }
+        const video = {
+          style: {},
+          autoplay: false,
+          playsInline: false,
+          muted: false,
+          defaultMuted: false,
+          play: async () => { videoPlayed = true; },
+        };
+        videos.push(video);
+        return video;
+      },
+      body: { append() {} },
+    },
+    setTimeout,
+    clearTimeout,
+    setInterval: () => 1,
+    clearInterval: () => {},
+    ChimeSDK: {
+      ConsoleLogger: class {},
+      LogLevel: { WARN: 'warn' },
+      DefaultDeviceController: class { async destroy() {} },
+      MeetingSessionConfiguration: class {},
+      DefaultMeetingSession: class { constructor() { this.audioVideo = audioVideo; } },
+      MeetingSessionStatusCode: { Left: 'Left' },
+    },
+  });
+  const source = (await build({
+    entryPoints: [new URL('./bridge.js', import.meta.url).pathname],
+    bundle: true,
+    write: false,
+    format: 'iife',
+    platform: 'browser',
+  })).outputFiles[0].text;
+  vm.runInContext(source, context, { filename: 'bridge.js' });
+  return {
+    bridge: context.MediaProviderBridge,
+    videos,
+    get videoPlayed() { return videoPlayed; },
+    emitRemoteTile(tile) { observer?.videoTileDidUpdate?.(tile); },
+  };
+}
 
 test('Chime bridge multiplexes dotted topics over chat to prevent RealtimeApiFailed', async () => {
   const { bridge, calls, events, getDataObserver } = await createChimeHarness();

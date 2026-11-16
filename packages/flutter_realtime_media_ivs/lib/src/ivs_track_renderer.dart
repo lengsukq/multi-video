@@ -16,7 +16,22 @@ class IvsTrackRenderer extends MediaTrackRenderer {
       'com.oneplusdream.flutter_realtime_media_ivs/video';
 
   @override
-  Widget buildView(BuildContext context, MediaVideoTrack track) {
+  bool handlesVideoFit(MediaVideoTrack track) =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows);
+
+  @override
+  Widget buildView(BuildContext context, MediaVideoTrack track) =>
+      buildViewWithFit(context, track);
+
+  @override
+  Widget buildViewWithFit(
+    BuildContext context,
+    MediaVideoTrack track, {
+    BoxFit fit = BoxFit.contain,
+  }) {
     if (track is! IvsMediaVideoTrack) {
       throw ArgumentError.value(
         track,
@@ -24,10 +39,12 @@ class IvsTrackRenderer extends MediaTrackRenderer {
         'IvsTrackRenderer requires an IvsMediaVideoTrack.',
       );
     }
+    final fitMode = fit == BoxFit.cover ? 'cover' : 'contain';
     final params = <String, Object?>{
       'userId': track.userId,
       'isLocal': track.isLocal,
       'generation': track.generation,
+      'fit': fitMode,
     };
     return switch (defaultTargetPlatform) {
       TargetPlatform.android => AndroidView(
@@ -36,11 +53,13 @@ class IvsTrackRenderer extends MediaTrackRenderer {
         creationParamsCodec: const StandardMessageCodec(),
       ),
       TargetPlatform.iOS => UiKitView(
+        key: ValueKey('ios-${track.id}-$fitMode'),
         viewType: viewType,
         creationParams: params,
         creationParamsCodec: const StandardMessageCodec(),
       ),
       TargetPlatform.macOS => AppKitView(
+        key: ValueKey('macos-${track.id}-$fitMode'),
         viewType: viewType,
         creationParams: params,
         creationParamsCodec: const StandardMessageCodec(),
@@ -48,6 +67,7 @@ class IvsTrackRenderer extends MediaTrackRenderer {
       TargetPlatform.windows => _WindowsIvsFrameView(
         key: ValueKey(track.id),
         track: track,
+        fit: fit,
       ),
       _ => const SizedBox.expand(),
     };
@@ -57,8 +77,13 @@ class IvsTrackRenderer extends MediaTrackRenderer {
 /// Experimental IVS WebView2 frame path. This is JPEG transport, not a
 /// native GPU texture; production/low-latency use needs a supported bridge.
 class _WindowsIvsFrameView extends StatefulWidget {
-  const _WindowsIvsFrameView({super.key, required this.track});
+  const _WindowsIvsFrameView({
+    super.key,
+    required this.track,
+    this.fit = BoxFit.contain,
+  });
   final IvsMediaVideoTrack track;
+  final BoxFit fit;
 
   @override
   State<_WindowsIvsFrameView> createState() => _WindowsIvsFrameViewState();
@@ -126,7 +151,7 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
         ? const SizedBox.expand()
         : Image.memory(
             _frame!,
-            fit: BoxFit.contain,
+            fit: widget.fit,
             gaplessPlayback: true,
             width: double.infinity,
             height: double.infinity,

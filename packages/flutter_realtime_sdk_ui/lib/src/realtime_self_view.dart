@@ -11,13 +11,22 @@ class RealtimeSelfView extends StatelessWidget {
     required this.participant,
     required this.renderer,
     this.width,
+    this.fit = BoxFit.contain,
     this.onTap,
   });
 
   final MediaParticipant participant;
   final MediaTrackRenderer renderer;
   final double? width;
+  final BoxFit fit;
   final VoidCallback? onTap;
+
+  double _tileAspectRatio(MediaVideoTrack track) {
+    if (fit == BoxFit.contain && track.width > 0 && track.height > 0) {
+      return (track.width / track.height).clamp(0.56, 1.78);
+    }
+    return 4 / 3;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -50,14 +59,14 @@ class RealtimeSelfView extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: AspectRatio(
-                  aspectRatio: 4 / 3,
+                  aspectRatio: _tileAspectRatio(participant.videoTrack!),
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
                       MediaTrackView(
                         renderer: renderer,
                         track: participant.videoTrack,
-                        fit: BoxFit.cover,
+                        fit: fit,
                         rendererManagesFit: renderer.handlesVideoFit(
                           participant.videoTrack!,
                         ),

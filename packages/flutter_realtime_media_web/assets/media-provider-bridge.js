@@ -1223,6 +1223,9 @@
         }
       });
     };
+    const onAudioStreamLoaded = () => {
+      if (session.joined && !session.disposed) playRemoteAudio();
+    };
     const tiles = /* @__PURE__ */ new Map();
     const tileIdFor = (tile) => `chime:tile:${tile.tileId}`;
     let settleStart = null;
@@ -1243,7 +1246,15 @@
         if (!tile || !tile.tileId || !tile.boundAttendeeId) return;
         tiles.set(tile.tileId, tile);
         addParticipant(session, tile.boundAttendeeId, null, Boolean(tile.localTile));
-        addVideoTrack(session, { id: tileIdFor(tile), participantId: tile.boundAttendeeId, isLocal: Boolean(tile.localTile), isScreenShare: Boolean(tile.isContent), native: tile });
+        addVideoTrack(session, {
+          id: tileIdFor(tile),
+          participantId: tile.boundAttendeeId,
+          isLocal: Boolean(tile.localTile),
+          isScreenShare: Boolean(tile.isContent),
+          width: tile.videoStreamContentWidth || 0,
+          height: tile.videoStreamContentHeight || 0,
+          native: tile
+        });
       },
       videoTileWasRemoved(tileId) {
         const tile = tiles.get(tileId);
@@ -1324,11 +1335,13 @@
           audio.autoplay = true;
           audio.playsInline = true;
           audio.style.display = "none";
+          audio.addEventListener?.("loadedmetadata", onAudioStreamLoaded);
           global.document.body.append(audio);
           try {
             audioVideo.bindAudioElement(audio);
             remoteAudioElement = audio;
           } catch (error) {
+            audio.removeEventListener?.("loadedmetadata", onAudioStreamLoaded);
             audio.remove();
             throw error;
           }
@@ -1422,7 +1435,10 @@
             }
             selectedCameraId = selected.id;
           }
-          if (selected.kind === "audioOutput") await audioVideo.chooseAudioOutput(selected.id);
+          if (selected.kind === "audioOutput") {
+            await audioVideo.chooseAudioOutput(selected.id);
+            playRemoteAudio();
+          }
           return;
         }
         if (name === "listDevices") {
@@ -1453,7 +1469,11 @@
         }
         const tile = track.native;
         const video = makeVideoElement(container);
+        video.muted = true;
+        video.defaultMuted = true;
         audioVideo.bindVideoElement(tile.tileId, video);
+        video.play?.().catch(() => {
+        });
       },
       detachVideo(track) {
         if (track.isLocal && track.isScreenShare && track.native?.track) return;
@@ -1467,6 +1487,7 @@
           global.document.removeEventListener("pointerdown", pendingAudioUnlock);
           pendingAudioUnlock = null;
         }
+        remoteAudioElement?.removeEventListener?.("loadedmetadata", onAudioStreamLoaded);
         audioVideo.unbindAudioElement?.();
         remoteAudioElement?.remove();
         remoteAudioElement = null;
@@ -1855,7 +1876,7 @@
       video.muted = false;
       video.style.width = "100%";
       video.style.height = "100%";
-      video.style.objectFit = "contain";
+      video.style.objectFit = container?.dataset?.videoFit === "cover" ? "cover" : "contain";
       container.replaceChildren(video);
       return video;
     }
@@ -2015,6 +2036,10 @@
         if (!track || !container) return;
         session.attachments.set(track.id, { elementId: container.id, container });
         await session.driver.attachVideo(track, container);
+        const video = container.querySelector?.("video");
+        if (video && container.dataset?.videoFit) {
+          video.style.objectFit = container.dataset.videoFit === "cover" ? "cover" : "contain";
+        }
       },
       detachVideo(providerId, sessionId, trackId, elementId) {
         const session = sessions.get(sessionId);

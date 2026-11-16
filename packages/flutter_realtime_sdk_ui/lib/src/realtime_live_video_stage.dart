@@ -58,21 +58,12 @@ class RealtimeLiveVideoStage extends StatelessWidget {
                 ),
               );
         }
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final effectiveFit =
-                fit ??
-                (constraints.maxHeight > constraints.maxWidth
-                    ? BoxFit.cover
-                    : BoxFit.contain);
-            return RealtimeVideoTile(
-              key: ValueKey(host.id),
-              participant: host,
-              showNameTag: showNameTag,
-              borderless: true,
-              fit: effectiveFit,
-            );
-          },
+        return RealtimeVideoTile(
+          key: ValueKey(host.id),
+          participant: host,
+          showNameTag: showNameTag,
+          borderless: true,
+          fit: fit ?? BoxFit.contain,
         );
       },
     );

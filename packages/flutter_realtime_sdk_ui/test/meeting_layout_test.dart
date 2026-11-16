@@ -375,4 +375,28 @@ void main() {
       await tester.runAsync(fixture.room.dispose);
     }
   });
+
+  testWidgets('meeting video defaults to contain and toggles to cover', (
+    tester,
+  ) async {
+    final fixture = await MeetingSharingFixture.create(withTrack: false);
+    await pumpPage(tester, fixture, const Size(420, 820));
+
+    RealtimeVideoTile firstTile() =>
+        tester.widgetList<RealtimeVideoTile>(find.byType(RealtimeVideoTile)).first;
+    expect(firstTile().fit, BoxFit.contain);
+
+    final toggle = find.byKey(const ValueKey('meeting-video-fit-toggle'));
+    expect(toggle, findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(firstTile().fit, BoxFit.cover);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(firstTile().fit, BoxFit.contain);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.runAsync(fixture.room.dispose);
+  });
 }

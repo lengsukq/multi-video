@@ -6,3 +6,12 @@
 -dontwarn com.meizu.cloud.pushsdk.**
 -dontwarn com.vivo.push.**
 -dontwarn com.xiaomi.mipush.sdk.**
+
+# Native media/chat SDKs look up Java classes by original name via JNI
+# during plugin registration and session startup (e.g. libliteavsdk.so).
+-keep class com.tencent.** { *; }
+-keep class com.hyphenate.** { *; }
+-keep class com.alivc.** { *; }
+-keep class com.aliyun.** { *; }
+-keep class com.amazonaws.** { *; }
+

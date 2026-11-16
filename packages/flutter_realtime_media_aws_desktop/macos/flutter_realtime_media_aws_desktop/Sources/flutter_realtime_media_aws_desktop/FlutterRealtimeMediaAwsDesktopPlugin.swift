@@ -1139,8 +1139,8 @@ private final class AwsDesktopRuntime: NSObject,
       configuration.userContentController = controller
       configuration.setURLSchemeHandler(processedFrameHandler, forURLScheme: "realtime-video")
       configuration.mediaTypesRequiringUserActionForPlayback = []
-      let view = WKWebView(
-        frame: NSRect(x: -2, y: -2, width: 1, height: 1),
+      let view = PassiveBridgeWebView(
+        frame: NSRect(x: 0, y: 0, width: 16, height: 16),
         configuration: configuration
       )
       view.navigationDelegate = self
@@ -1407,6 +1407,19 @@ private final class AwsDesktopRuntime: NSObject,
     for (id, track) in newTracks where oldTracks[id] == nil {
       chimeChannel?.invokeMethod("videoTileAdd", arguments: chimeTile(track, id: id))
     }
+    for (id, track) in newTracks {
+      guard let old = oldTracks[id] else { continue }
+      let oldW = old["width"] as? Int ?? 0
+      let oldH = old["height"] as? Int ?? 0
+      let newW = track["width"] as? Int ?? 0
+      let newH = track["height"] as? Int ?? 0
+      if oldW != newW || oldH != newH {
+        chimeChannel?.invokeMethod("meetingEvent", arguments: [
+          "type": "videoTileSizeChanged",
+          "videoTile": chimeTile(track, id: id),
+        ])
+      }
+    }
     for (id, track) in oldTracks where newTracks[id] == nil {
       chimeChannel?.invokeMethod("videoTileRemove", arguments: chimeTile(track, id: id))
     }
@@ -1606,7 +1619,7 @@ private final class AwsDesktopRuntime: NSObject,
   }
 }
 
-private final class AwsDesktopVideoView: NSImageView {
+private final class AwsDesktopVideoView: NSView {
   let viewKey: String
   let provider: AwsDesktopProvider
   let participantId: String
@@ -1614,6 +1627,11 @@ private final class AwsDesktopVideoView: NSImageView {
   let fixedTrackId: String?
   weak var runtime: AwsDesktopRuntime?
   var currentTrackId: String?
+  var image: NSImage? {
+    didSet {
+      layer?.contents = image
+    }
+  }
 
   init(
     viewKey: String,
@@ -1621,6 +1639,7 @@ private final class AwsDesktopVideoView: NSImageView {
     participantId: String,
     isLocal: Bool,
     fixedTrackId: String?,
+    fit: String,
     runtime: AwsDesktopRuntime
   ) {
     self.viewKey = viewKey
@@ -1630,10 +1649,10 @@ private final class AwsDesktopVideoView: NSImageView {
     self.fixedTrackId = fixedTrackId
     self.runtime = runtime
     super.init(frame: .zero)
-    imageScaling = .scaleProportionallyUpOrDown
-    imageAlignment = .alignCenter
     wantsLayer = true
     layer?.backgroundColor = NSColor.black.cgColor
+    layer?.masksToBounds = true
+    layer?.contentsGravity = fit == "cover" ? .resizeAspectFill : .resizeAspect
     runtime.register(self)
   }
 
@@ -1669,13 +1688,18 @@ private final class AwsDesktopVideoViewFactory: NSObject, FlutterPlatformViewFac
   ) -> NSView {
     switch provider {
     case .chime:
-      let tileId = (args as? NSNumber)?.intValue ?? 0
+      let values = args as? [String: Any]
+      let tileId = (args as? NSNumber)?.intValue
+        ?? (values?["tileId"] as? NSNumber)?.intValue
+        ?? 0
+      let fit = values?["fit"] as? String ?? "contain"
       return AwsDesktopVideoView(
         viewKey: "chime-" + String(viewId),
         provider: .chime,
         participantId: "",
         isLocal: false,
         fixedTrackId: "chime:tile:" + String(tileId),
+        fit: fit,
         runtime: runtime
       )
     case .ivs:
@@ -1686,6 +1710,7 @@ private final class AwsDesktopVideoViewFactory: NSObject, FlutterPlatformViewFac
         participantId: values["userId"] as? String ?? "",
         isLocal: values["isLocal"] as? Bool ?? false,
         fixedTrackId: nil,
+        fit: values["fit"] as? String ?? "contain",
         runtime: runtime
       )
     }
@@ -1694,6 +1719,10 @@ private final class AwsDesktopVideoViewFactory: NSObject, FlutterPlatformViewFac
   func createArgsCodec() -> (FlutterMessageCodec & NSObjectProtocol)? {
     FlutterStandardMessageCodec.sharedInstance()
   }
+}
+
+private final class PassiveBridgeWebView: WKWebView {
+  override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {

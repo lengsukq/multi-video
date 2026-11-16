@@ -83,6 +83,7 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
   int _classroomTab = 0;
   int _classroomPanelVisit = 0;
   bool _recordingBusy = false;
+  BoxFit _videoFit = BoxFit.contain;
   int _modalOcclusionCount = 0;
   bool _useGrid = false;
   bool _showFilmstrip = true;
@@ -428,6 +429,7 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
                         // (or the grid). Do not render it a second time as an
                         // overlay in the top-right corner of the stage.
                         showSelfView: false,
+                        videoFit: _videoFit,
                         participantBuilder: widget.participantBuilder,
                         overlayBuilder: widget.stageOverlayBuilder,
                         // Only the desktop rail hosts the board's tools. Phones
@@ -637,6 +639,34 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
       audienceNames: compact ? const [] : names,
       audienceCount: compact ? null : participants.length,
       trailingActions: [
+        IconButton.outlined(
+          key: const ValueKey('meeting-video-fit-toggle'),
+          tooltip: _videoFit == BoxFit.contain
+              ? strings.fillLiveScreen
+              : strings.showFullVideo,
+          style: IconButton.styleFrom(
+            foregroundColor: RealtimeStyle.of(context).textSecondary,
+            side: BorderSide(color: RealtimeStyle.of(context).border),
+            minimumSize: const Size(40, 40),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(
+                RealtimeUiTokens.controlRadius,
+              ),
+            ),
+          ),
+          icon: Icon(
+            _videoFit == BoxFit.contain
+                ? Icons.crop_free_rounded
+                : Icons.fit_screen_rounded,
+            size: 19,
+          ),
+          onPressed: () => setState(
+            () => _videoFit = _videoFit == BoxFit.contain
+                ? BoxFit.cover
+                : BoxFit.contain,
+          ),
+        ),
+        const SizedBox(width: 4),
         // The labelled invite button only renders on wide headers, so phones
         // and tablets get an icon-only equivalent instead of a second copy
         // action.

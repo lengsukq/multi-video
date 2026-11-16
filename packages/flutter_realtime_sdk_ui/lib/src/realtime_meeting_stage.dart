@@ -14,6 +14,7 @@ class RealtimeMeetingStage extends StatefulWidget {
     this.showClassroom = true,
     this.showAnnotations = true,
     this.showSelfView = false,
+    this.videoFit = BoxFit.contain,
     this.participantBuilder,
     this.overlayBuilder,
     this.whiteboardToolsController,
@@ -28,6 +29,9 @@ class RealtimeMeetingStage extends StatefulWidget {
 
   /// Overlay a small local camera tile in the top-right of the stage.
   final bool showSelfView;
+
+  /// How camera video tiles scale within their bounds (contain vs cover).
+  final BoxFit videoFit;
   final MediaParticipantBuilder? participantBuilder;
   final WidgetBuilder? overlayBuilder;
   final WhiteboardToolsController? whiteboardToolsController;
@@ -88,6 +92,7 @@ class _RealtimeMeetingStageState extends State<RealtimeMeetingStage> {
                   child: RealtimeSelfView(
                     participant: local,
                     renderer: controller.room.renderer,
+                    fit: widget.videoFit,
                     onTap: () =>
                         setState(() => _pinnedParticipantId = local.id),
                   ),
@@ -157,6 +162,7 @@ class _RealtimeMeetingStageState extends State<RealtimeMeetingStage> {
           key: ValueKey(p.id),
           participant: p,
           showNameTag: false,
+          fit: widget.videoFit,
         ),
   );
 
@@ -168,6 +174,7 @@ class _RealtimeMeetingStageState extends State<RealtimeMeetingStage> {
     if (widget.useGrid || participants.length <= 1) {
       return RealtimeVideoGrid(
         participantBuilder: widget.participantBuilder,
+        videoFit: widget.videoFit,
         padding: EdgeInsets.fromLTRB(8, 8, 8, widget.bottomControlsInset + 8),
       );
     }
@@ -241,6 +248,7 @@ class _RealtimeMeetingStageState extends State<RealtimeMeetingStage> {
                                 child: RealtimeSelfView(
                                   participant: local,
                                   renderer: controller.room.renderer,
+                                  fit: widget.videoFit,
                                   width: (stage.maxWidth * .24).clamp(
                                     100.0,
                                     200.0,

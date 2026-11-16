@@ -344,3 +344,37 @@ test('desktop video display follows decoded frames up to 30 fps and cancels on d
   staleCallback(1200,{mediaTime:1.2});
   assert.equal(h.messages.filter(value=>value.kind==='frame').length,30);
 });
+
+test('desktop video display advances on presentedFrames when WebKit keeps mediaTime at zero', async () => {
+  const h = createRuntime();
+  const video = {
+    readyState: 2,
+    videoWidth: 960,
+    videoHeight: 540,
+    requestVideoFrameCallback(callback) { this.callback = callback; return 1; },
+    cancelVideoFrameCallback() { this.callback = null; },
+  };
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext() { return { drawImage() {} }; },
+    toDataURL() { return 'data:image/jpeg;base64,AA=='; },
+  };
+  const container = { querySelector() { return video; }, remove() {} };
+  h.context.document = {
+    body: { appendChild() {} },
+    createElement(name) { return name === 'canvas' ? canvas : container; },
+  };
+  h.context.MediaProviderBridge = { async attachVideo() {}, detachVideo() {} };
+  const runtime = h.context.AwsDesktopRuntime;
+  await runtime.bindTrack('chime', 'session', 'remote', 'view');
+
+  for (let index = 1; index <= 5; index++) {
+    video.callback(index * 1000 / 30, { mediaTime: 0, presentedFrames: index });
+  }
+  assert.equal(h.messages.filter((value) => value.kind === 'frame').length, 5);
+  // Same presentedFrames + mediaTime must still be deduplicated.
+  video.callback(400, { mediaTime: 0, presentedFrames: 5 });
+  assert.equal(h.messages.filter((value) => value.kind === 'frame').length, 5);
+  runtime.unbindTrack('view');
+});

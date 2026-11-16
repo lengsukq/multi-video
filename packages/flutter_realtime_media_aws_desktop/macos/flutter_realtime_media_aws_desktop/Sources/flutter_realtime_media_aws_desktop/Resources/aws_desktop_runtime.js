@@ -247,14 +247,24 @@
     const context = canvas.getContext('2d', { alpha: false });
     const binding = { providerId: providerId, sessionId: sessionId, trackId: trackId,
       container: container, frameHandle: null, video: null, closed: false,
-      usesVideoCallback: false, nextFrameAt: 0, lastMediaTime: null };
+      usesVideoCallback: false, nextFrameAt: 0, lastFrameSignature: null };
     bindings.set(viewKey, binding);
 
-    function render(now, mediaTime) {
+    function frameSignature(metadata, video) {
+      // WebKit reports metadata.mediaTime === 0 for every live MediaStream frame,
+      // so include presentedFrames when present to avoid dropping frames 2+.
+      if (metadata && metadata.presentedFrames != null) {
+        return String(metadata.presentedFrames) + ':' + String(metadata.mediaTime);
+      }
+      if (metadata && metadata.mediaTime != null) return metadata.mediaTime;
+      return video ? video.currentTime : null;
+    }
+
+    function render(now, signature) {
       if (binding.closed) return;
       const video = container.querySelector('video');
       if (video && video.readyState >= 2 && video.videoWidth && video.videoHeight &&
-          (mediaTime == null || mediaTime !== binding.lastMediaTime) &&
+          (signature == null || signature !== binding.lastFrameSignature) &&
           (!binding.nextFrameAt || now + 1 >= binding.nextFrameAt)) {
         try {
           const scale = Math.min(1, 960 / video.videoWidth);
@@ -266,7 +276,7 @@
           context.drawImage(video, 0, 0, width, height);
           post({ kind: 'frame', viewKey: viewKey,
             data: canvas.toDataURL('image/jpeg', 0.72), width: width, height: height });
-          binding.lastMediaTime = mediaTime;
+          binding.lastFrameSignature = signature;
           binding.nextFrameAt = !binding.nextFrameAt || now - binding.nextFrameAt > 1000 / 30
             ? now + 1000 / 30 : binding.nextFrameAt + 1000 / 30;
         } catch (_) {}
@@ -280,7 +290,7 @@
       binding.video = video;
       binding.usesVideoCallback = Boolean(video && typeof video.requestVideoFrameCallback === 'function');
       binding.frameHandle = binding.usesVideoCallback
-        ? video.requestVideoFrameCallback((now, metadata) => render(now, metadata.mediaTime))
+        ? video.requestVideoFrameCallback((now, metadata) => render(now, frameSignature(metadata, video)))
         : global.requestAnimationFrame(now => render(now, video && video.currentTime));
     }
     schedule();

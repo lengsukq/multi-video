@@ -73,6 +73,9 @@ export function createChimeSession(session, context) {
         }
       });
     };
+    const onAudioStreamLoaded = () => {
+      if (session.joined && !session.disposed) playRemoteAudio();
+    };
     const tiles = new Map();
     const tileIdFor = (tile) => `chime:tile:${tile.tileId}`;
     let settleStart = null;
@@ -94,7 +97,15 @@ export function createChimeSession(session, context) {
         if (!tile || !tile.tileId || !tile.boundAttendeeId) return;
         tiles.set(tile.tileId, tile);
         addParticipant(session, tile.boundAttendeeId, null, Boolean(tile.localTile));
-        addVideoTrack(session, { id: tileIdFor(tile), participantId: tile.boundAttendeeId, isLocal: Boolean(tile.localTile), isScreenShare: Boolean(tile.isContent), native: tile });
+        addVideoTrack(session, {
+          id: tileIdFor(tile),
+          participantId: tile.boundAttendeeId,
+          isLocal: Boolean(tile.localTile),
+          isScreenShare: Boolean(tile.isContent),
+          width: tile.videoStreamContentWidth || 0,
+          height: tile.videoStreamContentHeight || 0,
+          native: tile,
+        });
       },
       videoTileWasRemoved(tileId) {
         const tile = tiles.get(tileId);
@@ -183,11 +194,13 @@ export function createChimeSession(session, context) {
           audio.autoplay = true;
           audio.playsInline = true;
           audio.style.display = 'none';
+          audio.addEventListener?.('loadedmetadata', onAudioStreamLoaded);
           global.document.body.append(audio);
           try {
             audioVideo.bindAudioElement(audio);
             remoteAudioElement = audio;
           } catch (error) {
+            audio.removeEventListener?.('loadedmetadata', onAudioStreamLoaded);
             audio.remove();
             throw error;
           }
@@ -295,7 +308,10 @@ export function createChimeSession(session, context) {
             }
             selectedCameraId = selected.id;
           }
-          if (selected.kind === 'audioOutput') await audioVideo.chooseAudioOutput(selected.id);
+          if (selected.kind === 'audioOutput') {
+            await audioVideo.chooseAudioOutput(selected.id);
+            playRemoteAudio();
+          }
           return;
         }
         if (name === 'listDevices') {
@@ -329,7 +345,12 @@ export function createChimeSession(session, context) {
         }
         const tile = track.native;
         const video = makeVideoElement(container);
+        // Chime video tiles carry no audio track; muting prevents WebKit from
+        // blocking remote tiles as unmuted autoplay without a user gesture.
+        video.muted = true;
+        video.defaultMuted = true;
         audioVideo.bindVideoElement(tile.tileId, video);
+        video.play?.().catch(() => {});
       },
       detachVideo(track) {
         if (track.isLocal && track.isScreenShare && track.native?.track) return;
@@ -343,6 +364,7 @@ export function createChimeSession(session, context) {
           global.document.removeEventListener('pointerdown', pendingAudioUnlock);
           pendingAudioUnlock = null;
         }
+        remoteAudioElement?.removeEventListener?.('loadedmetadata', onAudioStreamLoaded);
         audioVideo.unbindAudioElement?.();
         remoteAudioElement?.remove();
         remoteAudioElement = null;

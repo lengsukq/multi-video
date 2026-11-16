@@ -969,6 +969,7 @@ private final class IvsVideoPlatformView:
 {
     let userId: String
     let isLocal: Bool
+    let fit: String
     private weak var plugin: FlutterRealtimeMediaIvsPlugin?
     private let container = UIView()
 
@@ -976,14 +977,17 @@ private final class IvsVideoPlatformView:
         frame: CGRect,
         userId: String,
         isLocal: Bool,
+        fit: String,
         plugin: FlutterRealtimeMediaIvsPlugin
     ) {
         self.userId = userId
         self.isLocal = isLocal
+        self.fit = fit
         self.plugin = plugin
         super.init()
         container.frame = frame
         container.backgroundColor = .black
+        container.clipsToBounds = true
         plugin.add(self)
     }
 
@@ -993,7 +997,7 @@ private final class IvsVideoPlatformView:
         container.subviews.forEach { $0.removeFromSuperview() }
         guard
             let imageDevice = stream?.device as? IVSImageDevice,
-            let preview = try? imageDevice.previewView(with: .fit)
+            let preview = try? imageDevice.previewView(with: fit == "cover" ? .fill : .fit)
         else {
             return
         }
@@ -1031,6 +1035,7 @@ private final class IvsVideoPlatformViewFactory:
             frame: frame,
             userId: values["userId"] as? String ?? "",
             isLocal: values["isLocal"] as? Bool ?? false,
+            fit: values["fit"] as? String ?? "contain",
             plugin: plugin!
         )
     }

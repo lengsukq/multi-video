@@ -13,9 +13,14 @@ import '../models/meeting_snapshot.dart';
 
 /// Renders one AWS Chime video tile on iOS, Android, macOS, or experimental Windows.
 class MeetingVideoTileView extends StatelessWidget {
-  const MeetingVideoTileView({super.key, required this.tile});
+  const MeetingVideoTileView({
+    super.key,
+    required this.tile,
+    this.fit = BoxFit.contain,
+  });
 
   final MeetingVideoTile tile;
+  final BoxFit fit;
 
   @override
   Widget build(BuildContext context) {
@@ -39,26 +44,36 @@ class MeetingVideoTileView extends StatelessWidget {
       return _WindowsChimeFrameView(
         key: ValueKey('windows-chime-${tile.tileId}'),
         tile: tile,
+        fit: fit,
       );
     }
 
+    final fitMode = fit == BoxFit.cover ? 'cover' : 'contain';
+    final creationParams = <String, Object?>{
+      'tileId': tile.tileId,
+      'fit': fitMode,
+    };
+
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       return UiKitView(
+        key: ValueKey('ios-chime-${tile.tileId}-$fitMode'),
         viewType: 'videoTile',
-        creationParams: tile.tileId,
+        creationParams: creationParams,
         creationParamsCodec: const StandardMessageCodec(),
       );
     }
 
     if (defaultTargetPlatform == TargetPlatform.macOS) {
       return AppKitView(
+        key: ValueKey('macos-chime-${tile.tileId}-$fitMode'),
         viewType: 'videoTile',
-        creationParams: tile.tileId,
+        creationParams: creationParams,
         creationParamsCodec: const StandardMessageCodec(),
       );
     }
 
     return PlatformViewLink(
+      key: ValueKey('android-chime-${tile.tileId}-$fitMode'),
       viewType: 'videoTile',
       surfaceFactory: (context, controller) => AndroidViewSurface(
         controller: controller as AndroidViewController,
@@ -70,7 +85,7 @@ class MeetingVideoTileView extends StatelessWidget {
           id: params.id,
           viewType: 'videoTile',
           layoutDirection: TextDirection.ltr,
-          creationParams: tile.tileId,
+          creationParams: creationParams,
           creationParamsCodec: const StandardMessageCodec(),
           onFocus: () => params.onFocusChanged(true),
         );
@@ -87,8 +102,13 @@ class MeetingVideoTileView extends StatelessWidget {
 /// Provisional frame renderer matching the macOS WebKit bridge's JPEG frame
 /// event contract. It is not a low-latency native GPU texture.
 class _WindowsChimeFrameView extends StatefulWidget {
-  const _WindowsChimeFrameView({super.key, required this.tile});
+  const _WindowsChimeFrameView({
+    super.key,
+    required this.tile,
+    this.fit = BoxFit.contain,
+  });
   final MeetingVideoTile tile;
+  final BoxFit fit;
 
   @override
   State<_WindowsChimeFrameView> createState() => _WindowsChimeFrameViewState();
@@ -166,7 +186,7 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
         ? const SizedBox.expand()
         : Image.memory(
             _frame!,
-            fit: BoxFit.contain,
+            fit: widget.fit,
             gaplessPlayback: true,
             width: double.infinity,
             height: double.infinity,

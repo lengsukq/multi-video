@@ -576,4 +576,45 @@ void main() {
       expect(decoded.message, '{"displayName":"iPhone"}');
     },
   );
+
+  test(
+    'updates tile dimensions in snapshot when videoTileSizeChanged arrives',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final session = activeSession = ChimeMeetingSession();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_channel, (_) async => _success());
+
+      await session.join(_joinInfo());
+      await ChimeNativeChannel.instance.debugDispatchNativeCall(
+        const MethodCall('videoTileAdd', {
+          'tileId': 3,
+          'attendeeId': 'remote-1',
+          'videoStreamContentWidth': 0,
+          'videoStreamContentHeight': 0,
+          'isLocalTile': false,
+          'isContent': false,
+        }),
+      );
+      expect(session.snapshot.attendees.last.videoTile?.width, 0);
+
+      await ChimeNativeChannel.instance.debugDispatchNativeCall(
+        const MethodCall('meetingEvent', {
+          'type': 'videoTileSizeChanged',
+          'videoTile': {
+            'tileId': 3,
+            'attendeeId': 'remote-1',
+            'videoStreamContentWidth': 540,
+            'videoStreamContentHeight': 960,
+            'isLocalTile': false,
+            'isContent': false,
+          },
+        }),
+      );
+      final updated = session.snapshot.attendees.last.videoTile!;
+      expect(updated.width, 540);
+      expect(updated.height, 960);
+      expect(updated.aspectRatio, closeTo(540 / 960, 0.001));
+    },
+  );
 }

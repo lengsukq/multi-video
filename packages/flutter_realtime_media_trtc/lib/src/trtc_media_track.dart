@@ -7,6 +7,7 @@ class TrtcMediaVideoTrack extends MediaVideoTrack {
     required this.local,
     required this.startRendering,
     required this.stopRendering,
+    this.setFillMode,
     this.screenShare = false,
     this.generation = 0,
     this.frameWidth,
@@ -24,6 +25,9 @@ class TrtcMediaVideoTrack extends MediaVideoTrack {
 
   /// Stops the local view binding or remote subscription when its tile closes.
   final void Function() stopRendering;
+
+  /// Updates the native TRTC video fill mode (`true` for contain, `false` for cover).
+  final void Function(bool fit)? setFillMode;
 
   /// Changes when the underlying TRTC room is re-entered after renewal.
   final int generation;

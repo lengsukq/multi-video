@@ -362,7 +362,7 @@ import { createChimeSession } from './media/chime-session.js';
     video.muted = false;
     video.style.width = '100%';
     video.style.height = '100%';
-    video.style.objectFit = 'contain';
+    video.style.objectFit = container?.dataset?.videoFit === 'cover' ? 'cover' : 'contain';
     container.replaceChildren(video);
     return video;
   }
@@ -527,6 +527,10 @@ import { createChimeSession } from './media/chime-session.js';
       if (!track || !container) return;
       session.attachments.set(track.id, { elementId: container.id, container });
       await session.driver.attachVideo(track, container);
+      const video = container.querySelector?.('video');
+      if (video && container.dataset?.videoFit) {
+        video.style.objectFit = container.dataset.videoFit === 'cover' ? 'cover' : 'contain';
+      }
     },
 
     detachVideo(providerId, sessionId, trackId, elementId) {

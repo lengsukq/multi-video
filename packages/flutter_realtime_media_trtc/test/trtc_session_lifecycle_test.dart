@@ -583,6 +583,9 @@ class _FakeTrtcEngine implements TrtcEngine, TrtcDesktopScreenCapture {
   void startLocalPreview(int viewId) => calls.add('preview:start:$viewId');
 
   @override
+  void setLocalFillMode(bool fit) => calls.add('preview:fill:$fit');
+
+  @override
   void clearLocalView() => calls.add('preview:clear');
 
   @override

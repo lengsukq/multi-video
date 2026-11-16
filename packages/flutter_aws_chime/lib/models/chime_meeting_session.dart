@@ -357,6 +357,10 @@ class ChimeMeetingSession {
     final event = ChimeEvent.fromJson(json);
     if (event == null) return;
     _eventController.add(event);
+    if (event is VideoTileEvent && event.kind == VideoTileEventKind.sizeChanged) {
+      _updateVideoTileSize(event.videoTile);
+      return;
+    }
     if (event is MeetingSessionEvent) {
       switch (event.kind) {
         case MeetingSessionEventKind.audioConnecting:
@@ -467,6 +471,54 @@ class ChimeMeetingSession {
         .toList(growable: false);
     _replaceSnapshot(_snapshot.copyWith(attendees: attendees));
     if (tile.isLocal) _setLocalVideoEnabled(false);
+  }
+
+  void _updateVideoTileSize(MeetingVideoTile resized) {
+    if (resized.isContentShare) {
+      final current = _snapshot.contentShareTile;
+      if (current == null ||
+          (current.width == resized.width && current.height == resized.height)) {
+        return;
+      }
+      _replaceSnapshot(
+        _snapshot.copyWith(
+          contentShareTile: MeetingVideoTile(
+            tileId: current.tileId,
+            attendeeId: current.attendeeId,
+            width: resized.width,
+            height: resized.height,
+            isLocal: current.isLocal,
+            isContentShare: current.isContentShare,
+          ),
+        ),
+      );
+      return;
+    }
+    var changed = false;
+    final attendees = _snapshot.attendees
+        .map((item) {
+          final current = item.videoTile;
+          if (current == null || current.tileId != resized.tileId) return item;
+          if (current.width == resized.width &&
+              current.height == resized.height) {
+            return item;
+          }
+          changed = true;
+          return item.copyWith(
+            videoTile: MeetingVideoTile(
+              tileId: current.tileId,
+              attendeeId: current.attendeeId,
+              width: resized.width,
+              height: resized.height,
+              isLocal: current.isLocal,
+              isContentShare: current.isContentShare,
+            ),
+          );
+        })
+        .toList(growable: false);
+    if (changed) {
+      _replaceSnapshot(_snapshot.copyWith(attendees: attendees));
+    }
   }
 
   void _appendMessage(MeetingMessage message) {
