@@ -13,7 +13,6 @@ import 'package:flutter_realtime_sdk/flutter_realtime_sdk.dart';
 import 'package:flutter_realtime_sdk_ui/flutter_realtime_sdk_ui.dart';
 
 import 'demo_background.dart';
-import 'demo_aws_provider_panel.dart';
 import 'demo_backend_diagnostics.dart';
 import 'demo_available_rooms.dart';
 import 'demo_room_directory.dart';
@@ -478,15 +477,6 @@ class _JoinScreenState extends State<JoinScreen> with TickerProviderStateMixin {
                   _buildIdentitySettingsSection(),
                   const SizedBox(height: 24),
                   _buildServerSettingsSection(),
-                  if (!kIsWeb &&
-                      defaultTargetPlatform == TargetPlatform.macOS) ...[
-                    const SizedBox(height: 24),
-                    DemoAwsProviderPanel(
-                      backendUrl: _server,
-                      activeProviderId: _serverMediaProviderId,
-                      online: _serverOnline,
-                    ),
-                  ],
                 ],
               ],
             ),
