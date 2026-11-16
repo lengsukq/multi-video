@@ -22,7 +22,8 @@ class ChimeWindowsWebview2Transport {
   }
 
   void release() {
-    _subscription?.cancel();
+    final subscription = _subscription;
+    if (subscription != null) unawaited(subscription.cancel());
     _subscription = null;
     _participants = {};
     _tracks = {};
@@ -76,7 +77,7 @@ class ChimeWindowsWebview2Transport {
           _devices
             ..clear()
             ..addAll(raw is List
-                ? raw.whereType<Map>()
+                ? raw.whereType<Map<Object?, Object?>>()
                     .map((e) => Map<String, dynamic>.from(e))
                 : const <Map<String, dynamic>>[]);
           return _success(

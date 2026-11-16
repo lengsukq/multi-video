@@ -174,6 +174,8 @@ class _Shared extends Fake implements SharedContentController {
   @override
   bool get supported => false;
   @override
+  bool get anotherParticipantSharing => false;
+  @override
   Future<void> start() => gate.future;
   @override
   SharedContentStatus get status => SharedContentStatus(

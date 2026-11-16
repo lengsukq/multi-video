@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter_realtime_foundation/flutter_realtime_foundation.dart';
 import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
@@ -122,7 +121,7 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
         // A damaged frame is discarded; the next frame can recover.
       }
     });
-    _bind();
+    unawaited(_bind());
   }
 
   Future<void> _bind() async {
@@ -147,13 +146,14 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
       unawaited(_runtime.invoke('unbind', viewKey: _viewKey)
           .catchError((Object _) => null));
       _frame = null;
-      _bind();
+      unawaited(_bind());
     }
   }
 
   @override
   void dispose() {
-    _subscription?.cancel();
+    final subscription = _subscription;
+    if (subscription != null) unawaited(subscription.cancel());
     unawaited(_runtime.invoke('unbind', viewKey: _viewKey)
         .catchError((Object _) => null));
     super.dispose();
