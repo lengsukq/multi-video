@@ -66,6 +66,9 @@ class AgoraTrackRenderer extends MediaTrackRenderer {
           uid: track.uid,
           renderMode: renderMode,
           mirrorMode: agora.VideoMirrorModeType.videoMirrorModeDisabled,
+          // Desktop screen capture is published by Agora as the screen
+          // source, not the remote participant's camera source. Leaving the
+          // canvas default at camera renders a black/empty remote share.
           sourceType: track.isScreenShare
               ? agora.VideoSourceType.videoSourceScreen
               : agora.VideoSourceType.videoSourceCamera,

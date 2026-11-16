@@ -13,6 +13,7 @@ class ComposedLocalPreview
     implements
         MediaLocalPreviewSession,
         MediaLocalPreviewAudioLevels,
+        MediaLocalPreviewRoomSettings,
         MediaBackgroundEffectsController,
         MediaLocalPreviewFailureEvents {
   ComposedLocalPreview({required this.video, required this.audio}) {
@@ -26,6 +27,23 @@ class ComposedLocalPreview
         );
       }
     }
+  }
+
+  @override
+  MediaLocalPreviewSettings get roomSettings {
+    final selected = settings;
+    if (audio == null || audio!.providerId == video.providerId) {
+      return selected;
+    }
+    // A generic WebRTC hardware preview can verify and select the local
+    // microphone, but its device IDs cannot be assumed valid in Agora/TRTC/
+    // ARTC/etc. Preserve the chosen enable state, use the RTC default input.
+    return MediaLocalPreviewSettings(
+      microphoneEnabled: selected.microphoneEnabled,
+      cameraEnabled: selected.cameraEnabled,
+      camera: selected.camera,
+      backgroundEffect: selected.backgroundEffect,
+    );
   }
 
   final MediaLocalPreviewSession video;

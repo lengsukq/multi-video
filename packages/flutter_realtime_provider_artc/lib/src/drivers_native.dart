@@ -3,14 +3,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
 import 'package:flutter_realtime_media_artc/flutter_realtime_media_artc.dart';
 
-const _mobileAndMac = {
+const _mobileAndDesktop = {
   RealtimeRuntimePlatform.android,
   RealtimeRuntimePlatform.ios,
   RealtimeRuntimePlatform.macos,
+  RealtimeRuntimePlatform.windows,
 };
 List<RealtimeProviderDriver> createDrivers(int maxMessages) => [
   RealtimeProviderDriver(
-    platforms: _mobileAndMac,
+    platforms: _mobileAndDesktop,
     plugin: RealtimeProviderPlugin(
       id: 'artc',
       metadata: RealtimeProviderMetadata(displayName: 'Alibaba ARTC'),

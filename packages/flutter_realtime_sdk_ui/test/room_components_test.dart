@@ -1067,6 +1067,43 @@ void main() {
     controller.dispose();
     expect(media.disposeCalls, 0);
   });
+
+  test('microphone does not report success without a provider state change',
+      () async {
+    final media = _UnconfirmedMuteSession();
+    final room = _room(media);
+    addTearDown(room.dispose);
+    final controller = RealtimeRoomUiController(room);
+    addTearDown(controller.dispose);
+    await expectLater(
+      controller.toggleMicrophone(),
+      throwsA(
+        isA<RealtimeException>().having(
+          (error) => error.code,
+          'code',
+          RealtimeErrorCode.providerError,
+        ),
+      ),
+    );
+    expect(media.muteCalls, 1);
+    expect(media.snapshot.localMuted, isTrue);
+    expect(controller.lastCompletedAction, isNull);
+    expect(controller.error, isNotNull);
+  });
+}
+
+class _UnconfirmedMuteSession extends _FakeMediaSession {
+  @override
+  Future<void> setMuted(bool muted) async {
+    muteCalls++;
+    // Models a bridge acknowledging a command while never changing
+    // microphone publication state.
+  }
+
+  @override
+  Future<void> toggleMute() => Future.error(
+    StateError('Vendor-specific toggleMute must not be invoked by the UI'),
+  );
 }
 
 class _FakeRealtimeVideoEffects implements RealtimeVideoEffects {
@@ -1116,11 +1153,15 @@ class _DeferredMuteSession extends _FakeMediaSession {
   final Completer<void> _ready = Completer<void>();
   void complete() => _ready.complete();
   @override
-  Future<void> toggleMute() async {
+  Future<void> setMuted(bool muted) async {
     muteCalls++;
     await _ready.future;
-    _emit(snapshot.copyWith(localMuted: !snapshot.localMuted));
+    _emit(snapshot.copyWith(localMuted: muted));
   }
+  @override
+  Future<void> toggleMute() => Future.error(
+    StateError('UI must use the common setMuted contract, not vendor toggle'),
+  );
 }
 
 class _DeviceMediaSession extends _FakeMediaSession

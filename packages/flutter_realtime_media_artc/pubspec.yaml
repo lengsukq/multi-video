@@ -30,3 +30,5 @@ flutter:
         pluginClass: FlutterRealtimeMediaArtcPlugin
       macos:
         pluginClass: FlutterRealtimeMediaArtcPlugin
+      windows:
+        pluginClass: FlutterRealtimeMediaArtcPluginCApi

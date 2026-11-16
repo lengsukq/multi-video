@@ -257,6 +257,16 @@ class _LiveKitPublishing {
       } else {
         await _session._requireLocalParticipant().setScreenShareEnabled(
           enabled,
+          screenShareCaptureOptions: enabled &&
+                  !kIsWeb &&
+                  (defaultTargetPlatform == TargetPlatform.windows ||
+                      defaultTargetPlatform == TargetPlatform.macOS) &&
+                  _session._screenShare.selectedSource != null
+              ? lk.ScreenShareCaptureOptions(
+                  sourceId: _session._screenShare.selectedSource!.id,
+                  maxFrameRate: 15.0,
+                )
+              : null,
         );
       }
       _session._mapper._refreshSnapshot();

@@ -9,9 +9,15 @@ const _mobileAndMac = {
   RealtimeRuntimePlatform.ios,
   RealtimeRuntimePlatform.macos,
 };
+// Both Windows runtimes are experimental and fail closed without explicit
+// opt-in. AWS does not support IVS Broadcast inside an embedded WebView.
+const _mobileAndDesktop = {
+  ..._mobileAndMac,
+  RealtimeRuntimePlatform.windows,
+};
 List<RealtimeProviderDriver> createDrivers(int maxMessages) => [
   RealtimeProviderDriver(
-    platforms: _mobileAndMac,
+    platforms: _mobileAndDesktop,
     publicProviderId: 'aws',
     mediaRoomModes: const {MediaRoomMode.meeting},
     plugin: RealtimeProviderPlugin(
@@ -23,7 +29,7 @@ List<RealtimeProviderDriver> createDrivers(int maxMessages) => [
     ),
   ),
   RealtimeProviderDriver(
-    platforms: _mobileAndMac,
+    platforms: _mobileAndDesktop,
     publicProviderId: 'aws',
     mediaRoomModes: const {MediaRoomMode.broadcast},
     plugin: RealtimeProviderPlugin(

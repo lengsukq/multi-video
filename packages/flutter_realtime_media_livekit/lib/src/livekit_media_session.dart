@@ -53,7 +53,8 @@ abstract class LiveKitMediaSessionBase
         MediaStatsProvider,
         MediaMicrophoneSignalLevels,
         MediaAudioEngineDiagnostics,
-        MediaAudioRtpDiagnostics {
+        MediaAudioRtpDiagnostics,
+        MediaScreenShareSourceSelector {
   LiveKitMediaSessionBase({
     required this.role,
     required MediaCapabilities capabilities,
@@ -82,6 +83,12 @@ abstract class LiveKitMediaSessionBase
 
   late final _failures = _LiveKitFailures(providerId);
   late final _screenShare = _LiveKitScreenShare(this);
+  @override
+  Future<List<MediaScreenShareSource>> listScreenShareSources() =>
+      _screenShare.listSources();
+  @override
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) =>
+      _screenShare.selectSource(source);
   late final _publishing = _LiveKitPublishing(this);
   late final _data = _LiveKitDataMessenger(this);
   late final _eventAdapter = _LiveKitEventAdapter(this);

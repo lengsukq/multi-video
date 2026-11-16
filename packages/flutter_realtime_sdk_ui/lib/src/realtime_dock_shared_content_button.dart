@@ -8,6 +8,7 @@ import 'room_control_components.dart';
 import 'room_ui_controller.dart';
 import 'realtime_dock_item.dart';
 import 'realtime_dock_compact_menu.dart';
+import 'realtime_desktop_screen_share_picker.dart';
 
 class RealtimeDockSharedContentButton extends StatelessWidget {
   const RealtimeDockSharedContentButton({super.key, this.showLabel = true});
@@ -42,6 +43,10 @@ class RealtimeDockSharedContentButton extends StatelessWidget {
     final controller = RealtimeRoomUiScope.of(context);
     Future<void> changeMode(SharedContentMode mode) async {
       try {
+        if (mode == SharedContentMode.screen &&
+            !await selectDesktopScreenShareSource(context, controller)) {
+          return;
+        }
         await shared.selectMode(mode);
       } catch (error) {
         // Unawaited Futures in a menu used to surface only in the browser
@@ -71,11 +76,17 @@ class RealtimeDockSharedContentButton extends StatelessWidget {
                   unawaited(changeMode(SharedContentMode.whiteboard)),
             ),
             RealtimeCompactMenuAction(
-              label: strings.screenShare,
+              label: shared.anotherParticipantSharing
+                  ? (strings.isZh
+                      ? '其他成员正在共享'
+                      : 'Another participant is sharing')
+                  : strings.screenShare,
               icon: const Icon(Icons.screen_share_outlined),
               selected: mode == SharedContentMode.screen,
               enabled:
-                  status.content?.canShareScreen == true && shared.canShare,
+                  status.content?.canShareScreen == true &&
+                  shared.canShare &&
+                  !shared.anotherParticipantSharing,
               onSelected: () => unawaited(changeMode(SharedContentMode.screen)),
             ),
             if (isSharing && canManage)

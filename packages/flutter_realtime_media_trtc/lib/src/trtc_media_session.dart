@@ -40,7 +40,8 @@ abstract class _TrtcSessionBase
         MediaStatsProvider,
         MediaDataPayloadSizer,
         ProcessedVideoSink,
-        MediaDeviceController {
+        MediaDeviceController,
+        MediaScreenShareSourceSelector {
   _TrtcSessionBase(this.role, this._capabilities, this._engineFactory)
     : _snapshot = MediaSnapshot(role: role, capabilities: _capabilities);
 
@@ -48,6 +49,12 @@ abstract class _TrtcSessionBase
   String get providerId => TrtcJoinInfo.providerIdValue;
 
   late final _publishing = _TrtcPublishing(this);
+  @override
+  Future<List<MediaScreenShareSource>> listScreenShareSources() =>
+      _publishing.listScreenShareSources();
+  @override
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) =>
+      _publishing.selectScreenShareSource(source);
   late final _credentials = _TrtcCredentialRefresh(this);
   late final _data = _TrtcDataMessenger(this);
   late final _mapper = _TrtcSnapshotMapper(this);

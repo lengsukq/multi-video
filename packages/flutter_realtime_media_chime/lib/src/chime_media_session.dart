@@ -16,7 +16,8 @@ MediaCapabilities get _chimeCapabilities => MediaCapabilities(
   canPublishAudio: true,
   canPublishVideo: true,
   canScreenShare: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
-  canSwitchCamera: defaultTargetPlatform != TargetPlatform.macOS,
+  canSwitchCamera: defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS,
   canSendData: true,
   canReceiveData: true,
   canSubscribeVideo: true,

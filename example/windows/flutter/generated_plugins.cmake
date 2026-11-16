@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   agora_rtc_engine
   connectivity_plus
   flutter_realtime_media_agora
+  flutter_realtime_media_artc
   flutter_realtime_media_livekit
   flutter_realtime_media_trtc
   flutter_realtime_screen_annotation
@@ -17,6 +18,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   tencent_cloud_chat_sdk
   tencent_rtc_sdk
   url_launcher_windows
+  webview_flutter_windows
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

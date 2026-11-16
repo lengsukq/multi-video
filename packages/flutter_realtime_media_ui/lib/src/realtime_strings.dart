@@ -64,8 +64,8 @@ class RealtimeStrings {
       ? '作为观众，无需开启摄像头和麦克风'
       : 'As a viewer, no camera or microphone is needed';
   String get previewDisabledHelp => isZh
-      ? '摄像头默认关闭，可在设备设置中开启预览'
-      : 'Camera is off by default. Enable it in audio & video settings';
+      ? '摄像头已关闭，点击下方摄像头按钮开启预览'
+      : 'Camera is off. Use the camera button below to enable preview';
   String get cloudRecording => isZh ? '云录制' : 'Cloud recording';
   String get stopCloudRecording => isZh ? '停止云录制' : 'Stop cloud recording';
   String get viewRecordingResult => isZh ? '查看录制结果' : 'View recording result';
@@ -91,6 +91,42 @@ class RealtimeStrings {
       if (failures.any((item) => identical(item, current))) break;
       failures.add(current);
       current = current.cause;
+    }
+    if (failures.any((item) =>
+        item.suggestedAction == 'wait-for-screen-sharing-to-end')) {
+      return isZh
+          ? '其他成员正在共享屏幕，请等对方结束共享后再试。'
+          : 'Another participant is already sharing. Wait until they stop before sharing your screen.';
+    }
+    if (failures.any((item) =>
+        item.code == RealtimeErrorCode.permissionDenied)) {
+      final screenCaptureDenied = failures.any((item) =>
+          item.operation?.toLowerCase().contains('screenshare') == true ||
+          item.message.toLowerCase().contains('screen-capture permission') ||
+          item.message.toLowerCase().contains('screen recording permission'));
+      if (screenCaptureDenied) {
+        if (kIsWeb) {
+          return isZh
+              ? '屏幕共享权限未获得。请在浏览器选择屏幕或应用窗口并允许共享；如果已阻止，请检查浏览器的站点权限后重试。'
+              : 'Screen sharing was denied. Select and allow a display or window in the browser picker, or check site permissions and retry.';
+        }
+        if (defaultTargetPlatform == TargetPlatform.macOS) {
+          return isZh
+              ? '缺少 macOS 屏幕录制权限。请在「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」中授权应用，然后按系统要求重启应用。'
+              : 'Allow Screen Recording in macOS System Settings > Privacy & Security, then restart the application if required.';
+        }
+        return isZh
+            ? '屏幕共享权限未获允许。请在系统弹出的屏幕录制/共享提示中授权，然后重试共享。'
+            : 'Screen capture permission was not granted. Approve the system screen-sharing prompt and retry.';
+      }
+      if (kIsWeb) {
+        return isZh
+            ? '摄像头或麦克风权限被浏览器阻止。请检查浏览器地址栏的站点权限，再重新尝试开启音视频。'
+            : 'Camera or microphone access was blocked by the browser. Change this site’s permissions and retry.';
+      }
+      return isZh
+          ? '无法开启摄像头或麦克风：应用尚未获得设备权限。请在入会前允许访问；如果已经拒绝并禁止再次询问，请前往系统设置开启。也可以关闭音视频加入会议。'
+          : 'Camera or microphone access is denied. Allow device access before joining, or enable it in the app settings if blocked. You can also join with audio and video off.';
     }
     final isSharedContentFailure = failures.any(
       (item) =>

@@ -450,12 +450,67 @@ void main() {
       await tester.tap(find.text('Open preparation'));
       await tester.pumpAndSettle();
 
+      // If preview creation is unsupported/failed, entry controls must not
+      // disappear along with the camera renderer.
+      expect(find.byTooltip('Turn on microphone'), findsOneWidget);
+      expect(find.byTooltip('Turn on camera'), findsOneWidget);
+      expect(find.byTooltip('Device settings'), findsOneWidget);
+      await tester.tap(find.byTooltip('Device settings'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('prejoin-preview-recovery-card')),
+        findsOneWidget,
+      );
+
       await tester.tap(find.text('Join meeting'));
       await tester.pumpAndSettle();
       expect(chosen, isNotNull);
       expect(chosen!.cameraEnabled, isFalse);
     },
   );
+
+  testWidgets('missing initial preview can be recovered by camera control', (
+    tester,
+  ) async {
+    final recovered = _FakeLocalPreview();
+    var attempts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: FilledButton(
+              onPressed: () => _showPreJoin(
+                context,
+                runCheck: _readyResult,
+                openPreview: (_, _) async {
+                  attempts++;
+                  return attempts == 1 ? null : recovered;
+                },
+                permissionRequester: const _TestPermissionRequester(),
+              ),
+              child: const Text('Open preparation'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open preparation'));
+    await tester.pumpAndSettle();
+    expect(attempts, 1);
+    expect(find.byTooltip('Turn on camera'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Turn on camera'));
+    await tester.pumpAndSettle();
+    expect(attempts, 2);
+    expect(recovered.settings.cameraEnabled, isTrue);
+    expect(find.byTooltip('Turn off camera'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Turn on microphone'));
+    await tester.pumpAndSettle();
+    expect(recovered.settings.microphoneEnabled, isTrue);
+    expect(find.byTooltip('Turn off microphone'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<MediaPreJoinResult> _readyResult() async => const MediaPreJoinResult(

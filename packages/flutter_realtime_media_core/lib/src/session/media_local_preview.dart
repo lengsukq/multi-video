@@ -84,6 +84,14 @@ abstract interface class MediaLocalPreviewAudioLevels {
   Stream<double> get microphoneLevels;
 }
 
+/// Optional settings transfer hook for pre-join previews backed by a
+/// different local capture provider from the destination RTC engine.
+/// Device IDs are opaque to their originating provider, so implementers
+/// must not forward incompatible IDs to the joined room.
+abstract interface class MediaLocalPreviewRoomSettings {
+  MediaLocalPreviewSettings get roomSettings;
+}
+
 /// Opt-in factory implemented by adapters that support independent local
 /// camera preview before backend room credentials are issued.
 abstract interface class MediaLocalPreviewFactory {

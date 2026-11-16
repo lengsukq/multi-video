@@ -72,16 +72,44 @@ void main() {
       expect(camera.disposals, 1);
     },
   );
+
+  test('cross-provider audio preview never forwards foreign device IDs', () async {
+    final video = _CameraPreview(providerId: 'trtc');
+    final audio = _MicrophonePreview();
+    final preview = ComposedLocalPreview(video: video, audio: audio);
+    await preview.selectMediaDevice(
+      const MediaDevice(
+        id: 'webrtc-mic',
+        label: 'Generic microphone',
+        kind: MediaDeviceKind.microphone,
+      ),
+    );
+    await preview.selectMediaDevice(
+      const MediaDevice(
+        id: 'webrtc-speaker',
+        label: 'Generic speaker',
+        kind: MediaDeviceKind.audioOutput,
+      ),
+    );
+    await preview.setMicrophoneEnabled(true);
+    expect(preview.settings.microphone?.id, 'webrtc-mic');
+    expect(preview.settings.audioOutput?.id, 'webrtc-speaker');
+    expect(preview.roomSettings.microphoneEnabled, isTrue);
+    expect(preview.roomSettings.microphone, isNull);
+    expect(preview.roomSettings.audioOutput, isNull);
+    await preview.dispose();
+  });
 }
 
 class _CameraPreview extends Fake
     implements MediaLocalPreviewSession, MediaBackgroundEffectsController {
+  _CameraPreview({this.providerId = 'livekit'});
   MediaLocalPreviewSettings _settings = const MediaLocalPreviewSettings();
   final cameraEnables = <bool>[];
   int disposals = 0;
 
   @override
-  String get providerId => 'livekit';
+  final String providerId;
   @override
   MediaRole get role => MediaRole.participant;
   @override

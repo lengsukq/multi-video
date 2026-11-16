@@ -37,6 +37,13 @@ abstract interface class TrtcEngine {
   Future<void> dispose();
 }
 
+/// Optional desktop source selector, deliberately not required by fake and
+/// embedded TRTC engines that only support microphone/camera capture.
+abstract interface class TrtcDesktopScreenCapture {
+  List<MediaScreenShareSource> listDesktopScreenSources();
+  void selectDesktopScreenSource(MediaScreenShareSource source);
+}
+
 /// Provider events translated from the native TRTC listener.
 class TrtcEngineEvents {
   const TrtcEngineEvents({
@@ -74,7 +81,7 @@ class TrtcEngineEvents {
 /// Factory used by production sessions.
 Future<TrtcEngine> createNativeTrtcEngine() async => _NativeTrtcEngine();
 
-class _NativeTrtcEngine implements TrtcEngine {
+class _NativeTrtcEngine implements TrtcEngine, TrtcDesktopScreenCapture {
   TRTCCloud? _cloud;
   TRTCCloudListener? _listener;
   Completer<int>? _enterCompleter;
@@ -84,6 +91,43 @@ class _NativeTrtcEngine implements TrtcEngine {
   bool _registered = false;
   MediaConnectionStats? _connectionStats;
   TRTCStatistics? _lastStatistics;
+  MediaScreenShareSource? _selectedDesktopSource;
+
+  List<TRTCScreenCaptureSourceInfo> _availableDesktopSources() =>
+      _cloud?.getScreenCaptureSources(
+        TRTCSize(width: 120, height: 72),
+        TRTCSize(width: 24, height: 24),
+      )?.sourceList ?? const <TRTCScreenCaptureSourceInfo>[];
+
+  @override
+  List<MediaScreenShareSource> listDesktopScreenSources() => [
+    for (final source in _availableDesktopSources())
+      if (source.type == TRTCScreenCaptureSourceType.screen ||
+          source.type == TRTCScreenCaptureSourceType.window)
+        MediaScreenShareSource(
+          id: source.viewId.toString(),
+          name: source.sourceName.isNotEmpty
+              ? source.sourceName
+              : '${source.type == TRTCScreenCaptureSourceType.window ? "Window" : "Display"} ${source.viewId}',
+          kind: source.type == TRTCScreenCaptureSourceType.window
+              ? MediaScreenShareSourceKind.window
+              : MediaScreenShareSourceKind.display,
+          primary: source.isMainScreen,
+        ),
+  ];
+
+  @override
+  void selectDesktopScreenSource(MediaScreenShareSource source) {
+    if (!listDesktopScreenSources().any((candidate) =>
+        candidate.id == source.id && candidate.kind == source.kind)) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.invalidArgument,
+        providerId: 'trtc',
+        message: 'The selected desktop capture window is no longer available.',
+      );
+    }
+    _selectedDesktopSource = source;
+  }
 
   Future<TRTCCloud> _getCloud() async =>
       _cloud ??= await TRTCCloud.sharedInstance();
@@ -352,16 +396,8 @@ class _NativeTrtcEngine implements TrtcEngine {
     if (!kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.macOS ||
             defaultTargetPlatform == TargetPlatform.windows)) {
-      // Desktop TRTC requires an explicit source selection before starting
-      // the substream. The main display is the default for this first version;
-      // source picking can later be provided via an optional SDK controller.
-      final sources = _cloud!
-          .getScreenCaptureSources(
-            TRTCSize(width: 120, height: 72),
-            TRTCSize(width: 24, height: 24),
-          )
-          ?.sourceList;
-      if (sources == null || sources.isEmpty) {
+      final sources = _availableDesktopSources();
+      if (sources.isEmpty) {
         throw const RealtimeException(
           code: RealtimeErrorCode.unsupportedFeature,
           providerId: 'trtc',
@@ -373,7 +409,7 @@ class _NativeTrtcEngine implements TrtcEngine {
       final displays = sources.where(
         (source) => source.type == TRTCScreenCaptureSourceType.screen,
       );
-      if (displays.isEmpty) {
+      if (displays.isEmpty && _selectedDesktopSource == null) {
         throw const RealtimeException(
           code: RealtimeErrorCode.unsupportedFeature,
           providerId: 'trtc',
@@ -381,8 +417,23 @@ class _NativeTrtcEngine implements TrtcEngine {
         );
       }
       final preferred = displays.where((source) => source.isMainScreen);
+      final selected = _selectedDesktopSource;
+      final target = selected == null
+          ? (preferred.isNotEmpty ? preferred.first : displays.first)
+          : sources.where((source) =>
+              source.viewId.toString() == selected.id &&
+              (source.type == TRTCScreenCaptureSourceType.window) ==
+                  (selected.kind == MediaScreenShareSourceKind.window))
+              .firstOrNull;
+      if (target == null) {
+        throw const RealtimeException(
+          code: RealtimeErrorCode.invalidArgument,
+          providerId: 'trtc',
+          message: 'The selected screen or application window has closed.',
+        );
+      }
       _cloud!.selectScreenCaptureTarget(
-        preferred.isNotEmpty ? preferred.first : displays.first,
+        target,
         TRTCRect(),
         TRTCScreenCaptureProperty(
           enableCaptureMouse: true,

@@ -7,6 +7,7 @@ List<RealtimeProviderDriver> createDrivers(int maxMessages) => [
       RealtimeRuntimePlatform.android,
       RealtimeRuntimePlatform.ios,
       RealtimeRuntimePlatform.macos,
+      RealtimeRuntimePlatform.windows,
     },
     plugin: RealtimeProviderPlugin(
       id: 'agora-chat',

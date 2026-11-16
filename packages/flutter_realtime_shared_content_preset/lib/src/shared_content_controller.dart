@@ -20,6 +20,18 @@ class SharedContentStatus {
   final Object? error;
 }
 
+/// A room's presentation slot belongs to the active screen owner until
+/// they stop sharing. A revisioned backend must enforce this rule when
+/// accepting mode changes; clients additionally check it before capture.
+bool screenShareOwnedByAnother(
+  SharedContentState? state,
+  String? localParticipantId,
+) {
+  if (state?.mode != SharedContentMode.screen) return false;
+  final owner = state!.screen.participantId;
+  return owner.isNotEmpty && owner != localParticipantId;
+}
+
 /// Coordinates capture and authoritative content state without touching camera/mic.
 class SharedContentController {
   SharedContentController({
@@ -150,6 +162,22 @@ class SharedContentController {
       .distinct();
   bool get canShare =>
       media is InteractiveMediaSession && media.capabilities.canScreenShare;
+  bool get anotherParticipantSharing =>
+      screenShareOwnedByAnother(content, media.snapshot.localParticipantId);
+
+  void _requireFreeScreenShareSlot() {
+    if (anotherParticipantSharing) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.roomConflict,
+        message: 'Another participant is already sharing their screen.',
+        domain: 'sharedContent',
+        operation: 'screenShare',
+        recoverable: true,
+        suggestedAction: 'wait-for-screen-sharing-to-end',
+        details: {'currentSharer': content!.screen.participantId},
+      );
+    }
+  }
   Future<void> startSystemAnnotations({
     SystemAnnotationViewport viewport = const SystemAnnotationViewport(),
     String languageCode = 'en',
@@ -283,6 +311,7 @@ class SharedContentController {
   /// never authorization, network or unrelated backend failures.
   Future<void> _commitFresh(SharedContentMode mode) async {
     await _contentSession.refresh();
+    if (mode == SharedContentMode.screen) _requireFreeScreenShareSlot();
     if (content == null || !_canSelect(mode)) {
       throw const RealtimeException(
         code: RealtimeErrorCode.invalidState,
@@ -305,6 +334,7 @@ class SharedContentController {
         rethrow;
       }
       await _contentSession.refresh();
+      if (mode == SharedContentMode.screen) _requireFreeScreenShareSlot();
       if (content == null || !_canSelect(mode)) {
         rethrow;
       }
@@ -433,6 +463,18 @@ class SharedContentController {
             message: 'Screen sharing unavailable on this provider/platform',
           );
         }
+        // Do not request expensive OS capture permission if the slot is
+        // already owned by another participant. Refresh because a client
+        // snapshot can be stale (including simultaneous share attempts).
+        await _contentSession.refresh();
+        _requireFreeScreenShareSlot();
+        if (!_canSelect(mode)) {
+          throw const RealtimeException(
+            code: RealtimeErrorCode.forbidden,
+            message: 'You are not allowed to share in this room.',
+            domain: 'sharedContent',
+          );
+        }
         final started = !media.snapshot.localScreenShareEnabled;
         if (started) {
           await interactive!.setScreenShareEnabled(true);
@@ -472,6 +514,10 @@ class SharedContentController {
               );
             }
           }
+          if (commitError is RealtimeException &&
+              commitError.code == RealtimeErrorCode.roomConflict) {
+            rethrow;
+          }
           throw RealtimeException(
             code: RealtimeErrorCode.invalidState,
             message: 'Screen mode could not be committed.',
@@ -506,6 +552,7 @@ class SharedContentController {
       return;
     }
     final active = media.snapshot.localScreenShareEnabled;
+    if (active && anotherParticipantSharing) return;
     final source = active ? _source() : '';
     final current = content!;
     if (active) _hadLocalCapture = true;

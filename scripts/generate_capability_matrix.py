@@ -53,10 +53,21 @@ def generate():
                 engine = re.search(r"\bid: '([^']+)'", block).group(1)
                 public = re.search(r"publicProviderId: '([^']+)'", block)
                 platforms = re.search(r'platforms: ([\s\S]*?),\s*(?:publicProviderId|mediaRoomModes|plugin):', block).group(1).strip()
-                for name in ['_mobileAndDesktop', '_mobileAndMac', '_web']:
-                    definition = re.search(r'const ' + name + r' = ([\s\S]*?);', text)
-                    if definition:
+                # Resolve any top-level local platform-set constant rather
+                # than silently emitting an empty matrix when one is renamed.
+                for _ in range(10):
+                    names = set(re.findall(r'\b_[A-Za-z][A-Za-z0-9_]*\b', platforms))
+                    if not names:
+                        break
+                    for name in names:
+                        definition = re.search(
+                            r'const\s+' + re.escape(name) + r'\s*=\s*([\s\S]*?);', text
+                        )
+                        if not definition:
+                            raise ValueError(f'Cannot resolve platform set {name} in {path}')
                         platforms = platforms.replace(name, definition.group(1))
+                else:
+                    raise ValueError(f'Platform set aliases are recursively defined in {path}')
                 platforms = ', '.join(dict.fromkeys(re.findall(r'RealtimeRuntimePlatform\.(\w+)', platforms)))
                 kind = 'chat' if 'chatFactory:' in block else 'media'
                 adapter = ('flutter_realtime_chat_' if kind == 'chat' else 'flutter_realtime_media_') + engine.replace('-chat', '')

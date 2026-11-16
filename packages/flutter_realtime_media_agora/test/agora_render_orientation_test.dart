@@ -39,31 +39,24 @@ void main() {
     }
   });
 
-  testWidgets('macOS receiver binds remote screen to Agora screen source', (
-    tester,
-  ) async {
-    late agora.AgoraVideoView rendered;
-    await tester.pumpWidget(
-      Builder(
-        builder: (context) {
-          rendered = const AgoraTrackRenderer().buildViewWithFit(
-            context,
-            AgoraMediaVideoTrack(
-              engine: _Engine(),
-              channelId: 'cross-platform',
-              uid: 998,
-              local: false,
-              screenShare: true,
-            ),
-          ) as agora.AgoraVideoView;
-          return const SizedBox.shrink();
-        },
-      ),
-    );
-    expect(
-      rendered.controller.canvas.sourceType,
-      agora.VideoSourceType.videoSourceScreen,
-    );
+  testWidgets('remote screen tracks attach Agora screen video, not camera',
+      (tester) async {
+    late agora.AgoraVideoView screenView;
+    await tester.pumpWidget(Builder(builder: (context) {
+      screenView = const AgoraTrackRenderer().buildViewWithFit(
+        context,
+        AgoraMediaVideoTrack(
+          engine: _Engine(),
+          channelId: 'live',
+          uid: 456,
+          local: false,
+          screenShare: true,
+        ),
+      ) as agora.AgoraVideoView;
+      return const SizedBox.shrink();
+    }));
+    expect(screenView.controller.canvas.sourceType,
+        agora.VideoSourceType.videoSourceScreen);
   });
 }
 

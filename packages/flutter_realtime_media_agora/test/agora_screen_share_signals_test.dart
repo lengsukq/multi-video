@@ -67,7 +67,7 @@ void main() {
   });
 
   group('remote screen publisher state', () {
-    test('remote screen state does not depend on camera availability', () {
+    test('screen signalling is independent of camera video availability', () {
       final state = AgoraRemoteScreenState();
       state.onSignal(10, AgoraScreenShareSignal.started);
       expect(state.isScreenPublisher(10), isTrue);
@@ -80,6 +80,12 @@ void main() {
       state.onVideo(10, available: false);
       expect(state.showsScreen(10), isTrue,
           reason: 'Camera stopped does not imply screen stream ended');
+
+      // Switching camera off as screen capture starts must never remove
+      // the independently published screen video.
+      state.onVideo(10, available: false);
+      expect(state.showsScreen(10), isTrue);
+      expect(state.showsCamera(10), isFalse);
 
       state.onSignal(10, AgoraScreenShareSignal.stopped);
       expect(state.showsScreen(10), isFalse);

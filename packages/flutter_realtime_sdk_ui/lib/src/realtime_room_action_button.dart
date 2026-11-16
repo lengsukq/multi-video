@@ -7,6 +7,7 @@ import 'package:flutter_realtime_live_preset/flutter_realtime_live_preset.dart';
 import 'package:flutter_realtime_media_ui/flutter_realtime_media_ui.dart';
 import 'room_ui_controller.dart';
 import 'realtime_background_effects_button.dart';
+import 'realtime_desktop_screen_share_picker.dart';
 
 class RealtimeRoomActionButton extends StatelessWidget {
   const RealtimeRoomActionButton({
@@ -97,7 +98,8 @@ class RealtimeRoomActionButton extends StatelessWidget {
           Future<void> task() => switch (action) {
             RealtimeRoomUiAction.microphone => controller.toggleMicrophone(),
             RealtimeRoomUiAction.camera => controller.toggleCamera(),
-            RealtimeRoomUiAction.screenShare => controller.toggleScreenShare(),
+            RealtimeRoomUiAction.screenShare =>
+              toggleScreenShareWithPicker(context, controller),
             RealtimeRoomUiAction.switchCamera => controller.switchCamera(),
             RealtimeRoomUiAction.audioOutput => Future.value(),
             RealtimeRoomUiAction.device => Future.value(),

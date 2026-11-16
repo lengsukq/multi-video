@@ -9,6 +9,7 @@ import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
 import 'package:flutter_realtime_whiteboard_ui/flutter_realtime_whiteboard_ui.dart';
 
 import 'room_ui_controller.dart';
+import 'realtime_desktop_screen_share_picker.dart';
 
 /// Shared authoritative stage renderer used by both the composed layout and
 /// the legacy complete-room template. The host owns all outer layout.
@@ -112,7 +113,8 @@ class RealtimeSharedContentButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final shared = RealtimeRoomUiScope.of(context).room.sharedContent;
+    final roomController = RealtimeRoomUiScope.of(context);
+    final shared = roomController.room.sharedContent;
     if (shared == null) return const SizedBox.shrink();
     return StreamBuilder<SharedContentStatus>(
       stream: shared.statuses,
@@ -181,10 +183,16 @@ class RealtimeSharedContentButton extends StatelessWidget {
               );
             } else {
               unawaited(
-                run(
-                  () =>
-                      shared.selectMode(SharedContentMode.values.byName(value)),
-                ),
+                run(() async {
+                  final mode = SharedContentMode.values.byName(value);
+                  if (mode == SharedContentMode.screen &&
+                      !await selectDesktopScreenShareSource(
+                        context, roomController,
+                      )) {
+                    return;
+                  }
+                  await shared.selectMode(mode);
+                }),
               );
             }
           },

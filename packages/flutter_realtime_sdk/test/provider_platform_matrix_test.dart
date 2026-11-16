@@ -130,4 +130,17 @@ void main() {
       'ivs',
     );
   });
+
+  test('Windows resolves all three independent product Chat providers', () {
+    final registry = RealtimeDriverRegistry(
+      drivers,
+      platformResolver: () => RealtimeRuntimePlatform.windows,
+    );
+    final chatFactories = {
+      for (final plugin in registry.resolvePlugins())
+        if (plugin.chatFactory != null) plugin.providerId,
+    };
+    expect(chatFactories,
+        containsAll({'agora-chat', 'tencent-chat', 'ivs-chat'}));
+  });
 }

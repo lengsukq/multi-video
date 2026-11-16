@@ -18,6 +18,11 @@ class DemoStrings {
   /// exception class names to users. All screens share the same guidance.
   String displayRealtimeError(Object error) {
     if (error is! RealtimeException) return error.toString();
+    if (error.code == RealtimeErrorCode.permissionDenied) {
+      return isZh
+          ? '缺少麦克风或摄像头授权。请在系统弹窗中允许访问；若已拒绝且无法再次申请，请进入应用的系统权限设置开启后重试。'
+          : 'Microphone or camera permission is missing. Allow access in the system prompt, or enable it in the app permission settings and retry.';
+    }
     final details = error.details;
     final backendCode = details is Map ? details['backendCode'] : null;
     if (backendCode == 'room-exists') {
@@ -122,8 +127,8 @@ class DemoStrings {
       ? '作为观众，无需开启摄像头和麦克风'
       : 'As a viewer, no camera or microphone is needed';
   String get previewDisabledHelp => isZh
-      ? '摄像头默认关闭，可在设备设置中开启预览'
-      : 'Camera is off by default. Enable it in audio & video settings';
+      ? '摄像头已关闭，点击下方摄像头按钮开启预览'
+      : 'Camera is off. Use the camera button below to enable preview';
   String get deviceSettings => isZh ? '音视频设备' : 'Audio & video';
   String get deviceSettingsHint => isZh
       ? '进入房间前，可自由开启麦克风与摄像头。'

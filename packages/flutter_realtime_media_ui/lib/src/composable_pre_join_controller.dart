@@ -66,6 +66,18 @@ class RealtimePreJoinController extends ChangeNotifier {
   bool get canEnter => !_disposed && !busy && _result?.isReady == true;
   bool get updatingBackground => _setup.updatingBackground;
 
+  /// A denied device permission must never be carried into room startup.
+  /// Unknown permissions are left to the native capture adapter (notably
+  /// iOS hosts which cannot report status until their SDK requests access).
+  bool _mayEnable(MediaPermissionKind kind) => switch (
+    _permissionStates[kind]
+  ) {
+    MediaPermissionState.denied ||
+    MediaPermissionState.permanentlyDenied ||
+    MediaPermissionState.restricted => false,
+    _ => true,
+  };
+
   void _notify() {
     if (!_disposed) notifyListeners();
   }
@@ -195,16 +207,45 @@ class RealtimePreJoinController extends ChangeNotifier {
   }
 
   /// When a switch is tapped, permission granting should immediately turn on
-  /// the requested capture track without requiring a second click.
+  /// the requested capture track without requiring a second click. A provider
+  /// may not have returned a preview during the first readiness check: retry
+  /// opening one before enabling capture rather than silently doing nothing.
   Future<void> requestPermissionAndEnable(MediaPermissionKind kind) async {
-    await requestPermission(kind);
     if (_disposed || busy) return;
-    final permission = _permissionStates[kind];
-    if (permission != MediaPermissionState.granted &&
-        permission != MediaPermissionState.unknown) {
+    var permission = _permissionStates[kind];
+    if (permission == MediaPermissionState.permanentlyDenied ||
+        permission == MediaPermissionState.restricted) {
       return;
     }
-    if (preview == null) await retryPreview();
+    if (permission != MediaPermissionState.granted &&
+        permission != MediaPermissionState.unsupported) {
+      await requestPermission(kind);
+      if (_disposed || busy) return;
+      permission = _permissionStates[kind];
+    }
+    if (permission != MediaPermissionState.granted &&
+        permission != MediaPermissionState.unknown &&
+        permission != MediaPermissionState.unsupported) {
+      return;
+    }
+    if (preview == null) {
+      await retryPreview();
+      if (_disposed || busy) return;
+      if (preview == null) {
+        _previewError ??= _recordFailure(
+          const RealtimeException(
+            code: RealtimeErrorCode.unsupportedPlatform,
+            message:
+                'Local camera/microphone preview is unavailable for this '
+                'provider. Check the device and provider support, then retry.',
+            providerId: 'media.prejoin',
+          ),
+          StackTrace.current,
+        );
+        _notify();
+        return;
+      }
+    }
     // Some iOS SPM hosts cannot query permission_handler status although the
     // underlying AVFoundation capture can still request/confirm permission.
     // Allow that native capture to decide; failure remains visible to the UI.
@@ -356,11 +397,21 @@ class RealtimePreJoinController extends ChangeNotifier {
   ) async {
     if (!canEnter) return;
     final generation = ++_generation;
-    final selected =
+    final currentPreview = preview;
+    final requested =
         (_retrySettings ??
-                preview?.settings ??
-                const MediaLocalPreviewSettings())
-            .copyWith(backgroundEffect: _setup.backgroundEffect);
+                (currentPreview is MediaLocalPreviewRoomSettings
+                    ? (currentPreview as MediaLocalPreviewRoomSettings)
+                        .roomSettings
+                    : currentPreview?.settings) ??
+                const MediaLocalPreviewSettings());
+    final selected = requested.copyWith(
+      backgroundEffect: _setup.backgroundEffect,
+      microphoneEnabled:
+          requested.microphoneEnabled && _mayEnable(MediaPermissionKind.microphone),
+      cameraEnabled:
+          requested.cameraEnabled && _mayEnable(MediaPermissionKind.camera),
+    );
     _retrySettings = selected;
     _state = const RealtimePreJoinEntering();
     _joinError = null;
