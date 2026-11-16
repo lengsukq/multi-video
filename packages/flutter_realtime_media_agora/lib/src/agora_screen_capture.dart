@@ -1,5 +1,5 @@
 import 'package:agora_rtc_engine/agora_rtc_engine.dart' as agora;
-import 'package:flutter/foundation.dart' show TargetPlatform;
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
 /// Platform-specific screen capture is intentionally confined to the Agora
@@ -52,6 +52,17 @@ class AgoraScreenCapture {
             captureAudio: false,
           ),
         );
+        // Screen capture and local screen preview are separate Agora
+        // operations. Without the screen-source preview, Android can publish
+        // a screen track while the local screen view remains black.
+        try {
+          await engine.startPreview(
+            sourceType: agora.VideoSourceType.videoSourceScreen,
+          );
+        } catch (_) {
+          await engine.stopScreenCapture();
+          rethrow;
+        }
       case TargetPlatform.macOS:
       case TargetPlatform.windows:
         final sources = await listSources(engine);
@@ -109,5 +120,17 @@ class AgoraScreenCapture {
     }
   }
 
-  Future<void> stop(agora.RtcEngine engine) => engine.stopScreenCapture();
+  Future<void> stop(agora.RtcEngine engine) async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        await engine.stopPreview(
+          sourceType: agora.VideoSourceType.videoSourceScreen,
+        );
+      } finally {
+        await engine.stopScreenCapture();
+      }
+      return;
+    }
+    await engine.stopScreenCapture();
+  }
 }
