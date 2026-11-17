@@ -121,8 +121,10 @@ class RealtimeSharedContentButton extends StatelessWidget {
       initialData: shared.status,
       builder: (context, snapshot) {
         final status = snapshot.data ?? shared.status;
-        if (status.content?.canManage != true &&
-            status.content?.canShareScreen != true) {
+        final sessionActive =
+            !roomController.room.isDisposed &&
+            !roomController.snapshot.state.isTerminal;
+        if (!sessionActive) {
           return const SizedBox.shrink();
         }
         final zh = RealtimeStrings.of(context).isZh;
@@ -200,18 +202,14 @@ class RealtimeSharedContentButton extends StatelessWidget {
           itemBuilder: (_) => [
             PopupMenuItem(
               value: SharedContentMode.members.name,
-              enabled: status.content?.canManage == true,
               child: Text(zh ? '成员画面' : 'Participants'),
             ),
             PopupMenuItem(
               value: SharedContentMode.whiteboard.name,
-              enabled: status.content?.whiteboard.canEdit == true,
               child: Text(zh ? '白板' : 'Whiteboard'),
             ),
             PopupMenuItem(
               value: SharedContentMode.screen.name,
-              enabled:
-                  shared.canShare && status.content?.canShareScreen == true,
               child: Text(zh ? '屏幕共享' : 'Share screen'),
             ),
             PopupMenuItem(

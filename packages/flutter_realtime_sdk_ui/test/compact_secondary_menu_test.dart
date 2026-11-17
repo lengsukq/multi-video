@@ -143,4 +143,54 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.runAsync(fixture.room.dispose);
   });
+
+  testWidgets(
+    'share menu stays clickable without UI restrictions and reports errors cleanly',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 780));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final fixture = await MeetingSharingFixture.create(
+        mode: SharedContentMode.members,
+        localShare: false,
+      );
+      fixture.repository!.whiteboard = WhiteboardState(
+        revision: 1,
+        maxPages: 20,
+        canEdit: false,
+        activePageId: 'page-1',
+        pages: [WhiteboardPage(id: 'page-1', title: 'Page 1')],
+        canvas: AnnotationCanvas(canvasId: 'c-1', sourceKey: 'page-1'),
+      );
+      await fixture.room.sharedContent!.whiteboard.refresh();
+      final reportedErrors = <RealtimeException>[];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          supportedLocales: RealtimeStrings.supportedLocales,
+          localizationsDelegates: RealtimeStrings.localizationsDelegates,
+          home: RealtimeRoomUiScope(
+            room: fixture.room,
+            onActionError: reportedErrors.add,
+            child: const Scaffold(
+              body: Align(
+                alignment: Alignment.bottomCenter,
+                child: RealtimeDockSharedContentButton(showLabel: true),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(RealtimeDockSharedContentButton));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('白板演示'));
+      await tester.pumpAndSettle();
+      expect(reportedErrors, hasLength(1));
+      expect(find.byType(MenuItemButton), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(fixture.room.dispose);
+    },
+  );
 }

@@ -75,7 +75,8 @@ class RealtimeDockCompactMenu extends StatelessWidget {
                   IconTheme(
                     data: IconThemeData(
                       size: 19,
-                      color: action.destructive ? error : style.textSecondary,
+                      color: (action.destructive ? error : style.textSecondary)
+                          .withValues(alpha: action.enabled ? 1 : 0.42),
                     ),
                     child: action.icon,
                   ),
@@ -94,7 +95,8 @@ class RealtimeDockCompactMenu extends StatelessWidget {
                             fontWeight: action.selected
                                 ? FontWeight.w600
                                 : FontWeight.w500,
-                            color: action.destructive ? error : style.text,
+                            color: (action.destructive ? error : style.text)
+                                .withValues(alpha: action.enabled ? 1 : 0.42),
                           ),
                         ),
                         if (action.subtitle != null)
@@ -104,7 +106,9 @@ class RealtimeDockCompactMenu extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 11.5,
-                              color: style.textMuted,
+                              color: style.textMuted.withValues(
+                                alpha: action.enabled ? 1 : 0.48,
+                              ),
                             ),
                           ),
                       ],

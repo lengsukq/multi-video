@@ -65,17 +65,13 @@ class RealtimeDockSharedContentButton extends StatelessWidget {
 
         final sessionActive =
             !room.isDisposed && !controller.snapshot.state.isTerminal;
-        final canManage = sessionActive && status.content?.canManage == true;
-        final canShowMenu =
-            sessionActive &&
-            (canManage || status.content?.canShareScreen == true);
         return RealtimeDockCompactMenu(
           actions: [
             RealtimeCompactMenuAction(
               label: strings.whiteboard,
               icon: const Icon(Icons.draw_rounded),
               selected: mode == SharedContentMode.whiteboard,
-              enabled: status.content?.whiteboard.canEdit == true,
+              enabled: !status.busy,
               onSelected: () =>
                   unawaited(changeMode(SharedContentMode.whiteboard)),
             ),
@@ -87,18 +83,16 @@ class RealtimeDockSharedContentButton extends StatelessWidget {
                   : strings.screenShare,
               icon: const Icon(Icons.screen_share_outlined),
               selected: mode == SharedContentMode.screen,
-              enabled:
-                  status.content?.canShareScreen == true &&
-                  shared.canShare &&
-                  !shared.anotherParticipantSharing,
+              enabled: !status.busy,
               onSelected: () => unawaited(changeMode(SharedContentMode.screen)),
             ),
-            if (isSharing && canManage)
+            if (isSharing)
               RealtimeCompactMenuAction(
                 label: strings.stopSharing,
                 icon: const Icon(Icons.stop_screen_share_rounded),
                 destructive: true,
                 dividerBefore: true,
+                enabled: !status.busy,
                 onSelected: () =>
                     unawaited(changeMode(SharedContentMode.members)),
               ),
@@ -116,7 +110,7 @@ class RealtimeDockSharedContentButton extends StatelessWidget {
                 : strings.shareContent,
             isActive: isSharing,
             isLoading: status.busy,
-            onPressed: canShowMenu ? toggle : null,
+            onPressed: sessionActive ? toggle : null,
             showLabel: showLabel,
             activeColor: RealtimeStyle.of(context).speakStrong,
           ),
