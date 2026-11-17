@@ -1,4 +1,4 @@
-# SDK 当前能力复核（2026-11-12）
+# SDK 当前能力复核（2026-11-17）
 
 > 本文件针对 **Windows SDK 工作区当前源码**（包含未提交改动）进行静态／声明／测试证据核对。macOS 主仓库当前记录的公开单包为 `flutter_realtime_sdk 0.1.0-dev.28`，Windows 工作树不等同于发布归档。本轮 Windows ARTC 原生加载／Texture 测试通过，但未完成其真实双设备音视频及屏幕共享验收。
 
@@ -17,9 +17,9 @@
 | LiveKit | Web、Android、iOS、macOS、Windows | 已有 Windows Driver | 本轮未新增双端 E2E 证据 |
 | Agora RTC | Web、Android、iOS、macOS、Windows | 已有 Windows Driver 与处理后视频桥 | 本轮未新增双端 E2E 证据 |
 | Tencent TRTC | Web、Android、iOS、macOS、Windows | 已有 Windows Driver 与处理后视频桥 | 本轮未新增双端 E2E 证据 |
-| Alibaba ARTC | Web、Android、iOS、macOS；**本次源码合并已纳入 Windows Driver；尚未正式发布** | **本地 Windows x64 C++ 原生插件、Texture、屏幕共享路径已接入** | **Debug 构建 + 原生 SDK 加载/Texture 冒烟测试通过；未做真实双机收发验收** |
-| AWS Chime（Meeting） | Web、Android、iOS、macOS WebKit | **没有可用 Windows x64 媒体桥** | 官方 Windows C++ v0.11.2 静态库实查为 x86，不能直接链接 x64 |
-| AWS IVS Real-Time（Live） | Web、Android、iOS、macOS WebKit | **没有 Windows 原生媒体桥** | 未验收；WebView2 不能视为官方支持 |
+| Alibaba ARTC | Web、Android、iOS、macOS；**本次源码合并已纳入 Windows Driver；尚未正式发布** | **本地 Windows x64 C++ 原生插件、Texture、多屏/窗口共享、摄像头枚举切换与虚拟背景帧桥已接入；macOS 补齐 `ScreenCaptureKit` 共享发送端与纯动态虚拟背景输入** | **Debug 构建 + 原生 SDK 加载/Texture 冒烟与 Adapter 单测通过；未做真实双机收发验收** |
+| AWS Chime（Meeting） | Web、Android、iOS、macOS WebKit；**实验性 Windows WebView2 Driver** | **官方 C++ v0.11.2 静态库为 x86，改走默认开启的 Windows WebView2 JS 桥（含虚拟背景帧桥与设备选择）** | Windows 宿主与 Adapter 单测通过；官方未明确支持 WebView2，双机会议待验收 |
+| AWS IVS Real-Time（Live） | Web、Android、iOS、macOS WebKit；**实验性 Windows WebView2 Driver** | **无官方 Windows 原生媒体桥，提供隔离的 Windows WebView2 Stage 实验桥（含虚拟背景帧桥）** | Windows 宿主与 Adapter 单测通过；WebView2 不属于官方支持，双机直播待验收 |
 
 **证据等级：**「Driver 声明」≠「编译与原生库加载」≠「创建本地 Texture」≠「真实双端音视频／录屏正常」。以上 Windows ARTC 的通过记录只证明前三级中的实际测试范围，不等于真实会议、直播或远端渲染成功。Windows ARTC 供应商二进制目前仅安装于 Windows 工作区的 Git 忽略目录 `.local/vendor-cache/`，未随 Git 提交或进入已发布的单包（桥接源码已在本次合并中纳入）。没有相应二进制的外部宿主须失败关闭。
 
@@ -49,35 +49,35 @@
 | LiveKit | 已有 Driver | 本轮未追加 E2E | 双设备音视频、重连和屏幕共享仍需专项验收 |
 | Agora RTC | 已有 Driver | 本轮未追加 E2E | 双设备音视频、远端处理后帧仍需专项验收 |
 | Tencent TRTC | 已有 Driver | 本轮未追加 E2E | 双设备音视频、远端处理后帧仍需专项验收 |
-| **Alibaba ARTC** | **本地条件 Driver + 官方 x64 C++ Bridge（默认注册）** | **Windows Debug 构建、原生 SDK 可用性及 Texture 集成测试通过；19 项 Adapter 测试通过** | 未真实双人入会／互通；远端屏幕共享和资源释放未验收；虚拟背景输入未实现 |
-| AWS Chime | **WebView2 + JS 实验性 Driver，默认启用** | **Windows x64 Debug 构建、WebRTC/Chime JS/统一桥加载及 JS RPC 错误传递的原生宿主测试通过；17 项 Chime Adapter 测试通过** | 未验证真实加入会议、摄像头／麦克风权限、双端音视频及远端视频帧；官方未明确支持 WebView2 会议宿主 |
-| AWS IVS Real-Time | 隔离 WebView2 实验桥，**默认启用**，尚无官方 Windows 原生媒体桥 | IVS 13 项 Adapter 单测、Windows WebView2 独立宿主冒烟测试通过；双端收发待验收 | AWS 官方不支持嵌入式 WebView；须通过运行时检测与真实入会/声音/视频/退出验收，不能列正式支持 |
+| **Alibaba ARTC** | **本地条件 Driver + 官方 x64 C++ Bridge（默认注册，含摄像头管理与虚拟背景帧桥）** | **Windows Debug 构建、原生 SDK 可用性及 Texture 集成测试通过；21 项 Adapter 测试通过** | 未真实双人入会／互通；远端屏幕共享、处理后视频帧和资源释放未验收 |
+| AWS Chime | **WebView2 + JS 实验性 Driver，默认启用** | **Windows x64 Debug 构建、WebRTC/Chime JS/统一桥加载及 JS RPC 错误传递的原生宿主测试通过；Chime Adapter 单测通过** | 未验证真实加入会议、摄像头／麦克风权限、双端音视频及远端视频帧；官方未明确支持 WebView2 会议宿主 |
+| AWS IVS Real-Time | 隔离 WebView2 实验桥，**默认启用**，尚无官方 Windows 原生媒体桥 | IVS Adapter 单测、Windows WebView2 独立宿主冒烟测试通过；双端收发待验收 | AWS 官方不支持嵌入式 WebView；须通过运行时检测与真实入会/声音/视频/退出验收，不能列正式支持 |
 
 **证据等级：** Driver 注册、Windows 原生编译、SDK 加载／Texture 创建、真实双端收发是不同等级。ARTC 目前只通过前三级中相应项目；厂商二进制保留在本地 Git 忽略目录 `.local/vendor-cache/`，未随 Git 提交、未加入发布归档。AWS Chime C++ 官方静态库 COFF 为 `0x014c`（x86），见 [AWS Windows SDK 指南](https://github.com/aws/amazon-chime-sdk-cpp/blob/main/guides/setup_windows.md)；本次新增的 JS 实验桥绕开原生 x86 库，不意味着官方支持 WebView2 或双端通话通过。IVS Windows 仅有实验性 WebView2 桥接，不等于官方完整支持。
 
 Mac 的 `flutter_multi_livestream_video` 是 SDK 唯一开发/发布主仓库；Windows 工作区只负责原生构建与双设备验证，不从 Windows 副本发包。已发布的 dev.28 不包含本地新增的 ARTC 条件 Driver 与 Chime WebView2 实验 Driver。
 
-- **ARTC**：官方 [Windows x64 C++ SDK v7.6.0](https://www.alibabacloud.com/help/en/ims/developer-reference/download-the-sdk) 已在本机装配，完成 Flutter Windows Method/Event Channel、入会/退出回调、远端成员／媒体事件、音视频控制、Data、BGRA → Texture 和屏幕区域共享代码。Windows Debug 构建通过，`example/integration_test/windows_artc_bridge_smoke_test.dart` 实测原生 `isAvailable` 和 Texture 创建成功，ARTC 适配器 19 项测试通过。**未做真实双端入会、声音／视频帧或共享画面验收；Windows 虚拟背景仍未接入 ARTC，不能称为完整支持。**
-- **AWS Chime**：官方 [Windows C++ SDK](https://github.com/aws/amazon-chime-sdk-cpp) v0.11.2 的 `libamazon-chime-sdk.lib` 实查为 x86（`0x014c`），无法链入 Flutter x64；**另行接入 Windows WebView2 JS 实验运行时**，复用 macOS 的 Chime JS 和统一媒体桥。新增本地 HTTPS 虚拟域名、Windows JS 消息协议、Dart 会话／成员／音视频轨道映射、逐帧 JPEG 显示入口。真实 Windows 集成测试确认 WebRTC API、Chime SDK JS、桥资源加载和无凭证 RPC 错误传递均成功。**Windows 默认启用 Chime 实验桥**，但仍要求 WebView2 运行时通过预检查；厂商未明确把 WebView2 作为受支持会议宿主，**未做真实双端 Chime Meeting**，不可标为正式 Windows 完整支持。
-- **AWS IVS Real-Time**：AWS 发布 [Web、Android、iOS SDK](https://docs.aws.amazon.com/ivs/latest/RealTimeUserGuide/getting-started-broadcast-sdk.html)；其 [Web 广播 SDK 不支持嵌入式 WebView](https://docs.aws.amazon.com/ivs/latest/RealTimeUserGuide/broadcast.html)。本地新增与 Chime 隔离的 Windows WebView2 实验桥（Stage 加入/离开、远端视频帧、音视频开关、设备探测、Stage Token exchange 代码路径）；**默认启用**，但仍要求 Windows 浏览器/媒体运行时探测成功，不需要手动 `--dart-define=true`。即使加载成功也不代表获得 AWS 支持或真实双设备媒体可用。摄像头切换、处理后视频输入和原生 GPU 画面尚缺；Key Pair Stage Token 的 exchange 与 CreateParticipantToken 产生的 Token 不能混为一谈。
+- **ARTC**：官方 [Windows x64 C++ SDK v7.6.0](https://www.alibabacloud.com/help/en/ims/developer-reference/download-the-sdk) 已在本机装配，完成 Flutter Windows Method/Event Channel、入会/退出回调、远端成员／媒体事件、音视频控制、Data、BGRA → Texture、多屏/窗口枚举共享、`IAliEngineVideoDeviceManager` 摄像头枚举选择切换，以及 `FrameClient` + `BgraToI420` → [AliRtcEngine 外部视频输入接口](https://help.aliyun.com/zh/ims/developer-reference/windows-alirtcengine-interface)（参见 [自定义视频采集说明](https://help.aliyun.com/zh/live/custom-video-capture)）的虚拟背景帧桥。Windows Debug 构建通过，`example/integration_test/windows_artc_bridge_smoke_test.dart` 实测原生 `isAvailable` 和 Texture 创建成功，ARTC 适配器 21 项测试通过。**未做真实双端入会、声音／视频帧、处理后虚拟背景或共享画面验收，不能称为完整支持。**
+- **AWS Chime**：官方 [Windows C++ SDK](https://github.com/aws/amazon-chime-sdk-cpp) v0.11.2 的 `libamazon-chime-sdk.lib` 实查为 x86（`0x014c`），无法链入 Flutter x64；**另行接入 Windows WebView2 JS 实验运行时**，复用 macOS 的 Chime JS 和统一媒体桥，并打通原生虚拟背景 JPEG 帧投递桥与音视频设备枚举选择。真实 Windows 集成测试确认 WebRTC API、Chime SDK JS、桥资源加载和无凭证 RPC 错误传递均成功。**Windows 默认启用 Chime 实验桥**，但仍要求 WebView2 运行时通过预检查；厂商未明确把 WebView2 作为受支持会议宿主，**未做真实双端 Chime Meeting**，不可标为正式 Windows 完整支持。
+- **AWS IVS Real-Time**：AWS 发布 [Web、Android、iOS SDK](https://docs.aws.amazon.com/ivs/latest/RealTimeUserGuide/getting-started-broadcast-sdk.html)；其 [Web 广播 SDK 不支持嵌入式 WebView](https://docs.aws.amazon.com/ivs/latest/RealTimeUserGuide/broadcast.html)。本地新增与 Chime 隔离的 Windows WebView2 实验桥（Stage 加入/离开、远端视频帧、音视频开关、设备选择、虚拟背景帧桥、Stage Token exchange 代码路径）；**默认启用**，但仍要求 Windows 浏览器/媒体运行时探测成功，不需要手动 `--dart-define=true`。即使加载成功也不代表获得 AWS 支持或真实双设备媒体可用；原生 GPU 画面尚缺，Key Pair Stage Token 的 exchange 与 CreateParticipantToken 产生的 Token 不能混为一谈。
 - **聊天室（新增 Windows 接入）**：腾讯 Chat 原有 Windows Driver 保持不变。Agora Chat 新增独立 WebView2 宿主，复用现有打包的 Agora Web Chat JS SDK 和事件/凭证桥（登录、加入、消息、Token 刷新与清理路径）；IVS Chat 走 AWS 官方公开的 WSS Messaging API，由 Dart 原生 WebSocket 实现连接、发送、接收、管理事件与一次性 Token 重连，无需 WebView2。这两项均已注册 Windows Chat Driver，但尚未获得真实账号双端收发/权限验证，不能直接列为正式可用。
 
 **验收门禁：**Windows ARTC、Chime、IVS 三个 Driver 默认注册/启用，**不代表默认就能实际入会**。ARTC 验证到原生加载／Texture；Chime 和 IVS 验证到 Windows WebView2 浏览器与 JS RPC，IVS 无官方 Windows 原生 SDK 支持。必须完成真实双端媒体收发、退出清理、权限、弱网和屏幕共享验收，并回流 macOS 主仓库、纳入单包发布装配后，才可提升为正式 Windows 支持。若宿主需要关闭 Windows 实验桥，可分别传 `--dart-define=AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL=false` 和 `--dart-define=AWS_IVS_WINDOWS_WEBVIEW2_EXPERIMENTAL=false`。
 
 **Windows WebView2 错误诊断（2026-11-12）：**Chime 与 IVS 的共享运行时现在记录结构化 `lastDiagnostic.code`、用户可读的 `userMessage` 和浏览器能力 `lastProbe`。入会前检查按原因区分：WebView2 未安装、检测异常、浏览器初始化失败、Flutter 资源缺失、虚拟本地页面加载失败、非安全上下文、WebRTC 或媒体 API 不兼容、AWS JS SDK/桥脚本未初始化；设备枚举则分别报告麦克风／摄像头不存在或可能被 Windows 权限阻止。**检测失败不再一律提示重新安装 WebView2**；真正的浏览器运行正常时不会出现缺失提示。诊断只证明运行时依赖，不代表 Chime/IVS 已通过双设备音视频验收。
 
-### Windows 供应商原生接入进度（2026-11-09，macOS 主仓库已整合源码，尚未发布）
+### Windows 供应商原生接入进度（2026-11-09 演进基线与当前状态，尚未发布）
 
-Mac 的 `flutter_multi_livestream_video` 是 SDK 唯一开发／发布主仓库。上表和 [主仓库自动声明](generated/SDK_DECLARATIONS.md)只反映 **Mac 当前源码**，因此 ARTC/Chime/IVS 的 Windows 单元格仍为“—”；Windows 工作区中的未提交修改不能倒填为公开 SDK 能力。
+Mac 的 `flutter_multi_livestream_video` 是 SDK 唯一开发／发布主仓库。上表和 [主仓库自动声明](generated/SDK_DECLARATIONS.md)反映 **Mac 当前源码**；Windows 工作区中的未提交修改不能倒填为公开已发布包能力。
 
-- **ARTC：本地原生基础链路已实现，双端验收未完成。**在 Windows 工作区接入阿里云官方 Windows x64 C++ SDK v7.6.0、`AliRTCSdk.lib/.dll`，增加 Flutter Windows Plugin 注册、Method/Event Channel、入会/离会回调、远端成员/音视频轨道事件、摄像头与麦克风控制、RTC Data、BGRA → Flutter Texture 和屏幕区域共享 API。运行 `flutter build windows --debug --no-pub` 成功；`example/integration_test/windows_artc_bridge_smoke_test.dart` 在 Windows 宿主上通过 `isAvailable` 和纹理注册测试；ARTC Adapter 18 项测试、Flutter 静态分析、44 包架构检查通过。**尚未实测房间鉴权／双人通话、远端音视频帧、共享屏幕的远端画面、反复进退及清理。Windows ARTC 的处理后虚拟背景和摄像头切换仍缺实现。**
-- **AWS Chime：x64 原生阻塞已实证。**下载官方 Windows C++ SDK v0.11.2 的 `libamazon-chime-sdk.lib` 并检查 COFF，对象机器码为 `0x014c`（x86），与 [官方 Windows 集成说明](https://github.com/aws/amazon-chime-sdk-cpp/blob/main/guides/setup_windows.md)只支持 x86 的记载相符。**不能将此库直接链接进 Flutter Windows x64。**独立 x86 媒体进程 + IPC、或官方支持的 Electron/JS 运行时 + 媒体桥属于候选方案，尚未实现。Pre-Join 继续失败关闭。
-- **AWS IVS Real-Time：Windows 原生接入未实现。** [IVS Web 广播 SDK](https://docs.aws.amazon.com/ivs/latest/RealTimeUserGuide/broadcast.html)不支持嵌入式 WebView，不能直接假设 WebView2 可用；仅有 Windows 平台可用性阻断与错误处理。
-- **产品 Chat：**Tencent Chat 已声明 Windows Driver，Agora Chat 和 IVS Chat 尚无 Windows Driver；RTC Data 不能当作完整产品 Chat。
+- **ARTC：本地原生基础与扩展链路已实现，双端验收未完成。**在 Windows 工作区接入阿里云官方 Windows x64 C++ SDK v7.6.0、`AliRTCSdk.lib/.dll`，完成 Flutter Windows Plugin 注册、Method/Event Channel、入会/离会回调、远端成员/音视频轨道事件、摄像头枚举选择切换、麦克风控制、RTC Data、BGRA → Flutter Texture、多屏/窗口及区域共享 API 与处理后虚拟背景外部视频源桥接；macOS 侧亦通过纯动态 Objective-C 运行时打通虚拟背景输入与 `ScreenCaptureKit` 屏幕共享发送端。**尚未实测房间鉴权／双人通话、远端音视频帧、共享屏幕的远端画面、反复进退及清理。**
+- **AWS Chime：x64 原生阻塞已实证，后续改走 WebView2 实验桥。**官方 Windows C++ SDK v0.11.2 的 `libamazon-chime-sdk.lib` 机器码为 `0x014c`（x86），与 [官方 Windows 集成说明](https://github.com/aws/amazon-chime-sdk-cpp/blob/main/guides/setup_windows.md)只支持 x86 的记载相符，不能直接链接进 Flutter Windows x64；后续已在 11-12/11-17 迭代中落地默认开启的 WebView2 JS 实验桥与虚拟背景帧桥。
+- **AWS IVS Real-Time：无官方 Windows 原生 SDK，后续提供实验性 WebView2 Stage 桥。** [IVS Web 广播 SDK](https://docs.aws.amazon.com/ivs/latest/RealTimeUserGuide/broadcast.html)不支持嵌入式 WebView，后续新增默认开启的隔离 WebView2 Stage 实验桥，但仅可作为实验能力。
+- **产品 Chat：**Tencent Chat 原生支持 Windows Driver，后续 11-12 迭代已补齐 Agora Chat（WebView2 JS）与 IVS Chat（原生 Dart WSS）的 Windows Driver。
 
 **升级为“Windows 已支持”的门槛：**Windows 原生运行时与构建、真实双端收发音视频／远端 Texture、权限、屏幕共享、消息、断线与销毁全链路通过，且改动回流 Mac 主仓库、更新单包发行装配和测试后，才能进入正式发布声明。
 
-¹ ARTC macOS 需要宿主另行配置官方原生 Framework，仓库不随包再分发，缺少依赖时不可用。² macOS AWS 采用内部 WebKit JS 运行时，不应等同于拥有原生桌面屏幕共享桥。公开 Provider `aws` 根据模式选择 Chime（Meeting）或 IVS（Live）。Web 指常规 JavaScript Flutter Web，**不是**整套依赖已经支持 Wasm。iOS Simulator 受 ARTC 原生二进制限制，不能用无签名设备目标的编译结果推断模拟器可用。
+¹ ARTC macOS 需要宿主另行配置官方原生 Framework，仓库不随包再分发，缺少依赖时不可用。² macOS AWS 采用内部 WebKit JS 运行时，并已接入原生 `ScreenCaptureKit`（`SCStream`，macOS 12.3+）多显示器与独立窗口屏幕采集桥。公开 Provider `aws` 根据模式选择 Chime（Meeting）或 IVS（Live）。Web 指常规 JavaScript Flutter Web，**不是**整套依赖已经支持 Wasm。iOS Simulator 受 ARTC 原生二进制限制，不能用无签名设备目标的编译结果推断模拟器可用。
 
 ³ Windows ARTC 的“本地条件 Driver”只指本地源代码和已配置的 x64 厂商 SDK。⁴ Chime Windows 本地 WebView2 实验 Driver 现在默认开启，仍只通过浏览器/JS 基础桥测试；相关 Windows 改动已在本次源码合并中纳入 Mac 主仓库，但尚未进入已发布 Pub 包，安装 dev.28 不包含这些 Windows 修改。
 
@@ -98,7 +98,7 @@ Mac 的 `flutter_multi_livestream_video` 是 SDK 唯一开发／发布主仓库�
 | 麦克风/摄像头开关、远端订阅 | 有代码/回归 | 有代码/回归 | 有代码/回归 | 有代码/回归 | 有代码/回归 | 有代码/回归 |
 | RTC Data 双向/聊天回退 | 角色允许时 | 房主和普通成员；观众不能发 | 房主和普通成员；观众不能发 | 房主和普通成员；观众不能发 | Meeting 可用 | 无 RTC Data |
 | 定向 / 不可靠 Data | 支持（按角色/能力） | 未提供 | 未提供 | 未提供 | 未提供 | 未提供 |
-| 设备切换/统计 | SDK 能力较完整，受平台限制 | 统计可用，设备选择适配器不完整 | 统计可用，设备选择适配器不完整 | 设备选择/统计受限 | 原生和 WebKit 不同 | 设备探测/部分切换，基础统计 |
+| 设备切换/统计 | SDK 能力较完整，受平台限制 | 统计可用，设备选择适配器不完整 | 统计可用，设备选择适配器不完整 | 移动/桌面摄像头切换与桌面摄像头枚举选择已接；统计受限 | 原生和 WebKit/WebView2 均支持设备选择 | 设备探测/选择切换，基础统计 |
 | 服务端管理：关闭逻辑房间 | 有统一控制面 | 有统一控制面 | 有统一控制面 | 有统一控制面 | 有统一控制面 | 有统一控制面 |
 | 服务端直接移除 RTC 成员 | 有相关能力 | 不能默认声称支持 | 不能默认声称支持 | 不能默认声称支持 | 不能默认声称支持 | IVS `DisconnectParticipant` 路径 |
 | Blur / 图片虚拟背景 | Source/Sink 已接，运行时探测 | Source/Sink 已接，运行时探测 | Source/Sink 已接，运行时探测 | 有条件接入 | 有条件接入 | 有条件接入 |
@@ -110,13 +110,13 @@ Mac 的 `flutter_multi_livestream_video` 是 SDK 唯一开发／发布主仓库�
 | 引擎 | 桌面 Web | Android | iOS | macOS | Windows |
 | --- | --- | --- | --- | --- | --- |
 | LiveKit | 浏览器授权/运行时能力 | MediaProjection 接入 | iOS 27+ ScreenCaptureKit；15–26 ReplayKit 扩展回退（需宿主签名/配置） | 系统录屏权限 | 驱动/实现；本机未做 Windows 原生验证 |
-| Agora | 捕获接入，Web→原生共享类型信令缺口 | MediaProjection/状态信令有代码 | iOS 27+ ScreenCaptureKit 自定义视频；旧系统无通用跨 App 回退 | 主屏自动选取代码 | 主屏自动选取代码；构建/双机待验收 |
-| TRTC | JS 屏幕辅路有代码 | 原生辅路有代码 | iOS 27+ ScreenCaptureKit 辅路；旧系统未接同等回退 | 主屏自动选取代码 | 主屏自动选取代码；构建/双机待验收 |
-| ARTC | Web 捕获/远端映射有代码 | MediaProjection 桥有代码 | iOS 27+ ScreenCaptureKit 外部屏幕流；旧系统未接 | 主要是远端接收；发送端/Framework 有缺口 | 本地 Windows Driver 已接屏幕区域共享 API；远端画面未验收，未合并发行 |
-| Chime | 浏览器 Content Share | 原生发送端未接 | iOS 27+ ScreenCaptureKit → Content Share，远端 Content Tile 待验收 | 无桌面发送桥 | 无 Driver |
-| IVS | 浏览器屏幕**替换摄像头** | 原生发送端未接 | iOS 27+ ScreenCaptureKit → Stage 替换摄像头，非双路 | 无桌面发送桥 | 无 Driver |
+| Agora | 捕获接入，Web→原生共享类型信令缺口 | MediaProjection/状态信令有代码 | iOS 27+ ScreenCaptureKit；15–26 已配签名扩展+App Group 时走跨 App Broadcast Socket，否则回退应用内 ReplayKit | 主屏自动选取代码 | 主屏自动选取代码；构建/双机待验收 |
+| TRTC | JS 屏幕辅路有代码 | 原生辅路有代码 | iOS 27+ ScreenCaptureKit；15–26 已配签名扩展+App Group 时走跨 App Broadcast Socket，否则回退应用内 ReplayKit | 主屏自动选取代码 | 主屏自动选取代码；构建/双机待验收 |
+| ARTC | Web 捕获/远端映射有代码 | MediaProjection 桥有代码 | iOS 27+ ScreenCaptureKit；15–26 已配签名扩展+App Group 时走跨 App Broadcast Socket，否则回退应用内 ReplayKit | 原生 `ScreenCaptureKit` 多屏/窗口枚举选择 + 外部视频源推流已接（需宿主提供 Framework，待双机验收） | 本地 Windows Driver 已接多屏/窗口选择与区域共享 API；远端画面待验收 |
+| Chime | 浏览器 Content Share | MediaProjection + FrameHub → Content Share 代码已接 | iOS 27+ ScreenCaptureKit；15–26 跨 App Broadcast Socket（需签名扩展+App Group）或应用内 ReplayKit 回退 | 原生 `ScreenCaptureKit` 多屏/窗口枚举与选择共享已接 | WebView2 实验桥捕获代码已接（待双机验收） |
+| IVS | 浏览器共享（有 `auxiliaryToken` 双路，单 Token 替换摄像头） | MediaProjection + FrameHub → Stage（支持辅路 Token 或替换摄像头） | iOS 27+ ScreenCaptureKit；15–26 跨 App Broadcast Socket（需签名扩展+App Group）或应用内 ReplayKit 回退 | 原生 `ScreenCaptureKit` 多屏/窗口枚举与选择共享已接 | WebView2 实验桥捕获代码已接（待双机验收） |
 
-所有 iOS 27+ 路径均须双端验证切出 App 后画面继续、授权/撤销、远端轨道、音频和退出清理；LiveKit 旧版 ReplayKit 要求 App Group 与 Broadcast Extension 签名。IVS 单 Token 模式无法同时发布摄像头和屏幕两路视频。Web 移动浏览器不能从桌面 Web 支持推断为可共享。屏幕录制标注限于 SDK 自身显示画布，不是系统级桌面涂鸦层。详见 [逐厂商屏幕共享实现说明](SDK_CAPABILITY_MATRIX.zh-CN.md)。
+所有 iOS 路径均须双端验证切出 App 后画面继续、授权/撤销、远端轨道、音频和退出清理；iOS 15–26 跨 App 屏幕共享要求宿主嵌入签名 ReplayKit Broadcast Upload Extension（`scripts/setup_ios_broadcast_extension.rb`）并配置相同 App Group（`rtc_SSFD` Unix Socket），未配置时自动降级为 `RPScreenRecorder` 进程内采集。IVS 在后端签发 `#content` 辅助 Stage Token 时可双路并行发布摄像头与屏幕，单 Token 模式下自动暂停摄像头并在结束共享后恢复。会议与直播模式均已打通共享内容白板与画面内批注，Android/macOS/Windows 另提供系统悬浮窗涂鸦层；iOS/Android 支持开启 `preventScreenCapture` 外部录屏/投屏阻断提醒（自动豁免本应用发起的屏幕共享）。详见 [逐厂商屏幕共享实现说明](SDK_CAPABILITY_MATRIX.zh-CN.md)。
 
 ## 四、虚拟背景与平台桥
 
@@ -144,9 +144,9 @@ Mac 的 `flutter_multi_livestream_video` 是 SDK 唯一开发／发布主仓库�
 
 ## 六、已核实与待验收
 
-**已验证的不同层级：**此前 `dev.27` 发布流程中，44 包内部分析/测试、95 项 Python 测试、Edge/Chromium Web 回归及 Pub dry-run（0 warnings）通过。**本轮 Windows** 对本地 ARTC 执行了 Debug 原生构建、SDK 加载／Texture 冒烟测试（通过）、18 项 ARTC Adapter 测试、44 包架构检查及 Flutter 静态分析（通过）；同时重新生成 Windows Driver 声明，将 ARTC Windows 条件 Driver 列入本地结果。这些记录**不等于** dev.28 已发布包包含这批代码，更不等于六厂商所有平台双设备验收通过。
+**已验证的不同层级：**此前 `dev.27` 发布流程中，44 包内部分析/测试、95 项 Python 测试、Edge/Chromium Web 回归及 Pub dry-run（0 warnings）通过。**本轮更新**对 ARTC 完成了 Windows 虚拟背景外部视频源、Windows/macOS 摄像头枚举选择切换、macOS `ScreenCaptureKit` 屏幕共享发送端与纯动态 `ArtcProcessedVideoInput` 桥接改造，并通过 21 项 ARTC Adapter 单测、Objective-C 语法检查、44 包架构检查及 101 项 Python 门禁测试。这些记录**不等于** dev.28 已发布包包含这批代码，更不等于六厂商所有平台双设备验收通过。
 
-**最重要的验收缺口：**逐厂商 Web↔iOS、iOS↔Android 真实双向麦克风/扬声器、摄像头与远端黑屏；iOS 跨 App 屏幕共享；Agora Web→原生共享类型信令；Chime/IVS 非 iOS 27 屏幕共享；iOS 多 WebRTC 二进制共存；**Windows ARTC 已完成本机原生链接但尚未双端媒体验收，Chime x64 桥未实现**；非 LiveKit 强制禁麦；云录制 MP4 音画完整性；资源清理和重连稳定性。
+**最重要的验收缺口：**逐厂商 Web↔iOS、iOS↔Android 真实双向麦克风/扬声器、摄像头与远端黑屏；iOS 跨 App 屏幕共享真机稳定性；Agora Web→原生共享类型信令；iOS 多 WebRTC 二进制全量同时开启真机复测；**Windows ARTC（含虚拟背景与切摄）与 AWS WebView2 实验桥（含虚拟背景帧桥）已完成代码接入但尚未完成双端媒体验收**；非 LiveKit 强制禁麦；云录制 MP4 音画完整性；资源清理和重连稳定性。
 
 复查命令（SDK 工作区根目录）：
 
@@ -224,12 +224,12 @@ AWS 对外统一展示为一个 Vendor，内部按模式路由：`Meeting -> Chi
 | 单条 RTC 消息上限 | 15 KiB | 2 KiB | 1 KiB | 1 KiB | 1 KiB | — |
 | 定向发送数据 | 支持 | 不支持 | 不支持 | 不支持 | 不支持 | 不支持 |
 | 不可靠数据发送 | 支持 | 不支持 | 不支持 | 不支持 | 不支持 | 不支持 |
-| 设备枚举/选择 | 支持，视平台而定 | 音频输出选择 | Adapter 未提供 | Adapter 未提供 | Adapter 未提供 | 麦克风/摄像头探测；切换摄像头仅 Android/iOS |
-| 加入前原生设备探测 | 麦克风/摄像头 | 无 | 无 | 无 | 无 | 麦克风/摄像头 |
+| 设备枚举/选择 | 支持，视平台而定 | 音频输出选择；Web/macOS/Windows 支持麦克风与摄像头枚举选择 | Adapter 未提供 | Adapter 未提供 | macOS/Windows 支持摄像头枚举选择；Android/iOS/macOS/Windows 支持镜头切换 | 音频输出选择；Web/macOS/Windows 支持麦/镜选择；翻转镜头支持 Android/iOS/Web |
+| 加入前原生设备探测 | 麦克风/摄像头 | Windows WebView2 支持；移动端/macOS 不预占凭证 | 无 | 无 | 无 | 麦克风/摄像头 |
 | 加入前 Provider 网络探测 | 需要房间凭证时不支持 | 无 | 无 | 无 | 无 | 需要参与者令牌时不支持 |
 | 网络统计 | 支持 | Adapter 未提供 | 支持 | 支持 | Adapter 未提供 | 基础 RTC 统计 |
-| 屏幕共享 | Web/Android/macOS；iOS 27+ 系统共享，15–26 ReplayKit 扩展 | Web Content Share；iOS 27+ ScreenCaptureKit（需验收），其他原生端缺桥 | Web/Android/macOS/Windows 有适配；iOS 27+ 外部屏幕轨道，旧版未接 | Web/Android/macOS/Windows 有适配；iOS 27+ 辅路，旧版未接 | Web/Android 有代码；iOS 27+ 外部屏幕轨道；macOS 发送端缺 | Web 单视频流替换；iOS 27+ Stage 替换摄像头，其他原生端缺 |
-| Blur / image processed-video sink | Android/macOS/Web；iOS 已接且无签名编译通过；Windows 源码待验证 | Android/macOS 有条件/Web；iOS 需实测 | Android/macOS/Web；iOS 已接；Windows 源码待验证 | Android/macOS/Web；iOS 已接；Windows 源码待验证 | Android/macOS 有条件/Web，iOS 逐引擎待实测 | Android/macOS 有条件/Web，iOS 逐引擎待实测 |
+| 屏幕共享 | Web/Android/macOS；iOS 27+ 系统共享，15–26 ReplayKit 扩展 | Web/Android/macOS（含窗口选择）已接；iOS 27+ SCK / 15–26 扩展或应用内回退；Windows WebView2 实验桥 | Web/Android/macOS/Windows 有适配；iOS 27+ SCK / 15–26 扩展或应用内回退 | Web/Android/macOS/Windows 有适配；iOS 27+ SCK / 15–26 扩展或应用内回退 | Web/Android/macOS（含多屏与窗口选择）/Windows（含多屏与窗口选择）已接；iOS 27+ SCK / 15–26 扩展或应用内回退 | Web/Android/macOS（含窗口选择）已接（支持辅路 Token 双路或单路替换）；iOS 27+ SCK / 15–26 扩展或应用内回退；Windows WebView2 实验桥 |
+| Blur / image processed-video sink | Android/macOS/Web；iOS 已接且无签名编译通过；Windows 源码待验证 | Android/macOS 有条件/Web；iOS 已接；Windows WebView2 帧桥已接（待验收） | Android/macOS/Web；iOS 已接；Windows 源码待验证 | Android/macOS/Web；iOS 已接；Windows 源码待验证 | Android/Web；macOS（纯动态运行时探测）/Windows（FrameHub → I420 外部视频源）有条件已接；iOS 逐引擎待实测 | Android/macOS 有条件/Web；iOS 已接；Windows WebView2 帧桥已接（待验收） |
 | 房主查看参与者列表 | 后端验证逻辑房主 | Meeting 创建者通过逻辑房主凭证 | 后端验证逻辑房主 | 后端验证逻辑房主 | 后端验证逻辑房主 | 后端验证逻辑房主 |
 | 房主移除参与者 | 支持 | 不支持 | 不支持 | 不支持 | 不支持 | 通过 IVS `DisconnectParticipant` |
 | 房主关闭房间 | 后端支持 | Meeting 创建者通过控制面关闭 | 后端支持 | 后端支持 | 后端支持 | 后端支持 |
@@ -240,11 +240,11 @@ AWS 对外统一展示为一个 Vendor，内部按模式路由：`Meeting -> Chi
 | --- | --- | --- | --- | --- | --- |
 | 采集 + None/Blur/换图处理 | 已实现 | 已实现 | 已实现 | 已接入 Vision / Core Image，待真机 | Media Foundation + ONNX 源码已写入，待 Windows 编译/设备测试 |
 | 实时本地预览 | Flutter Texture | Flutter Texture | HTML video | Flutter Texture，待真机 | Flutter Texture 原生代码已写入，待 Windows 编译 |
-| Processed Source | Native RGBA Frame Hub | Native `CVPixelBuffer` Frame Hub | `MediaStreamTrack` | iOS `CVPixelBuffer` Frame Hub + LiveKit，待真实远端验收 | Windows Frame Hub → LiveKit 自定义 WebRTC 轨道 / Agora 外部视频轨道 / TRTC I420 数据投递源码已接入，待原生构建及真机验收 |
+| Processed Source | Native RGBA Frame Hub | Native `CVPixelBuffer` Frame Hub | `MediaStreamTrack` | iOS `CVPixelBuffer` Frame Hub + LiveKit，待真实远端验收 | Windows Frame Hub → LiveKit / Agora / TRTC / ARTC 原生轨道及 AWS WebView2 帧桥源码已接入，待原生构建及真机验收 |
 
 第一层由 `flutter_realtime_video_effects` 统一负责，提供模糊和图片替换；六个媒体 Engine 已有
 `ProcessedVideoSink` 实现。Native 帧仍在 Native Frame Hub 中传递。
-Android/macOS/Web 的发布者按平台与运行时能力启用；ARTC、Chime、IVS 的 macOS 输入需要真实能力探测。
+Android/macOS/Web 的发布者按平台与运行时能力启用；ARTC、Chime、IVS 的 macOS/Windows 输入通过真实能力探测启用（其中 ARTC macOS 采用纯 Objective-C 运行时探测，无需重编插件宏）。
 当前源码已有 iOS 效果桥和 LiveKit iOS 处理视频输入，并通过
 iOS 无签名 Release 构建，但**尚未完成真机与真实远端像素验收**；Agora/TRTC/ARTC/AWS 的
 iOS LiveKit、Agora、TRTC 原生处理后视频轨道均已接入并通过 iOS 无签名 Release
@@ -253,17 +253,17 @@ iOS LiveKit、Agora、TRTC 原生处理后视频轨道均已接入并通过 iOS 
 预编译的 PPHumanSeg 模型及 Apache-2.0 许可文件已校验；Windows CMake 默认
 获取 SHA256 固定校验的官方 ONNX Runtime x64 并打包运行库与许可，
 也支持 `REALTIME_ONNXRUNTIME_ROOT` 在离线环境复用已安装的运行库。
-LiveKit、Agora、TRTC Windows 三个 Provider 的 Native ProcessedVideoSink 发布桥接代码均已写入，
+LiveKit、Agora、TRTC、ARTC Windows 四个原生 Provider 的 Native ProcessedVideoSink 以及 AWS（Chime / IVS）Windows WebView2 虚拟背景帧桥代码均已写入，
 包括完整的原生插件注册、单包 SDK 打包适配和退出/重连释放路径的代码。
 相关 Dart 平台能力测试和帧处理测试通过，但 Windows 原生链接、ONNX 推理性能、
-远端视频画面与长时间稳定性均待实机验收。**当前不得视为三个供应商生产级已完成**。
+远端视频画面与长时间稳定性均待实机验收。**当前不得视为生产级已完成**。
 Flutter Windows 原生构建门禁见 `.github/workflows/windows-video-effects-smoke.yml`；
 工作流包含三个 Provider 的 Windows 原生构建检查，并执行带 ONNX Runtime
 链接的 x64 Release 构建。编译通过不代表实际人像分割质量和远端像素验收通过；
 仍必须完成 Windows 双设备真实通话。
 以上描述的是源码中的实现声明；具体发布版支持范围以该版本的能力矩阵和
 实际设备测试为准。源码实现不等于真实远端画面验收通过。
-**最新细分清单以 [2026-11-06 复核表](SDK_CAPABILITY_MATRIX.zh-CN.md) 为准。**
+**最新细分清单以 [2026-11-17 复核表](SDK_CAPABILITY_MATRIX.zh-CN.md) 为准。**
 
 Demo 的 Pre-Join 直接使用 Platform Bridge 做实时虚化预览，不进入 Provider 房间。
 正式入房前 `RealtimeRoomView` 会重新创建 processed source 并 attach 给当前
@@ -342,10 +342,10 @@ Provider 专属接口。未支持的操作应返回有类型的错误，不能�
 ### 仍未完成的关键闭环
 
 1. **Agora Web 发起共享时的反向信令和端到端验收**：Agora Web 4.24.8 有 `stream-message` 接收事件，但没有可用的 `sendStreamMessage` 发布接口。原生 → Web 的 DataStream 控制消息已接通代码层；Web → 原生需另设 provider-neutral 信令服务/IM 通道或合法的屏幕子 UID/Token，不能用视频宽高猜测屏幕类型。所有方向都还需要实机确认。
-2. **ARTC/Chime/IVS 剩余原生平台适配**：ARTC Android 和 iOS 27+ 的共享接入已新增，但尚需实机媒体验收；ARTC 旧版 iOS/桌面发送端尚缺。Chime、IVS 的 iOS 27+ 原生共享适配已新增，仍需真机 Content Tile / Stage 视频流验收，其余移动/桌面平台尚未完成。IVS 单 Stage Token 的视频源替换无法自动向远端标注“屏幕轨道”，共享类型需另设有鉴权的信令或提供者标识，不可根据视频宽高猜测。
-   IVS **同时发布摄像头和屏幕**按 [AWS 官方说明](https://docs.aws.amazon.com/ivs/latest/RealTimeUserGuide/web-publish-subscribe.html) 需要额外的共享 Stage Token 和独立参与者；目前 Demo 的单 Token 模式采用暂停摄像头视频并共享屏幕的策略，而非双路并行。
-3. **iOS 跨 App 全屏共享的剩余验收**：iOS 27+ 的 ScreenCaptureKit 不需要 Broadcast Upload Extension 或 App Group，但宿主必须启用 `UIBackgroundModes: screen-capture` 并提供 `NSScreenCaptureUsageDescription`。iOS 15–26 的 LiveKit ReplayKit 回退仍需要 App Groups + 两个 Target 的正确签名。均须双设备验证 Safari/微信切换、远端持续出帧、系统停止/权限取消/应用退后台/离会清理。仅执行无签名 Xcode 编译不能宣称全链路通过。
-4. **原生桌面多显示器与窗口共享**：TRTC 和 Agora 都已接主显示器自动选择；但还没有 SDK 级共享源列表 UI / 手动选择其他显示器或窗口，也没有桌面真机播放验收。AWS 桌面仍未接入。
+2. **ARTC/Chime/IVS 原生屏幕共享真机验收**：ARTC、Chime 与 IVS 的 Android（`MediaProjection` + `FrameHub`）、macOS（`ScreenCaptureKit` 多显示器与独立窗口选择）、iOS 27+（`ScreenCaptureKit`）以及 iOS 15–26（已配置签名扩展+App Group 时走 `IosBroadcastExtensionScreenCaptureSource` 跨 App 共享，未配置时回退进程内 `RPScreenRecorder`）代码均已接通，仍需真机双端视频流验收。
+   IVS **同时发布摄像头和屏幕**已支持 `MediaAuxiliaryTokenConsumer`：后端下发 `#content` 辅助 Stage Token 时自动建立辅助 Stage 双路并推；未配置辅路 Token 时回退为暂停摄像头单路替换并在停止共享后恢复。
+3. **iOS 跨 App 全屏共享的剩余验收**：iOS 27+ 的 ScreenCaptureKit 不需要 Broadcast Upload Extension 或 App Group，但宿主必须启用 `UIBackgroundModes: screen-capture` 并提供 `NSScreenCaptureUsageDescription`。iOS 15–26 全供应商跨 App 共享共用同一个 ReplayKit Broadcast Upload Extension 模板（`rtc_SSFD` App Group Socket），仍需要 App Groups + 两个 Target 的正确签名，并须双设备验证 Safari/微信切换、远端持续出帧、系统停止/权限取消/应用退后台/离会清理。仅执行无签名 Xcode 编译不能宣称全链路通过。
+4. **原生桌面多显示器与窗口共享**：AWS（Chime / IVS）与 ARTC 的 macOS 端均已接入 `ScreenCaptureKit` 多显示器与独立窗口列表选择，ARTC Windows 已接入原生显示器/窗口选择；TRTC 和 Agora 桌面端已接主显示器自动选择；Windows WebView2 实验桥仍采用浏览器默认屏幕捕获，各桌面组合仍需双机真机播放验收。
 5. **运行时权限和系统停止事件**：Android 前台 MediaProjection 服务，macOS 屏幕录制权限，iOS 广播停止、浏览器 `track.ended`、销毁和重连；真实场景均需端到端确认。
 6. **多供应商/多平台验收**：每个组合至少用双设备测试本地采集 → 发布 → 远端订阅 → 坐标与画面比例 → 主动停止/权限拒绝/意外停止 → 重连与退出。自动化 Mock 测试不等于真实 SDK 通过。
 
@@ -394,11 +394,11 @@ FlutterRealtimeMediaIvsPlugin.init
 
 **正式发布**：`flutter_realtime_sdk 0.1.0-dev.24` 已上传 pub.dev；Demo 已改为从 pub.dev 获取该版本，而非本地 `path` 覆盖。之后恢复 Chime、ARTC 默认启用的完整 iOS 宿主，CocoaPods 安装和无签名编译通过；**由于测试 iPhone 锁屏，恢复后的原生 PCM 和真实双向音频尚未复测**，不能把全供应商共存标为运行时验收成功。
 
-### iOS 多供应商二进制冲突
+### iOS 多供应商二进制冲突与编译期隔离
 
-同一 App 同时链接独立 `WebRTC.framework`、`AmazonChimeSDKMedia.framework`、`AliVCSDK_ARTC.framework` 时，iOS 日志已经报告 `RTCRtpCapabilities`、`RTCAudioSession` 等 Objective-C 类重名。
+同一 App 同时链接独立 `WebRTC.framework`、`AmazonChimeSDKMedia.framework`、`AliVCSDK_ARTC.framework` 时，iOS 日志会报告 `RTCRtpCapabilities`、`RTCAudioSession` 等 Objective-C 类重名。
 
-这不是普通的提示文案问题：**可能因运行时绑定到错误的 WebRTC/AVAudioSession 实现而出现没有声音或崩溃**。应用能显示首页、Xcode 能编译，不代表混用这些二进制时音频链路安全。根治应做原生依赖隔离/厂商兼容性验证，或按发行 Flavor 将真正不使用的原生供应商二进制排除；不可简单删除某一个 WebRTC.framework，否则可能让另一家 SDK 启动失败。本次未尝试未经厂商支持的二进制修改。
+这不是普通的提示文案问题：**可能因运行时绑定到错误的 WebRTC/AVAudioSession 实现而出现没有声音或崩溃**。当前仓库已在**源码模块包**（`flutter_aws_chime.podspec`、`flutter_realtime_media_artc.podspec`）、**模块化多包发行**（`sdk_aws`、`sdk_artc`）与**单包发行**（`flutter_realtime_sdk.podspec`）三层统一支持 `ENV['FRSDK_IOS_DISABLE_CHIME'] = '1'` 与 `ENV['FRSDK_IOS_DISABLE_ARTC'] = '1'`：开启后 CocoaPods 不链接对应冲突二进制（例如仅保留 AWS IVS 直播而剔除 Chime WebRTC 符号），同时保留轻量插件注册桩并在运行时安全返回 `unsupportedPlatform`，无需修改厂商二进制。
 
 
 ---
@@ -412,11 +412,11 @@ FlutterRealtimeMediaIvsPlugin.init
 | LiveKit Meeting / Live RTC | Driver/Adapter 与 Windows WebRTC 原生轨道相关代码已有 | 需 Windows Release 编译、麦克风/扬声器/视频双设备验证 |
 | Agora RTC Meeting / Live | Windows Driver、原生屏幕采集与外部视频帧插件代码已有 | 需校验 Agora Windows 原生 SDK 头文件、动态库与远端订阅 |
 | Tencent TRTC Meeting / Live | Windows Driver、主屏幕共享、原生视频帧插件代码已有 | 需校验 TRTC 原生 SDK 和自定义采集开关、远端帧 |
-| 处理后的视频 / 虚拟背景 | Media Foundation 摄像头 → PPHumanSeg ONNX → Blur/Replace BGRA → 单一 FrameHub → 三厂商 Native Sink | 原生 C++ Windows DLL 仍未链接验证；**不能把无报错预览等同于远端收到处理后画面** |
+| 处理后的视频 / 虚拟背景 | Media Foundation 摄像头 → PPHumanSeg ONNX → Blur/Replace BGRA → 单一 FrameHub → 四厂商 Native Sink（LiveKit / Agora / TRTC / ARTC）+ AWS WebView2 帧桥 | 原生 C++ Windows DLL 与远端画面仍待实机双端验证；**不能把无报错预览等同于远端收到处理后画面** |
 | Windows 屏幕标注 | Win32 顶层透明窗口、绘图/文本工具实现代码已有 | 多显示器、高 DPI、共享窗口捕获范围和实际直播叠加效果未验收 |
-| ARTC | Windows 本地已注册条件 Driver，x64 原生 Method/Event Channel、BGRA Texture 与屏幕共享 API 已实现 | 原生加载与 Texture 测试通过；真实双机未验收，本次源码合并已纳入，尚未发布 |
-| AWS Chime | **实验性 WebView2 + Chime JS Driver（默认开启）** | Windows x64 宿主成功加载 WebRTC/Chime JS/统一媒体桥，RPC 错误回路测试通过；未做真实 Chime 双端音视频测试 |
-| AWS IVS RTC | **实验性 WebView2 Stage Driver（默认开启）** | Windows x64 宿主加载 JS SDK 成功；AWS IVS Web Broadcast SDK 不支持嵌入式 WebView，真实双端媒体尚未验收 |
+| ARTC | Windows 本地已注册条件 Driver，x64 原生 Method/Event Channel、BGRA Texture、摄像头枚举选择切换、多屏/窗口共享与 I420 虚拟背景帧桥已实现 | 原生加载、Texture 与 Adapter 21 项单测通过；真实双机未验收，本次源码合并已纳入，尚未发布 |
+| AWS Chime | **实验性 WebView2 + Chime JS Driver（默认开启，含设备切换与虚拟背景帧桥）** | Windows x64 宿主成功加载 WebRTC/Chime JS/统一媒体桥，RPC 与虚拟背景帧桥代码已接通；官方不明确支持 WebView2，未做真实 Chime 双端音视频与远端帧验收 |
+| AWS IVS RTC | **实验性 WebView2 Stage Driver（默认开启，含设备切换与虚拟背景帧桥）** | Windows x64 宿主加载 JS SDK 成功，虚拟背景帧桥代码已接通；AWS IVS Web Broadcast SDK 不支持嵌入式 WebView，真实双端媒体尚未验收 |
 | Agora Chat | **Windows WebView2 + Agora Chat JS Driver（新增）** | JS SDK/浏览器宿主及真实两账号消息收发需分别验证，非 Windows C++ 原生 SDK |
 | Amazon IVS Chat | **Windows 原生 Dart WSS Messaging Driver（新增）** | 原生协议本地模拟服务器测试覆盖收发/事件/Token 重连；需真实 IVS Chat 云端凭证和双账号验收 |
 | Tencent Cloud Chat | 已有 Windows Chat Driver | 本轮未追加双账号聊天专项验收 |
@@ -431,9 +431,9 @@ FlutterRealtimeMediaIvsPlugin.init
 
 ### 五、尚未补齐的 Windows 项目
 
-- ARTC 的 Windows 原生基础桥与 Texture 冒烟测试已通过，但**真实双端通话、屏幕共享和 ARTC 自定义虚拟背景输入仍有缺口**；Chime Windows 有默认开启的 WebView2 实验桥，**未通过真实双端会议**；IVS Windows 有默认开启的实验桥但缺少厂商支持的完整 Windows 媒体方案。**Agora Chat / IVS Chat Windows Driver 已补代码，实际 Chat 云端认证和双端消息验收仍未完成**。
+- ARTC 的 Windows 原生基础桥、摄像头管理、多屏/窗口共享与虚拟背景外部视频源桥接均已完成代码接入并通过单测，但**真实双端通话、共享远端画面和虚拟背景端到端像素仍待真机验收**；Chime Windows 有默认开启的 WebView2 实验桥（含虚拟背景帧桥），**未通过真实双端会议**；IVS Windows 有默认开启的实验桥（含虚拟背景帧桥）但缺少厂商支持的完整 Windows 媒体方案。**Agora Chat / IVS Chat Windows Driver 已补代码，实际 Chat 云端认证和双端消息验收仍未完成**。
 - Windows 原生 Flutter Debug 构建、ARTC 官方 x64 链接和宿主 Texture 集成测试已完成；仍未实测 ONNX 实时推理、所有厂商自定义轨道、Windows 多屏幕共享、远端真实收发、扬声器及系统麦克风全链路。
 - 单包 `flutter_webrtc` 的自定义 Windows 视频轨道接口要与实际安装版本严格匹配，不能假定所有公网上游二进制都包含本仓库的扩展；Windows CI 的新宿主编译用于尽早暴露此类不匹配。
 - 经过完整 Windows 门禁和多设备远端画面验收后，才能将这些项由“有代码”提升为“已验证”，并决定后续 dev 版本发布。
 
-参见 [总能力矩阵](SDK_CAPABILITY_MATRIX.zh-CN.md) 与 [2026-11-06 当前能力审计](SDK_CAPABILITY_MATRIX.zh-CN.md)。
+参见 [总能力矩阵](SDK_CAPABILITY_MATRIX.zh-CN.md) 与 [2026-11-17 当前能力审计](SDK_CAPABILITY_MATRIX.zh-CN.md)。
