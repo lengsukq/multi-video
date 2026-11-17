@@ -161,9 +161,11 @@ void main() {
         expect(platform.enabled.last, isFalse);
 
         await room.setBackgroundEffect(const MediaBackgroundEffect.none());
+        expect(session.detachCalls, 1);
+        expect(platform.disposedSources, ['effects-source-1']);
         await room.setCameraEnabled(true);
         expect(session.snapshot.localVideoEnabled, isTrue);
-        expect(platform.enabled.last, isTrue);
+        expect(platform.enabled.last, isFalse);
         expect(room.backgroundEffect, const MediaBackgroundEffect.none());
         await room.dispose();
       },
@@ -420,7 +422,9 @@ void main() {
 
         await room.setBackgroundEffect(const MediaBackgroundEffect.none());
         expect(platform.createCalls, 1);
-        expect(platform.effects, contains(const MediaBackgroundEffect.none()));
+        expect(session.detachCalls, 1);
+        expect(platform.disposedSources, ['effects-source-1']);
+        expect(room.backgroundEffect, const MediaBackgroundEffect.none());
 
         await room.dispose();
         expect(session.detachCalls, 1);

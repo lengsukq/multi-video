@@ -290,7 +290,7 @@ class _FakeCloudRecording implements MediaCloudRecordingSession {
 
   @override
   Future<RecordingResult> startCloudRecording(RecordingOptions options) async =>
-      const RecordingResult(
+      RecordingResult(
         mode: RecordingMode.cloud,
         recordingId: 'rec-1',
         taskState: RecordingTaskState.recording,
@@ -299,7 +299,7 @@ class _FakeCloudRecording implements MediaCloudRecordingSession {
   @override
   Future<RecordingResult> stopCloudRecording() async {
     stopOrder = ++_orderSeq;
-    return const RecordingResult(
+    return RecordingResult(
       mode: RecordingMode.cloud,
       recordingId: 'rec-1',
       taskState: RecordingTaskState.processing,
@@ -307,7 +307,7 @@ class _FakeCloudRecording implements MediaCloudRecordingSession {
   }
 
   @override
-  Future<RecordingResult> queryCloudRecording() async => const RecordingResult(
+  Future<RecordingResult> queryCloudRecording() async => RecordingResult(
     mode: RecordingMode.cloud,
     recordingId: 'rec-1',
     taskState: RecordingTaskState.completed,
@@ -335,6 +335,7 @@ class _FakeInteractiveSession extends InteractiveMediaSession
     state: MediaSessionState.connected,
     localMuted: true,
     capabilities: const MediaCapabilities.meeting().copyWith(
+      canScreenShare: true,
       canEnumerateMicrophones: true,
       canSelectMicrophone: true,
     ),

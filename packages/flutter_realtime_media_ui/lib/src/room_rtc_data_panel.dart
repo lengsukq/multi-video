@@ -24,12 +24,10 @@ class RoomRtcDataPanel extends StatefulWidget {
   /// Room-facade friendly constructor avoiding direct `MediaSession` exposure.
   const RoomRtcDataPanel.sender({
     super.key,
-    required bool canSendData,
-    required RtcDataSender sendData,
+    required bool this._canSendData,
+    required RtcDataSender this._sendData,
     required this.onError,
-  }) : session = null,
-       _canSendData = canSendData,
-       _sendData = sendData;
+  }) : session = null;
 
   final MediaSession? session;
   final bool? _canSendData;
