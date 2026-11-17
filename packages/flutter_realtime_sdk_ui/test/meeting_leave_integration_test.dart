@@ -391,6 +391,7 @@ void main() {
         fixture.media.current.copyWith(state: MediaSessionState.ended),
       );
       await tester.pump();
+      await tester.pump();
 
       expect(left, 1);
       expect(find.text('Meeting ended. Leaving the room.'), findsOneWidget);
