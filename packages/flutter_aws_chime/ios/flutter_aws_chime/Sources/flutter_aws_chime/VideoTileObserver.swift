@@ -9,8 +9,12 @@
 import AmazonChimeSDK
 import AmazonChimeSDKMedia
 import Foundation
+import os
 
 class MyVideoTileObserver: VideoTileObserver {
+    private static let logger = Logger(subsystem: "com.oneplusdream.aws.chime",
+                                       category: "VideoTileObserver")
+
     var methodChannel: MethodChannelCoordinator
 
     init(withMethodChannel methodChannel: MethodChannelCoordinator) {
@@ -18,10 +22,17 @@ class MyVideoTileObserver: VideoTileObserver {
     }
 
     func videoTileDidAdd(tileState: VideoTileState) {
+        NSLog("[flutter_aws_chime] videoTileDidAdd tileId=%d attendeeId=%@ local=%d content=%d size=%dx%d",
+              tileState.tileId, tileState.attendeeId, tileState.isLocalTile ? 1 : 0,
+              tileState.isContent ? 1 : 0, tileState.videoStreamContentWidth, tileState.videoStreamContentHeight)
+        Self.logger.info("videoTileDidAdd tileId=\(tileState.tileId) attendeeId=\(tileState.attendeeId, privacy: .public) local=\(tileState.isLocalTile) content=\(tileState.isContent) size=\(tileState.videoStreamContentWidth)x\(tileState.videoStreamContentHeight)")
         methodChannel.callFlutterMethod(method: .videoTileAdd, args: videoTileStateToDict(state: tileState))
     }
 
     func videoTileDidRemove(tileState: VideoTileState) {
+        NSLog("[flutter_aws_chime] videoTileDidRemove tileId=%d attendeeId=%@ local=%d content=%d",
+              tileState.tileId, tileState.attendeeId, tileState.isLocalTile ? 1 : 0, tileState.isContent ? 1 : 0)
+        Self.logger.info("videoTileDidRemove tileId=\(tileState.tileId) attendeeId=\(tileState.attendeeId, privacy: .public) local=\(tileState.isLocalTile) content=\(tileState.isContent)")
         MeetingSession.shared.meetingSession?.audioVideo.unbindVideoView(tileId: tileState.tileId)
         methodChannel.callFlutterMethod(method: .videoTileRemove, args: videoTileStateToDict(state: tileState))
     }
@@ -35,6 +46,7 @@ class MyVideoTileObserver: VideoTileObserver {
     }
 
     func videoTileSizeDidChange(tileState: VideoTileState) {
+        Self.logger.info("videoTileSizeDidChange tileId=\(tileState.tileId) size=\(tileState.videoStreamContentWidth)x\(tileState.videoStreamContentHeight)")
         callVideoTileEvent("videoTileSizeChanged", tileState: tileState)
     }
 

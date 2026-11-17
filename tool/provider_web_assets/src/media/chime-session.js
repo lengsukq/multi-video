@@ -9,6 +9,19 @@ export function createChimeSession(session, context) {
     const configuration = new ChimeSDK.MeetingSessionConfiguration(meeting, attendee);
     const meetingSession = new ChimeSDK.DefaultMeetingSession(configuration, logger, deviceController);
     const audioVideo = meetingSession.audioVideo;
+    if (ChimeSDK.VideoCodecCapability) {
+      // Avoid VP9 send preferences that older native mobile SDKs cannot decode;
+      // prioritize baseline/main H.264 and VP8 for iOS <-> macOS/Web interop.
+      const codecPreferences = [
+        ChimeSDK.VideoCodecCapability.h264ConstrainedBaselineProfile?.(),
+        ChimeSDK.VideoCodecCapability.h264MainProfile?.(),
+        ChimeSDK.VideoCodecCapability.vp8?.(),
+      ].filter(Boolean);
+      if (codecPreferences.length) {
+        audioVideo.setVideoCodecSendPreferences?.(codecPreferences);
+        audioVideo.setContentShareVideoCodecPreferences?.(codecPreferences);
+      }
+    }
     let remoteAudioElement = null;
     let microphones = [];
     let selectedMicrophone = null;

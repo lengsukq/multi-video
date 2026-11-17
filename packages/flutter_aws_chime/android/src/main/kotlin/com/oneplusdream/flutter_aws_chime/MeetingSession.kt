@@ -55,6 +55,7 @@ object MeetingSessionManager {
     fun stop(): MethodChannelResult {
         val session = meetingSession ?: return NULL_MEETING_SESSION_RESPONSE
         detachProcessedVideoSource()
+        VideoTileView.clearAll()
         removeObservers()
         session.audioVideo.stopRemoteVideo()
         session.audioVideo.stop()
@@ -66,6 +67,7 @@ object MeetingSessionManager {
     @Synchronized
     fun onSessionStopped() {
         detachProcessedVideoSource()
+        VideoTileView.clearAll()
         removeObservers()
         meetingSession = null
         cameraPosition = "front"

@@ -10,10 +10,14 @@ import AmazonChimeSDKMedia
 import AVFoundation
 import Flutter
 import Foundation
+import os
 import UIKit
 import MediaPlayer
 
 class MethodChannelCoordinator {
+    private static let logger = Logger(subsystem: "com.oneplusdream.aws.chime",
+                                       category: "MethodChannelCoordinator")
+
     let methodChannel: FlutterMethodChannel
 
     var realtimeObserver: RealtimeObserver?
@@ -23,6 +27,8 @@ class MethodChannelCoordinator {
     var videoTileObserver: VideoTileObserver?
 
     var dataMessageObserver: DataMessageObserver?
+
+    private var contentShareObserver: ContentShareObserver?
 
     private var iosScreenSource: ChimeIosSystemScreenSource?
     private var iosContentSource: ContentShareSource?
@@ -98,7 +104,13 @@ class MethodChannelCoordinator {
     }
 
     func callFlutterMethod(method: MethodCall, args: Any?) {
-        self.methodChannel.invokeMethod(method.rawValue, arguments: args)
+        if Thread.isMainThread {
+            self.methodChannel.invokeMethod(method.rawValue, arguments: args)
+        } else {
+            DispatchQueue.main.async {
+                self.methodChannel.invokeMethod(method.rawValue, arguments: args)
+            }
+        }
     }
 
     func callFlutterEvent(_ type: String, args: [String: Any] = [:]) {
@@ -170,9 +182,13 @@ class MethodChannelCoordinator {
 
         let meetingSessionConfiguration = MeetingSessionConfiguration(createMeetingResponse: meetingResponse, createAttendeeResponse: attendeeResponse)
 
-        let logger = ConsoleLogger(name: "MeetingSession Logger", level: LogLevel.DEBUG)
+        let logger = ChimeDualLogger(name: "MeetingSession Logger", level: LogLevel.DEFAULT)
 
         let meetingSession = DefaultMeetingSession(configuration: meetingSessionConfiguration, logger: logger)
+
+        NSLog("[flutter_aws_chime] Joining Chime meetingId=%@ attendeeId=%@ region=%@ signalingUrl=%@ turnControlUrl=%@",
+              meetingId, attendeeId, mediaRegion, signalingUrl, turnControlUrl)
+        Self.logger.info("Joining Chime meetingId=\(meetingId, privacy: .public) attendeeId=\(attendeeId, privacy: .public) region=\(mediaRegion, privacy: .public)")
 
         self.configureAudioSession()
 
@@ -183,6 +199,8 @@ class MethodChannelCoordinator {
         self.setupAudioVideoFacadeObservers()
         let meetingStartResponse = MeetingSession.shared.startMeetingAudio()
         if !meetingStartResponse.result {
+            NSLog("[flutter_aws_chime] startMeetingAudio failed: %@", String(describing: meetingStartResponse.arguments))
+            Self.logger.error("startMeetingAudio failed: \(String(describing: meetingStartResponse.arguments), privacy: .public)")
             stopAudioVideoFacadeObservers()
             MeetingSession.shared.meetingSession = nil
             MeetingSession.shared.cameraPosition = "front"
@@ -194,6 +212,7 @@ class MethodChannelCoordinator {
         guard let session = MeetingSession.shared.meetingSession else {
             return MethodChannelResponse(result: false, arguments: "No Chime meeting session is active.", code: "session_not_found")
         }
+        Self.logger.info("Stopping Chime meeting session")
         detachIosScreenCaptureKitSource()
         stopAudioVideoFacadeObservers()
         session.audioVideo.stop()
@@ -208,17 +227,20 @@ class MethodChannelCoordinator {
               let sourceId = args["sourceId"] as? String, !sourceId.isEmpty else {
             return MethodChannelResponse(result: false, arguments: "A joined Chime session and screen source are required.", code: "invalid_state")
         }
+        Self.logger.info("Attaching ScreenCaptureKit content sourceId=\(sourceId, privacy: .public)")
         detachIosScreenCaptureKitSource()
         let source = ChimeIosSystemScreenSource(sourceId: sourceId)
         do {
             try source.start()
             let content = ContentShareSource()
             content.videoSource = source
-            session.audioVideo.startContentShare(source: content)
+            let config = LocalVideoConfiguration(maxBitRateKbps: 1200)
+            session.audioVideo.startContentShare(source: content, config: config)
             iosScreenSource = source
             iosContentSource = content
             return MethodChannelResponse(result: true, arguments: nil)
         } catch {
+            Self.logger.error("attachIosScreenCaptureKitSource failed: \(error.localizedDescription, privacy: .public)")
             source.stop()
             return MethodChannelResponse(result: false, arguments: error.localizedDescription, code: "native_error")
         }
@@ -226,6 +248,7 @@ class MethodChannelCoordinator {
 
     private func detachIosScreenCaptureKitSource() {
         if iosScreenSource != nil {
+            Self.logger.info("Detaching ScreenCaptureKit content share")
             MeetingSession.shared.meetingSession?.audioVideo.stopContentShare()
             iosScreenSource?.stop()
         }
@@ -275,9 +298,13 @@ class MethodChannelCoordinator {
         }
         do {
             try session.audioVideo.startLocalVideo()
+            NSLog("[flutter_aws_chime] Started local Chime camera video")
+            Self.logger.info("Started local Chime camera video")
             return MethodChannelResponse(result: true, arguments: Response.local_video_on_success.rawValue)
         } catch {
-            session.logger.error(msg: "Error configuring AVAudioSession: \(error.localizedDescription)")
+            NSLog("[flutter_aws_chime] startLocalVideo failed: %@", error.localizedDescription)
+            Self.logger.error("startLocalVideo failed: \(error.localizedDescription, privacy: .public)")
+            session.logger.error(msg: "Error starting local video: \(error.localizedDescription)")
             return MethodChannelResponse(result: false, arguments: Response.local_video_on_failed.rawValue)
         }
     }
@@ -397,6 +424,10 @@ class MethodChannelCoordinator {
             MeetingSession.shared.meetingSession?.audioVideo.addRealtimeDataMessageObserver(topic: "chat", observer: self.dataMessageObserver!)
             MeetingSession.shared.meetingSession?.logger.info(msg: "DataMessageObserver set up...")
         }
+
+        let csObserver = MyContentShareObserver(withMethodChannel: self)
+        self.contentShareObserver = csObserver
+        MeetingSession.shared.meetingSession?.audioVideo.addContentShareObserver(observer: csObserver)
     }
 
     func stopAudioVideoFacadeObservers() {
@@ -410,6 +441,11 @@ class MethodChannelCoordinator {
 
         if let vtObserver = self.videoTileObserver {
             MeetingSession.shared.meetingSession?.audioVideo.removeVideoTileObserver(observer: vtObserver)
+        }
+
+        if let csObserver = self.contentShareObserver {
+            MeetingSession.shared.meetingSession?.audioVideo.removeContentShareObserver(observer: csObserver)
+            self.contentShareObserver = nil
         }
 
         MeetingSession.shared.meetingSession?.audioVideo.removeRealtimeDataMessageObserverFromTopic(topic: "chat")
@@ -429,5 +465,83 @@ class MethodChannelCoordinator {
         } catch {
             MeetingSession.shared.meetingSession?.logger.error(msg: "Error configuring AVAudioSession: \(error.localizedDescription)")
         }
+    }
+}
+
+private final class MyContentShareObserver: ContentShareObserver {
+    private static let logger = Logger(subsystem: "com.oneplusdream.aws.chime",
+                                       category: "ContentShareObserver")
+
+    private let methodChannel: MethodChannelCoordinator
+
+    init(withMethodChannel methodChannel: MethodChannelCoordinator) {
+        self.methodChannel = methodChannel
+    }
+
+    func contentShareDidStart() {
+        Self.logger.info("contentShareDidStart")
+        methodChannel.callFlutterEvent("contentShareStarted")
+    }
+
+    func contentShareDidStop(status: ContentShareStatus) {
+        Self.logger.info("contentShareDidStop status=\(status.statusCode.rawValue)")
+        methodChannel.callFlutterEvent(
+            "contentShareStopped",
+            args: ["statusCode": String(status.statusCode.rawValue)]
+        )
+    }
+}
+
+/// Forwards Chime SDK logs to both ConsoleLogger (`os_log`) and `NSLog` so
+/// C++ VideoClient/signaling diagnostics appear in `flutter run` stdout/stderr.
+private final class ChimeDualLogger: NSObject, AmazonChimeSDK.Logger {
+    private let console: ConsoleLogger
+    private let name: String
+
+    init(name: String, level: LogLevel = .DEFAULT) {
+        self.name = name
+        self.console = ConsoleLogger(name: name, level: level)
+        super.init()
+    }
+
+    private func shouldLog(_ level: LogLevel) -> Bool {
+        level.rawValue >= console.getLogLevel().rawValue
+    }
+
+    func `default`(msg: String) {
+        console.`default`(msg: msg)
+        if shouldLog(.DEFAULT) {
+            NSLog("[DEFAULT] %@ - %@", name, msg)
+        }
+    }
+
+    func debug(debugFunction: () -> String) {
+        console.debug(debugFunction: debugFunction)
+        if shouldLog(.DEBUG) {
+            NSLog("[DEBUG] %@ - %@", name, debugFunction())
+        }
+    }
+
+    func info(msg: String) {
+        console.info(msg: msg)
+        if shouldLog(.INFO) {
+            NSLog("[INFO] %@ - %@", name, msg)
+        }
+    }
+
+    func fault(msg: String) {
+        console.fault(msg: msg)
+    }
+
+    func error(msg: String) {
+        console.error(msg: msg)
+    }
+
+    func setLogLevel(level: LogLevel) {
+        console.setLogLevel(level: level)
+    }
+
+    func getLogLevel() -> LogLevel {
+        console.getLogLevel()
     }
 }

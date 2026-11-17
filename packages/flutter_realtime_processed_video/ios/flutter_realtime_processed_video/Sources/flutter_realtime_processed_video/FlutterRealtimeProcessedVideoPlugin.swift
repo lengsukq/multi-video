@@ -29,7 +29,13 @@ public final class FlutterRealtimeProcessedVideoPlugin: NSObject, FlutterPlugin 
           if screenCapture != nil {
             result(FlutterError(code: "screen_capture_busy", message: "A screen capture is already active.", details: nil))
           } else {
-            let capture = IosSystemScreenCaptureKitSource(channel: captureChannel!)
+            let capture = IosSystemScreenCaptureKitSource(channel: captureChannel!) { [weak self] source in
+              DispatchQueue.main.async {
+                if (self?.screenCapture as? IosSystemScreenCaptureKitSource) === source {
+                  self?.screenCapture = nil
+                }
+              }
+            }
             screenCapture = capture
             capture.start(result)
           }

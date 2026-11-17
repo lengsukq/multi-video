@@ -20,6 +20,7 @@ class RealtimeObserver(val methodChannel: MethodChannelCoordinator) : RealtimeOb
 
     override fun onAttendeesJoined(attendeeInfo: Array<AttendeeInfo>) {
         for (currentAttendeeInfo in attendeeInfo) {
+            Log.i("AwsChimeRealtime", "onAttendeesJoined attendeeId=${currentAttendeeInfo.attendeeId}")
             methodChannel.callFlutterMethod(
                     MethodCall.join,
                     attendeeInfoToMap(currentAttendeeInfo)
@@ -29,6 +30,7 @@ class RealtimeObserver(val methodChannel: MethodChannelCoordinator) : RealtimeOb
 
     override fun onAttendeesLeft(attendeeInfo: Array<AttendeeInfo>) {
         for (currentAttendeeInfo in attendeeInfo) {
+            Log.i("AwsChimeRealtime", "onAttendeesLeft attendeeId=${currentAttendeeInfo.attendeeId}")
             methodChannel.callFlutterMethod(
                     MethodCall.leave,
                     attendeeInfoToMap(currentAttendeeInfo)

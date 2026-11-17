@@ -116,6 +116,12 @@ async function createChimeHarness(browserGlobals = {}) {
     stop() {
       calls.push('stop');
     },
+    setVideoCodecSendPreferences(preferences) {
+      calls.push(`videoCodecs:${preferences.join(',')}`);
+    },
+    setContentShareVideoCodecPreferences(preferences) {
+      calls.push(`contentCodecs:${preferences.join(',')}`);
+    },
     bindVideoElement() {},
     unbindVideoElement() {},
   };
@@ -162,6 +168,11 @@ async function createChimeHarness(browserGlobals = {}) {
       MeetingSessionConfiguration: class {},
       DefaultMeetingSession,
       MeetingSessionStatusCode: { Left: 'Left' },
+      VideoCodecCapability: {
+        h264ConstrainedBaselineProfile: () => 'H264_CBP',
+        h264MainProfile: () => 'H264_MAIN',
+        vp8: () => 'VP8',
+      },
     },
   });
   const source = (await build({ entryPoints: [new URL('./bridge.js', import.meta.url).pathname], bundle: true, write: false, format: 'iife', platform: 'browser' })).outputFiles[0].text;
@@ -214,6 +225,8 @@ test('Chime bridge uses the current 3.32 media input APIs', async () => {
   assert.ok(calls.includes('playRemoteAudio'));
   assert.ok(calls.includes('mute'));
   assert.ok(!calls.includes('startVideoInput:cam-1'));
+  assert.ok(calls.includes('videoCodecs:H264_CBP,H264_MAIN,VP8'));
+  assert.ok(calls.includes('contentCodecs:H264_CBP,H264_MAIN,VP8'));
   assert.ok(calls.includes('start'));
   assert.ok(!calls.includes('startLocalVideoTile'));
 
@@ -520,6 +533,8 @@ test('Chime bridge rejects an unsuccessful signaling handshake instead of report
   };
   await bridge.create('chime', 'handshake-failure', JSON.stringify(chimePayload));
   await assert.rejects(bridge.join('chime', 'handshake-failure'), /stopped before joining.*17/);
+  assert.ok(calls.includes('videoCodecs:H264_CBP,H264_MAIN,VP8'));
+  assert.ok(calls.includes('contentCodecs:H264_CBP,H264_MAIN,VP8'));
   assert.ok(calls.includes('start'));
   assert.ok(!events.some(({ event }) => event.type === 'state' && event.state === 'connected'));
   await bridge.dispose('chime', 'handshake-failure');

@@ -4,6 +4,7 @@ import DefaultDeviceController from 'amazon-chime-sdk-js/build/devicecontroller/
 import ConsoleLogger from 'amazon-chime-sdk-js/build/logger/ConsoleLogger.js';
 import LogLevel from 'amazon-chime-sdk-js/build/logger/LogLevel.js';
 import MeetingSessionStatusCode from 'amazon-chime-sdk-js/build/meetingsession/MeetingSessionStatusCode.js';
+import VideoCodecCapability from 'amazon-chime-sdk-js/build/sdp/VideoCodecCapability.js';
 
 // The Chime SDK publishes CommonJS modules. esbuild's ESM/CJS interop wraps
 // their default exports in `{ default: ... }` for this import path. Expose
@@ -43,4 +44,5 @@ globalThis.ChimeSDK = {
   ConsoleLogger: unwrapDefault(ConsoleLogger),
   LogLevel: unwrapDefault(LogLevel),
   MeetingSessionStatusCode: unwrapDefault(MeetingSessionStatusCode),
+  VideoCodecCapability: unwrapDefault(VideoCodecCapability),
 };

@@ -9,9 +9,13 @@ import com.amazonaws.services.chime.sdk.meetings.session.Meeting
 import com.amazonaws.services.chime.sdk.meetings.session.CreateAttendeeResponse
 import com.amazonaws.services.chime.sdk.meetings.session.Attendee
 import com.amazonaws.services.chime.sdk.meetings.utils.logger.ConsoleLogger
+import com.amazonaws.services.chime.sdk.meetings.utils.logger.LogLevel
 import com.oneplusdream.flutter_aws_chime.MethodCall as MethodCallFlutter
 import android.app.Activity
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -141,15 +145,30 @@ class MethodChannelCoordinator(binaryMessenger: BinaryMessenger, activity: Activ
         methodChannel.setMethodCallHandler(null)
     }
 
+    companion object {
+        private const val TAG = "AwsChimeMethod"
+    }
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     fun callFlutterMethod(method: MethodCallFlutter, args: Any?) {
-        methodChannel.invokeMethod(method.call, args)
+        val invoke = { methodChannel.invokeMethod(method.call, args) }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            invoke()
+        } else {
+            mainHandler.post { invoke() }
+        }
     }
 
     fun callFlutterEvent(type: String, values: Map<String, Any?> = emptyMap()) {
-        methodChannel.invokeMethod(
-                MethodCallFlutter.meetingEvent.call,
-                mapOf("type" to type) + values
-        )
+        val payload = mapOf("type" to type) + values
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            methodChannel.invokeMethod(MethodCallFlutter.meetingEvent.call, payload)
+        } else {
+            mainHandler.post {
+                methodChannel.invokeMethod(MethodCallFlutter.meetingEvent.call, payload)
+            }
+        }
     }
 
     fun join(call: MethodCall): MethodChannelResult {
@@ -209,8 +228,9 @@ class MethodChannelCoordinator(binaryMessenger: BinaryMessenger, activity: Activ
         val meetingSessionConfiguration =
                 MeetingSessionConfiguration(createMeetingResponse, createAttendeeResponse)
 
+        Log.i(TAG, "join meetingId=$meetingId attendeeId=$attendeeId region=$mediaRegion")
         val meetingSession =
-                DefaultMeetingSession(meetingSessionConfiguration, ConsoleLogger(), context)
+                DefaultMeetingSession(meetingSessionConfiguration, ConsoleLogger(LogLevel.DEBUG), context)
 
         MeetingSessionManager.meetingSession = meetingSession
         return MeetingSessionManager.startMeeting(
@@ -222,6 +242,7 @@ class MethodChannelCoordinator(binaryMessenger: BinaryMessenger, activity: Activ
     }
 
     fun stop(): MethodChannelResult {
+        Log.i(TAG, "stop")
         return MeetingSessionManager.stop()
     }
 
@@ -247,6 +268,7 @@ class MethodChannelCoordinator(binaryMessenger: BinaryMessenger, activity: Activ
         val audioVideo = MeetingSessionManager.meetingSession?.audioVideo
                 ?: return NULL_MEETING_SESSION_RESPONSE
         val processed = MeetingSessionManager.processedVideoSource
+        Log.i(TAG, "startLocalVideo processed=${processed != null}")
         if (processed != null) audioVideo.startLocalVideo(processed) else audioVideo.startLocalVideo()
         MeetingSessionManager.localVideoEnabled = true
         return MethodChannelResult(true, Response.local_video_on_success.msg)
@@ -255,6 +277,7 @@ class MethodChannelCoordinator(binaryMessenger: BinaryMessenger, activity: Activ
     fun stopLocalVideo(): MethodChannelResult {
         MeetingSessionManager.meetingSession?.audioVideo?.stopLocalVideo()
                 ?: return NULL_MEETING_SESSION_RESPONSE
+        Log.i(TAG, "stopLocalVideo")
         MeetingSessionManager.localVideoEnabled = false
         return MethodChannelResult(true, Response.local_video_off_success.msg)
     }

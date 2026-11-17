@@ -63,6 +63,10 @@ class MeetingVideoTileView extends StatelessWidget {
     final creationParams = <String, Object?>{
       'tileId': tile.tileId,
       'fit': fitMode,
+      if (defaultTargetPlatform == TargetPlatform.android &&
+          tile.isLocal &&
+          !tile.isContentShare)
+        'isLocal': true,
     };
 
     if (defaultTargetPlatform == TargetPlatform.iOS) {
