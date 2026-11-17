@@ -172,7 +172,11 @@ class RealtimeLiveDesktopStage extends StatelessWidget {
               blink: true,
             ),
             if (startedAt != null)
-              RealtimeMeetingTimerBadge(startedAt: startedAt!, live: true)
+              RealtimeMeetingTimerBadge(
+                startedAt: startedAt!,
+                live: true,
+                active: !controller.snapshot.state.isTerminal,
+              )
             else if (liveDuration != null)
               RealtimeStatusPill(
                 label: _formatDuration(liveDuration!),

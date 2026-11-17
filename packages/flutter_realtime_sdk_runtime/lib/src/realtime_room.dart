@@ -1,6 +1,7 @@
 import 'realtime_video_effects.dart';
 import 'members/room_members_controller.dart';
 import 'room_recording_controller.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_realtime_interaction_core/flutter_realtime_interaction_core.dart';
 import 'dart:async';
 
@@ -18,6 +19,8 @@ import 'interaction_runtime.dart';
 import 'realtime_feature_registry.dart';
 import 'realtime_feature_plugin.dart';
 import 'realtime_feature_context.dart';
+
+part 'realtime_room_controls.dart';
 
 /// A fully resolved room containing media, rendering and optional chat.
 class RealtimeRoom implements MediaBackgroundEffectsController {
@@ -134,6 +137,7 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
   StreamSubscription<ChatConnectionState>? _chatStateSubscription;
   bool _disposed = false;
   Future<void>? _disposeFuture;
+  Future<void>? _leaveRoomFuture;
   Future<void>? _initializeFuture;
 
   /// Starts optional classroom/live sessions exactly once per room lifetime.
@@ -190,6 +194,14 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
   }
 
   Duration cleanupTimeout = const Duration(seconds: 10);
+
+  /// Whether [dispose] has started on this room.
+  bool get isDisposed => _disposed;
+
+  /// Whether a local leave, close, or disposal operation is in progress.
+  bool get isLeaving =>
+      _disposed || _leaveRoomFuture != null || media.isLeavingOrClosing;
+
   String get roomCode => media.roomCode;
   String get providerId => publicProviderId;
   String get engineProviderId => media.providerId;

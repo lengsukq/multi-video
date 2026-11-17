@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
 import 'realtime_strings.dart';
 import 'realtime_ui_style.dart';
+
+typedef RtcDataSender =
+    Future<void> Function(String message, {MediaSendOptions options});
 
 /// Optional RTC data debug console, intentionally independent from Product IM.
 ///
@@ -11,12 +16,28 @@ import 'realtime_ui_style.dart';
 class RoomRtcDataPanel extends StatefulWidget {
   const RoomRtcDataPanel({
     super.key,
-    required this.session,
+    required MediaSession this.session,
     required this.onError,
-  });
+  }) : _canSendData = null,
+       _sendData = null;
 
-  final MediaSession session;
+  /// Room-facade friendly constructor avoiding direct `MediaSession` exposure.
+  const RoomRtcDataPanel.sender({
+    super.key,
+    required bool canSendData,
+    required RtcDataSender sendData,
+    required this.onError,
+  }) : session = null,
+       _canSendData = canSendData,
+       _sendData = sendData;
+
+  final MediaSession? session;
+  final bool? _canSendData;
+  final RtcDataSender? _sendData;
   final ValueChanged<String?> onError;
+
+  bool get canSendData => _canSendData ?? session!.capabilities.canSendData;
+  Object get _targetToken => session ?? _sendData!;
 
   @override
   State<RoomRtcDataPanel> createState() => _RoomRtcDataPanelState();
@@ -35,22 +56,28 @@ class _RoomRtcDataPanelState extends State<RoomRtcDataPanel> {
   Future<void> _send() async {
     final text = _message.text.trim();
     if (text.isEmpty || _sending) return;
+    final token = widget._targetToken;
+    final sender = widget._sendData;
     final session = widget.session;
     setState(() => _sending = true);
     try {
-      await session.sendData(
-        text,
-        options: const MediaSendOptions(topic: 'debug'),
-      );
-      if (!mounted || session != widget.session) return;
+      if (sender != null) {
+        await sender(text, options: const MediaSendOptions(topic: 'debug'));
+      } else {
+        await session!.sendData(
+          text,
+          options: const MediaSendOptions(topic: 'debug'),
+        );
+      }
+      if (!mounted || token != widget._targetToken) return;
       _message.clear();
       widget.onError(null);
     } catch (error) {
-      if (mounted && session == widget.session) {
+      if (mounted && token == widget._targetToken) {
         widget.onError(error.toString());
       }
     } finally {
-      if (mounted && session == widget.session) {
+      if (mounted && token == widget._targetToken) {
         setState(() => _sending = false);
       }
     }
@@ -58,7 +85,7 @@ class _RoomRtcDataPanelState extends State<RoomRtcDataPanel> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.session.capabilities.canSendData) {
+    if (!widget.canSendData) {
       return const SizedBox.shrink();
     }
     final strings = RealtimeStrings.of(context);
@@ -88,11 +115,11 @@ class _RoomRtcDataPanelState extends State<RoomRtcDataPanel> {
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
               ),
-              onSubmitted: (_) => _send(),
+              onSubmitted: (_) => unawaited(_send()),
             ),
           ),
           IconButton(
-            onPressed: _sending ? null : _send,
+            onPressed: _sending ? null : () => unawaited(_send()),
             icon: const Icon(Icons.send_rounded, color: RealtimeUiTokens.text),
           ),
         ],

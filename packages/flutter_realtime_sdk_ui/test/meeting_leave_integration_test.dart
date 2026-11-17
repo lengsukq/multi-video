@@ -366,6 +366,81 @@ void main() {
     expect(find.text('Open meeting'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'RealtimeMeetingPage auto-exits when remote session transitions to ended',
+    (tester) async {
+      final fixture = await MeetingSharingFixture.create(teaching: false);
+      addTearDown(fixture.room.dispose);
+      var left = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: RealtimeUiTheme.light(),
+          home: RealtimeMeetingPage(
+            room: fixture.room,
+            showClassroom: false,
+            onLeft: () => left++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(left, 0);
+
+      fixture.media.emit(
+        fixture.media.current.copyWith(state: MediaSessionState.ended),
+      );
+      await tester.pump();
+
+      expect(left, 1);
+      expect(find.text('Meeting ended. Leaving the room.'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(fixture.room.dispose);
+    },
+  );
+
+  testWidgets(
+    'RealtimeLeaveButton skips confirmation dialog and exits immediately when room is already ended',
+    (tester) async {
+      final fixture = await MeetingSharingFixture.create(teaching: false);
+      addTearDown(fixture.room.dispose);
+      final controller = RealtimeRoomUiController(fixture.room);
+      addTearDown(controller.close);
+      var confirmCalls = 0;
+      var leftCalls = 0;
+
+      fixture.media.emit(
+        fixture.media.current.copyWith(state: MediaSessionState.ended),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RealtimeRoomUiScope(
+            room: fixture.room,
+            controller: controller,
+            child: Scaffold(
+              body: RealtimeLeaveButton(
+                onConfirm: (_) async {
+                  confirmCalls++;
+                  return false;
+                },
+                onLeft: () => leftCalls++,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.call_end_rounded));
+      await tester.runAsync(fixture.room.dispose);
+      await tester.pump();
+
+      expect(confirmCalls, 0);
+      expect(leftCalls, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(controller.close);
+    },
+  );
 }
 
 /// Simulates a descendant that is subscribed to the old room controller

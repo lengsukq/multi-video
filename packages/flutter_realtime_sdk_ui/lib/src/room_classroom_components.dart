@@ -80,7 +80,7 @@ class RealtimeSharedContentStage extends StatelessWidget {
       builder: (context, _) =>
           buildRoomSharedContentStage(
             room,
-            room.media.session.snapshot,
+            room.snapshot,
             members: members,
             withAnnotations: withAnnotations,
           ) ??
@@ -187,7 +187,8 @@ class RealtimeSharedContentButton extends StatelessWidget {
                   final mode = SharedContentMode.values.byName(value);
                   if (mode == SharedContentMode.screen &&
                       !await selectDesktopScreenShareSource(
-                        context, roomController,
+                        context,
+                        roomController,
                       )) {
                     return;
                   }

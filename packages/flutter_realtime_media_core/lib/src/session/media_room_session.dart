@@ -152,6 +152,8 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
   String get providerId => session.providerId;
   MediaRole get role => session.role;
   bool get isLogicalOwner => _roomManagement.isLogicalOwner;
+  bool get isLeavingOrClosing =>
+      _disposed || _leaveFuture != null || _closeRoomFuture != null;
   MediaManagementCapabilities get managementCapabilities =>
       _roomManagement.capabilities;
 
@@ -275,6 +277,16 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
         participantCredential: participantCredential,
         roomOwnerCredential: roomOwnerCredential,
       );
+    } on RealtimeException catch (error) {
+      if (error.code != RealtimeErrorCode.roomNotFound &&
+          error.statusCode != 404) {
+        if (!_disposed &&
+            !_presenceOwner.leaveNotified &&
+            !session.state.isTerminal) {
+          _presenceOwner.start();
+        }
+        rethrow;
+      }
     } catch (_) {
       if (!_disposed &&
           !_presenceOwner.leaveNotified &&

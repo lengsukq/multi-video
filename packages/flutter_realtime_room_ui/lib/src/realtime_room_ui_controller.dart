@@ -15,8 +15,8 @@ class RealtimeRoomUiController extends ChangeNotifier {
     this.onActionError,
     MediaCameraPosition initialCameraPosition = MediaCameraPosition.front,
   }) : _cameraPosition = initialCameraPosition {
-    _snapshot = room.media.snapshot;
-    _mediaSubscription = room.media.snapshots.listen((snapshot) {
+    _snapshot = room.snapshot;
+    _mediaSubscription = room.snapshots.listen((snapshot) {
       if (_disposed) return;
       _snapshot = snapshot;
       notifyListeners();
@@ -123,17 +123,14 @@ class RealtimeRoomUiController extends ChangeNotifier {
   bool get membersLoading => _membersLoading;
   Map<MediaParticipant, Object> get bulkMuteFailures => _bulkMuteFailures;
   bool get canMuteAllParticipants =>
-      room.media.isLogicalOwner &&
-      room.media.managementCapabilities.muteParticipant.supported &&
+      room.isLogicalOwner &&
+      room.managementCapabilities.muteParticipant.supported &&
       _snapshot.participants.any((member) => !member.isLocal);
   Object? get memberLoadError => _memberLoadError;
 
   /// Includes RTC-only and chat-only members, reconciled by logical user ID.
-  List<RoomManagedMember> get managedMembers => mergeSnapshotMembers(
-    _managedMembers,
-    _snapshot,
-    localRole: room.media.role,
-  );
+  List<RoomManagedMember> get managedMembers =>
+      mergeSnapshotMembers(_managedMembers, _snapshot, localRole: room.role);
 
   /// Explicit refresh avoids backend polling by every independent UI widget.
   Future<void> refreshManagedMembers() async {
@@ -176,8 +173,8 @@ class RealtimeRoomUiController extends ChangeNotifier {
     String participantId,
     MediaRole role,
   ) async {
-    if (!room.media.isLogicalOwner ||
-        !room.media.managementCapabilities.changeParticipantRole.supported) {
+    if (!room.isLogicalOwner ||
+        !room.managementCapabilities.changeParticipantRole.supported) {
       return;
     }
     await execute(
@@ -218,88 +215,50 @@ class RealtimeRoomUiController extends ChangeNotifier {
   MediaCameraPosition get cameraPosition => _cameraPosition;
   bool isPending(RealtimeRoomUiAction action) => _pending.contains(action);
 
-  InteractiveMediaSession? get _interactive =>
-      room.media.session is InteractiveMediaSession
-      ? room.media.session as InteractiveMediaSession
-      : null;
+  bool get canUseMicrophone => room.canUseMicrophone;
+  bool get canUseCamera => room.canUseCamera;
+  bool get canShareScreen => room.canShareScreen;
+  bool get canSelectScreenShareSource => room.canSelectScreenShareSource;
 
-  bool get canUseMicrophone =>
-      _interactive != null && _snapshot.capabilities.canPublishAudio;
+  Future<List<MediaScreenShareSource>> listScreenShareSources() =>
+      room.listScreenShareSources();
 
-  bool get canUseCamera =>
-      _interactive != null && _snapshot.capabilities.canPublishVideo;
-  bool get canShareScreen =>
-      _interactive != null && _snapshot.capabilities.canScreenShare;
-  bool get canSelectScreenShareSource =>
-      canShareScreen &&
-      room.media.session is MediaScreenShareSourceSelector;
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) =>
+      room.selectScreenShareSource(source);
 
-  Future<List<MediaScreenShareSource>> listScreenShareSources() {
-    final session = room.media.session;
-    if (session is! MediaScreenShareSourceSelector) {
-      return Future.value(const <MediaScreenShareSource>[]);
-    }
-    return (session as MediaScreenShareSourceSelector)
-        .listScreenShareSources();
-  }
+  bool get canSwitchCamera => room.canSwitchCamera;
+  bool get canListAudioOutputs => room.canListAudioOutputs;
+  bool get canSelectAudioOutput => room.canSelectAudioOutput;
 
-  Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
-    final session = room.media.session;
-    if (session is! MediaScreenShareSourceSelector) {
-      throw const RealtimeException(
-        code: RealtimeErrorCode.unsupportedFeature,
-        message: 'This RTC provider does not support selecting screen sources.',
-      );
-    }
-    await (session as MediaScreenShareSourceSelector)
-        .selectScreenShareSource(source);
-  }
-  bool get canSwitchCamera =>
-      _interactive != null && _snapshot.capabilities.canSwitchCamera;
-  bool get canListAudioOutputs =>
-      _interactive != null && _snapshot.capabilities.canEnumerateAudioDevices;
-  bool get canSelectAudioOutput =>
-      canListAudioOutputs && _snapshot.capabilities.canSelectAudioOutput;
+  bool canListMediaDevices(MediaDeviceKind kind) =>
+      room.canListMediaDevices(kind);
 
-  /// MediaDeviceController is optional: the capability flags remain the
-  /// source of truth, and unsupported providers never receive a command.
-  bool canListMediaDevices(MediaDeviceKind kind) => switch (kind) {
-    MediaDeviceKind.microphone =>
-      _snapshot.capabilities.canEnumerateMicrophones,
-    MediaDeviceKind.camera => _snapshot.capabilities.canEnumerateCameras,
-    MediaDeviceKind.audioOutput =>
-      _snapshot.capabilities.canEnumerateAudioDevices,
-  };
-
-  bool canSelectMediaDevice(MediaDeviceKind kind) => switch (kind) {
-    MediaDeviceKind.microphone => _snapshot.capabilities.canSelectMicrophone,
-    MediaDeviceKind.camera => _snapshot.capabilities.canSelectCamera,
-    MediaDeviceKind.audioOutput => _snapshot.capabilities.canSelectAudioOutput,
-  };
+  bool canSelectMediaDevice(MediaDeviceKind kind) =>
+      room.canSelectMediaDevice(kind);
 
   Future<List<MediaDevice>> listMediaDevices(MediaDeviceKind kind) async {
     if (!canListMediaDevices(kind)) return const [];
-    return room.media.session.listMediaDevices(kinds: {kind});
+    return room.listMediaDevices(kinds: {kind});
   }
 
   Future<void> selectMediaDevice(MediaDevice device) async {
     if (!canSelectMediaDevice(device.kind)) return;
     await execute(
       RealtimeRoomUiAction.device,
-      () => room.media.session.selectMediaDevice(device),
+      () => room.selectMediaDevice(device),
     );
   }
 
   Future<List<MediaAudioDevice>> listAudioOutputs() async {
     if (!canListAudioOutputs) return const [];
-    return _interactive!.listAudioDevices();
+    return room.listAudioOutputs();
   }
 
   Future<void> selectAudioOutput(MediaAudioDevice device) async {
     if (!canSelectAudioOutput) return;
     await execute(
       RealtimeRoomUiAction.audioOutput,
-      () => _interactive!.selectAudioDevice(device),
+      () => room.selectAudioOutput(device),
     );
   }
 
@@ -360,27 +319,9 @@ class RealtimeRoomUiController extends ChangeNotifier {
   Future<void> toggleMicrophone() async {
     if (!canUseMicrophone) return;
     await execute(RealtimeRoomUiAction.microphone, () async {
-      // The room snapshot is the single source of truth. Do not delegate to
-      // provider-specific toggleMute implementations that can carry stale
-      // private state after reconnect or an initial muted join.
-      final requestedMuted = !room.media.snapshot.localMuted;
-      await _interactive!.setMuted(requestedMuted);
-      // An acknowledged command without a matching provider snapshot must
-      // not be presented as a successfully opened microphone.
-      final actual = room.media.snapshot.localMuted;
-      if (actual != requestedMuted) {
-        throw RealtimeException(
-          code: RealtimeErrorCode.providerError,
-          domain: 'media',
-          providerId: room.media.session.providerId,
-          operation: 'setMuted',
-          recoverable: true,
-          message:
-              'Microphone state was not confirmed by the RTC provider.',
-        );
-      }
+      await room.toggleMicrophone();
       if (!_disposed) {
-        _snapshot = room.media.snapshot;
+        _snapshot = room.snapshot;
         notifyListeners();
       }
     });
@@ -388,48 +329,14 @@ class RealtimeRoomUiController extends ChangeNotifier {
 
   Future<void> toggleCamera() async {
     if (!canUseCamera) return;
-    await execute(
-      RealtimeRoomUiAction.camera,
-      () => room.setCameraEnabled(!_snapshot.localVideoEnabled),
-    );
+    await execute(RealtimeRoomUiAction.camera, room.toggleCamera);
   }
 
   Future<void> toggleScreenShare({MediaScreenShareSource? source}) async {
     if (!canShareScreen) return;
     await execute(
       RealtimeRoomUiAction.screenShare,
-      () async {
-        if (!room.media.snapshot.localScreenShareEnabled) {
-          // Prefer the room's revisioned owner if available. For standalone
-          // RTC rooms, a remote screen track is the best available signal;
-          // true simultaneous arbitration still requires a backend lease.
-          final occupied =
-              room.media.snapshot.contentShareTrack?.isLocal == false;
-          if (occupied) {
-            throw const RealtimeException(
-              code: RealtimeErrorCode.roomConflict,
-              domain: 'sharedContent',
-              operation: 'screenShare',
-              message: 'Another participant is already sharing their screen.',
-              recoverable: true,
-              suggestedAction: 'wait-for-screen-sharing-to-end',
-            );
-          }
-        }
-        if (source != null) await selectScreenShareSource(source);
-        final requested = !_snapshot.localScreenShareEnabled;
-        await _interactive!.setScreenShareEnabled(requested);
-        // A local preview frame alone does not confirm that the SDK actually
-        // published a remote-readable screen track.
-        if (room.media.snapshot.localScreenShareEnabled != requested) {
-          throw RealtimeException(
-            code: RealtimeErrorCode.providerError,
-            providerId: room.media.session.providerId,
-            operation: 'screenShare',
-            message: 'RTC provider did not confirm screen-share state.',
-          );
-        }
-      },
+      () => room.toggleScreenShare(source: source),
     );
   }
 
@@ -439,7 +346,7 @@ class RealtimeRoomUiController extends ChangeNotifier {
         ? MediaCameraPosition.back
         : MediaCameraPosition.front;
     await execute(RealtimeRoomUiAction.switchCamera, () async {
-      await _interactive!.switchCamera(next);
+      await room.switchCamera(next);
       if (!_disposed) {
         _cameraPosition = next;
         notifyListeners();
@@ -480,62 +387,21 @@ class RealtimeRoomUiController extends ChangeNotifier {
 
   Future<void> _leaveOnce({bool? closeForEveryone}) async {
     try {
-      await execute(RealtimeRoomUiAction.leave, () async {
-        var remoteRoomClosed = false;
-        // An owner leaves by ending the room for everyone, regardless of
-        // meeting/broadcast mode or RTC role. Owners may have participant
-        // media roles and an authoritative room-owner credential instead.
-        // If the backend cannot close the room, fail visibly rather than
-        // silently dropping just the owner and leaving everyone connected.
-        final endsRoom = closeForEveryone ?? room.media.isLogicalOwner;
-        if (endsRoom) {
-          // Stop before closing the room: the recording endpoint requires
-          // the still-live room and host credential to authorize Agora Stop.
-          // On failure leave the room open so the host can retry safely.
-          final state = room.recordingStatus;
-          if (state == RecordingStatus.starting ||
-              state == RecordingStatus.stopping) {
-            throw const RealtimeException(
-              code: RealtimeErrorCode.invalidState,
-              message:
-                  'Wait for the cloud recording operation to finish before ending the room.',
-            );
-          }
-          final remote = state == RecordingStatus.unknown
-              ? (await room.queryCloudRecording()).taskState
-              : null;
-          if (state == RecordingStatus.recording ||
-              remote == RecordingTaskState.recording) {
-            await room.stopRecording();
-          }
-          await room.media.closeRoom();
-          remoteRoomClosed = true;
-        }
-        // Release provider subscriptions before room teardown, but leave
-        // ChangeNotifier and ChatUiController alive until the host's UI
-        // unmounts. Otherwise a button rebuilding during this final frame
-        // subscribes to a disposed notifier and triggers a red error screen.
-        await _mediaSubscription?.cancel();
-        await _failureSubscription?.cancel();
-        try {
-          await room.dispose();
-        } catch (error, stack) {
-          if (!remoteRoomClosed) rethrow;
-          // Once the authoritative backend has successfully ended the room,
-          // a local WebRTC/feature disposal error must not tell the host that
-          // the room is still active. The SDK already attempts all cleanup
-          // steps via Cleanup; keep details in the debug log instead.
-          assert(() {
-            debugPrint('[room/close] room closed on backend; '
-                'local cleanup reported: $error');
-            debugPrint('[room/close] $stack');
-            return true;
-          }());
-        }
-      });
+      await execute(
+        RealtimeRoomUiAction.leave,
+        () => room.leaveRoom(
+          closeForEveryone: closeForEveryone,
+          beforeDispose: () async {
+            // Release provider subscriptions before room teardown, but leave
+            // ChangeNotifier and ChatUiController alive until the host's UI
+            // unmounts. Otherwise a button rebuilding during this final frame
+            // subscribes to a disposed notifier and triggers a red error screen.
+            await _mediaSubscription?.cancel();
+            await _failureSubscription?.cancel();
+          },
+        ),
+      );
     } catch (_) {
-      // End-room authorization or stopping a recording may fail before we
-      // dispose the controller; permit a later explicit retry in that case.
       _leaveFuture = null;
       rethrow;
     }

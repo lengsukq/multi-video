@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter_realtime_media_ui/flutter_realtime_media_ui.dart';
 import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
 import 'package:flutter_realtime_classroom_preset/flutter_realtime_classroom_preset.dart';
 import 'package:flutter_realtime_shared_content_preset/flutter_realtime_shared_content_preset.dart';
@@ -58,7 +57,7 @@ Future<void> prepareRoomPage(
   MediaLocalPreviewSettings? settings, {
   required bool Function() isCurrent,
 }) async {
-  if (settings == null || room.media.role == MediaRole.viewer) return;
+  if (settings == null || room.role == MediaRole.viewer) return;
   // Preparation must not publish on its own: a timed-out operation can still
   // finish later. Only the current settings application may enable the camera.
   try {
@@ -76,22 +75,15 @@ Future<void> prepareRoomPage(
     );
   }
   if (!isCurrent()) return;
-  await InitialMediaSettingsController().apply(
-    session: room.media.session,
-    effects: room,
-    setCameraEnabled: (enabled) async {
-      if (room.media.snapshot.localVideoEnabled != enabled) {
-        await room.setCameraEnabled(enabled);
-      }
-    },
-    settings: settings,
+  await room.applyInitialMediaSettings(
+    settings,
     backgroundAlreadyPrepared: true,
     isCurrent: isCurrent,
     canEnableMicrophone: () {
       final classroom = room.classroom;
       if (classroom == null) return true;
       final state = classroom.state;
-      if (state?.isTeacher == true || room.media.roomOwnerCredential != null) {
+      if (state?.isTeacher == true || room.hasOwnerCredential) {
         return true;
       }
       return state?.students.any(
@@ -99,6 +91,6 @@ Future<void> prepareRoomPage(
           ) ??
           false;
     },
-    onError: (error) => throw error,
+    onError: room.reportLifecycleFailure,
   );
 }

@@ -41,6 +41,7 @@ enum _LiveSidePanel { none, chat, members }
 class _RealtimeLivePageState extends State<RealtimeLivePage> {
   late Future<void> _preparing;
   StreamSubscription<RealtimeEvent>? _roomEndSubscription;
+  StreamSubscription<MediaSnapshot>? _roomSnapshotEndSubscription;
   bool _remoteEndHandled = false;
   int _preparationRevision = 0;
   late Future<List<MediaBackgroundImagePreset>> _presets;
@@ -63,14 +64,9 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
   void _watchRoomEnd() {
     final room = widget.room;
     _remoteEndHandled = false;
-    _roomEndSubscription = room.events.listen((event) {
-      if (event is! RealtimeBackendFailure ||
-          event.error.code != RealtimeErrorCode.roomNotFound ||
-          event.error.operation != 'room.presence.heartbeat' ||
-          !mounted ||
-          _remoteEndHandled) {
-        return;
-      }
+    var lastMediaState = room.snapshot.state;
+    void finishRemoteEnd() {
+      if (!mounted || _remoteEndHandled) return;
       _remoteEndHandled = true;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
@@ -89,12 +85,38 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
           unawaited(room.dispose());
         });
       }
+    }
+
+    void observeMediaState(MediaSessionState current) {
+      final previous = lastMediaState;
+      lastMediaState = current;
+      if (current == MediaSessionState.ended &&
+          previous != MediaSessionState.leaving &&
+          previous != MediaSessionState.ended &&
+          !room.isLeaving) {
+        finishRemoteEnd();
+      }
+    }
+
+    _roomEndSubscription = room.events.listen((event) {
+      if (event is RealtimeStateChanged) {
+        observeMediaState(event.state.media);
+      } else if (event is RealtimeBackendFailure &&
+          event.error.code == RealtimeErrorCode.roomNotFound &&
+          event.error.operation == 'room.presence.heartbeat' &&
+          !room.isLeaving) {
+        finishRemoteEnd();
+      }
     });
+    _roomSnapshotEndSubscription = room.snapshots.listen(
+      (snapshot) => observeMediaState(snapshot.state),
+    );
   }
 
   @override
   void dispose() {
     unawaited(_roomEndSubscription?.cancel());
+    unawaited(_roomSnapshotEndSubscription?.cancel());
     super.dispose();
   }
 
@@ -115,6 +137,7 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.room, widget.room)) {
       unawaited(_roomEndSubscription?.cancel());
+      unawaited(_roomSnapshotEndSubscription?.cancel());
       _watchRoomEnd();
     }
     if (!identical(oldWidget.room, widget.room) ||

@@ -32,7 +32,14 @@ class RealtimeLeaveButton extends StatelessWidget {
         final leaveAction = controller.isPending(RealtimeRoomUiAction.leave)
             ? null
             : () async {
-                if (onConfirm != null && !await onConfirm!(context)) return;
+                final alreadyTerminal =
+                    controller.room.isDisposed ||
+                    controller.snapshot.state.isTerminal;
+                if (!alreadyTerminal &&
+                    onConfirm != null &&
+                    !await onConfirm!(context)) {
+                  return;
+                }
                 // A host may dismiss the route while the confirmation Future
                 // is pending. The borrowed controller can outlive this button;
                 // never close its room from an unmounted UI action.
@@ -46,6 +53,10 @@ class RealtimeLeaveButton extends StatelessWidget {
                     debugPrint('[realtime/leave] $stack');
                     return true;
                   }());
+                  if (alreadyTerminal || controller.room.isDisposed) {
+                    if (context.mounted) onLeft?.call();
+                    return;
+                  }
                   if (context.mounted) {
                     ScaffoldMessenger.maybeOf(
                       context,

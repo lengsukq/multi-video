@@ -77,6 +77,7 @@ class RealtimeMeetingPage extends StatefulWidget {
 class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
   late Future<void> _videoEffectsReady;
   StreamSubscription<RealtimeEvent>? _roomEndSubscription;
+  StreamSubscription<MediaSnapshot>? _roomSnapshotEndSubscription;
   bool _remoteEndHandled = false;
   int _preparationRevision = 0;
   RealtimeMeetingPanel _panel = RealtimeMeetingPanel.closed;
@@ -99,6 +100,7 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
   @override
   void dispose() {
     unawaited(_roomEndSubscription?.cancel());
+    unawaited(_roomSnapshotEndSubscription?.cancel());
     _whiteboardTools.dispose();
     super.dispose();
   }
@@ -106,14 +108,9 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
   void _watchRoomEnd() {
     final room = widget.room;
     _remoteEndHandled = false;
-    _roomEndSubscription = room.events.listen((event) {
-      if (event is! RealtimeBackendFailure ||
-          event.error.code != RealtimeErrorCode.roomNotFound ||
-          event.error.operation != 'room.presence.heartbeat' ||
-          !mounted ||
-          _remoteEndHandled) {
-        return;
-      }
+    var lastMediaState = room.snapshot.state;
+    void finishRemoteEnd() {
+      if (!mounted || _remoteEndHandled) return;
       _remoteEndHandled = true;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
@@ -131,7 +128,32 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
           unawaited(room.dispose());
         });
       }
+    }
+
+    void observeMediaState(MediaSessionState current) {
+      final previous = lastMediaState;
+      lastMediaState = current;
+      if (current == MediaSessionState.ended &&
+          previous != MediaSessionState.leaving &&
+          previous != MediaSessionState.ended &&
+          !room.isLeaving) {
+        finishRemoteEnd();
+      }
+    }
+
+    _roomEndSubscription = room.events.listen((event) {
+      if (event is RealtimeStateChanged) {
+        observeMediaState(event.state.media);
+      } else if (event is RealtimeBackendFailure &&
+          event.error.code == RealtimeErrorCode.roomNotFound &&
+          event.error.operation == 'room.presence.heartbeat' &&
+          !room.isLeaving) {
+        finishRemoteEnd();
+      }
     });
+    _roomSnapshotEndSubscription = room.snapshots.listen(
+      (snapshot) => observeMediaState(snapshot.state),
+    );
   }
 
   @override
@@ -196,6 +218,7 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.room, widget.room)) {
       unawaited(_roomEndSubscription?.cancel());
+      unawaited(_roomSnapshotEndSubscription?.cancel());
       _watchRoomEnd();
     }
     if (!identical(oldWidget.room, widget.room)) _showFilmstrip = true;
@@ -363,201 +386,202 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
           child: Scaffold(
             backgroundColor: RealtimeUiTokens.background,
             body: RealtimeAmbientBackground(
-            child: SafeArea(
-              bottom: false,
-              child: LayoutBuilder(
-                builder: (context, constraints) => StreamBuilder<Object?>(
-                  stream: _sharedContentUpdates,
-                  builder: (context, _) => ListenableBuilder(
-                    listenable: RealtimeRoomUiScope.of(context),
-                    builder: (context, _) {
-                      final width = constraints.maxWidth;
-                      final wide = RealtimeBreakpoints.isWide(context, width);
-                      final compact =
-                          width < RealtimeBreakpoints.compactMaxWidth;
-                      final controller = RealtimeRoomUiScope.of(context);
-                      if (wide &&
-                          !_openedInitialPanel &&
-                          _panel == RealtimeMeetingPanel.closed) {
-                        _openedInitialPanel = true;
-                        final initialPanel =
-                            widget.showChat && widget.room.chat != null
-                            ? RealtimeMeetingPanel.chat
-                            : widget.showClassroom &&
-                                  widget.room.classroom != null
-                            ? RealtimeMeetingPanel.participants
-                            : RealtimeMeetingPanel.closed;
-                        if (initialPanel != RealtimeMeetingPanel.closed) {
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (mounted &&
-                                _panel == RealtimeMeetingPanel.closed) {
-                              setState(() => _panel = initialPanel);
-                            }
-                          });
+              child: SafeArea(
+                bottom: false,
+                child: LayoutBuilder(
+                  builder: (context, constraints) => StreamBuilder<Object?>(
+                    stream: _sharedContentUpdates,
+                    builder: (context, _) => ListenableBuilder(
+                      listenable: RealtimeRoomUiScope.of(context),
+                      builder: (context, _) {
+                        final width = constraints.maxWidth;
+                        final wide = RealtimeBreakpoints.isWide(context, width);
+                        final compact =
+                            width < RealtimeBreakpoints.compactMaxWidth;
+                        final controller = RealtimeRoomUiScope.of(context);
+                        if (wide &&
+                            !_openedInitialPanel &&
+                            _panel == RealtimeMeetingPanel.closed) {
+                          _openedInitialPanel = true;
+                          final initialPanel =
+                              widget.showChat && widget.room.chat != null
+                              ? RealtimeMeetingPanel.chat
+                              : widget.showClassroom &&
+                                    widget.room.classroom != null
+                              ? RealtimeMeetingPanel.participants
+                              : RealtimeMeetingPanel.closed;
+                          if (initialPanel != RealtimeMeetingPanel.closed) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted &&
+                                  _panel == RealtimeMeetingPanel.closed) {
+                                setState(() => _panel = initialPanel);
+                              }
+                            });
+                          }
                         }
-                      }
-                      final participants = controller.snapshot.participants;
-                      final sharedContent = MeetingSharedContent(
-                        room: widget.room,
-                        snapshot: controller.snapshot,
-                        showClassroom: widget.showClassroom,
-                      );
-                      final sharing = sharedContent.active;
-                      // Classroom rooms use the teaching workspace with the
-                      // same persistent navigation for chat, people and tools.
-                      final classroomWorkspace =
-                          widget.showClassroom && widget.room.classroom != null;
-                      // Whiteboard controls join the permanent left navigation
-                      // rail rather than replacing it or creating a second one.
-                      final whiteboardWorkspace =
-                          sharing &&
-                          sharedContent.mode == SharedContentMode.whiteboard;
-                      final dockShowsLabels =
-                          wide && width >= RealtimeBreakpoints.largeMinWidth;
+                        final participants = controller.snapshot.participants;
+                        final sharedContent = MeetingSharedContent(
+                          room: widget.room,
+                          snapshot: controller.snapshot,
+                          showClassroom: widget.showClassroom,
+                        );
+                        final sharing = sharedContent.active;
+                        // Classroom rooms use the teaching workspace with the
+                        // same persistent navigation for chat, people and tools.
+                        final classroomWorkspace =
+                            widget.showClassroom &&
+                            widget.room.classroom != null;
+                        // Whiteboard controls join the permanent left navigation
+                        // rail rather than replacing it or creating a second one.
+                        final whiteboardWorkspace =
+                            sharing &&
+                            sharedContent.mode == SharedContentMode.whiteboard;
+                        final dockShowsLabels =
+                            wide && width >= RealtimeBreakpoints.largeMinWidth;
 
-                      final stage = RealtimeMeetingStage(
-                        key: _stageKey,
-                        // The dock owns its own row below the stage (reference
-                        // classroom layout), so the stage does not reserve a
-                        // floating overlay area.
-                        bottomControlsInset: 0,
-                        useGrid: _useGrid,
-                        showFilmstrip: _showFilmstrip,
-                        showClassroom: widget.showClassroom,
-                        showAnnotations: widget.showAnnotations,
-                        // The local camera is already in the participant strip
-                        // (or the grid). Do not render it a second time as an
-                        // overlay in the top-right corner of the stage.
-                        showSelfView: false,
-                        videoFit: _videoFit,
-                        participantBuilder: widget.participantBuilder,
-                        overlayBuilder: widget.stageOverlayBuilder,
-                        // Only the desktop rail hosts the board's tools. Phones
-                        // and tablets keep the board's own pill strip so the
-                        // tools stay reachable without a vertical rail.
-                        whiteboardToolsController: wide && whiteboardWorkspace
-                            ? _whiteboardTools
-                            : null,
-                        topOverlayInset: 0,
-                      );
+                        final stage = RealtimeMeetingStage(
+                          key: _stageKey,
+                          // The dock owns its own row below the stage (reference
+                          // classroom layout), so the stage does not reserve a
+                          // floating overlay area.
+                          bottomControlsInset: 0,
+                          useGrid: _useGrid,
+                          showFilmstrip: _showFilmstrip,
+                          showClassroom: widget.showClassroom,
+                          showAnnotations: widget.showAnnotations,
+                          // The local camera is already in the participant strip
+                          // (or the grid). Do not render it a second time as an
+                          // overlay in the top-right corner of the stage.
+                          showSelfView: false,
+                          videoFit: _videoFit,
+                          participantBuilder: widget.participantBuilder,
+                          overlayBuilder: widget.stageOverlayBuilder,
+                          // Only the desktop rail hosts the board's tools. Phones
+                          // and tablets keep the board's own pill strip so the
+                          // tools stay reachable without a vertical rail.
+                          whiteboardToolsController: wide && whiteboardWorkspace
+                              ? _whiteboardTools
+                              : null,
+                          topOverlayInset: 0,
+                        );
 
-                      final dock = Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          compact ? 8 : 12,
-                          0,
-                          compact ? 8 : 12,
-                          compact ? 8 : 10,
-                        ),
-                        child: RealtimeMeetingDock(
-                          showLabels: dockShowsLabels,
-                          // Panels and settings live in the vertical rail on
-                          // desktop and the upper horizontal rail on small
-                          // viewports, rather than crowding the bottom dock.
-                          mediaGroup: [
-                            RealtimeDockMicrophoneButton(
-                              showLabel: dockShowsLabels,
-                            ),
-                            RealtimeDockCameraButton(
-                              showLabel: dockShowsLabels,
-                            ),
-                            RealtimeDockSharedContentButton(
-                              showLabel: dockShowsLabels,
-                            ),
-                          ],
-                          collaborationGroup: [
-                            RealtimeDockReactionsButton(
-                              showLabel: false,
-                              onWave: widget.onCustomReaction != null
-                                  ? () => unawaited(_sendWave(context))
-                                  : null,
-                            ),
-                            if (widget.showClassroom)
-                              RealtimeDockRaiseHandButton(showLabel: false),
-                          ],
-                          // Compact rooms use the horizontal tool rail above the
-                          // stage for secondary navigation/settings, not More.
-                          panelsGroup: const [],
-                          // Leaving stays in the persistent header so the fading
-                          // dock never becomes the only exit.
-                        ),
-                      );
-
-                      final header = _buildHeader(
-                        context,
-                        controller,
-                        wide: wide,
-                        compact: compact,
-                        participants: participants,
-                      );
-
-                      return RealtimeRoomShell(
-                        compact: compact,
-                        header: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (widget.header != null) widget.header!,
-                            header,
-                          ],
-                        ),
-                        // On phones the slim horizontal rail replaces the
-                        // crowded dock More sheet; desktop uses the left rail.
-                        tabletRail: !wide
-                            ? RealtimeMeetingRail(
-                                horizontal: true,
-                                items: _railItems(
-                                  context,
-                                  controller,
-                                  wide: false,
-                                  sharing: sharing,
-                                ),
-                              )
-                            : null,
-                        topContent: widget.showRtcDataMessages
-                            ? _rtcDataPanel(controller)
-                            : null,
-                        desktopRail: wide
-                            ? RealtimeMeetingRail(
-                                items: _railItems(
-                                  context,
-                                  controller,
-                                  wide: wide,
-                                  sharing: sharing,
-                                ),
-                                trailing:
-                                    whiteboardWorkspace &&
-                                        widget
-                                                .room
-                                                .sharedContent
-                                                ?.whiteboard
-                                                .state
-                                                ?.canEdit ==
-                                            true
-                                    ? WhiteboardToolRail(
-                                        session: widget
-                                            .room
-                                            .sharedContent!
-                                            .whiteboard,
-                                        controller: _whiteboardTools,
-                                      )
+                        final dock = Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            compact ? 8 : 12,
+                            0,
+                            compact ? 8 : 12,
+                            compact ? 8 : 10,
+                          ),
+                          child: RealtimeMeetingDock(
+                            showLabels: dockShowsLabels,
+                            // Panels and settings live in the vertical rail on
+                            // desktop and the upper horizontal rail on small
+                            // viewports, rather than crowding the bottom dock.
+                            mediaGroup: [
+                              RealtimeDockMicrophoneButton(
+                                showLabel: dockShowsLabels,
+                              ),
+                              RealtimeDockCameraButton(
+                                showLabel: dockShowsLabels,
+                              ),
+                              RealtimeDockSharedContentButton(
+                                showLabel: dockShowsLabels,
+                              ),
+                            ],
+                            collaborationGroup: [
+                              RealtimeDockReactionsButton(
+                                showLabel: false,
+                                onWave: widget.onCustomReaction != null
+                                    ? () => unawaited(_sendWave(context))
                                     : null,
-                              )
-                            : null,
-                        stage: stage,
-                        dock: dock,
-                        sidebar: wide && _panel != RealtimeMeetingPanel.closed
-                            ? _sidePanel(
-                                context,
-                                workspaceMode: classroomWorkspace,
-                              )
-                            : null,
-                      );
-                    },
+                              ),
+                              if (widget.showClassroom)
+                                RealtimeDockRaiseHandButton(showLabel: false),
+                            ],
+                            // Compact rooms use the horizontal tool rail above the
+                            // stage for secondary navigation/settings, not More.
+                            panelsGroup: const [],
+                            // Leaving stays in the persistent header so the fading
+                            // dock never becomes the only exit.
+                          ),
+                        );
+
+                        final header = _buildHeader(
+                          context,
+                          controller,
+                          wide: wide,
+                          compact: compact,
+                          participants: participants,
+                        );
+
+                        return RealtimeRoomShell(
+                          compact: compact,
+                          header: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (widget.header != null) widget.header!,
+                              header,
+                            ],
+                          ),
+                          // On phones the slim horizontal rail replaces the
+                          // crowded dock More sheet; desktop uses the left rail.
+                          tabletRail: !wide
+                              ? RealtimeMeetingRail(
+                                  horizontal: true,
+                                  items: _railItems(
+                                    context,
+                                    controller,
+                                    wide: false,
+                                    sharing: sharing,
+                                  ),
+                                )
+                              : null,
+                          topContent: widget.showRtcDataMessages
+                              ? _rtcDataPanel(controller)
+                              : null,
+                          desktopRail: wide
+                              ? RealtimeMeetingRail(
+                                  items: _railItems(
+                                    context,
+                                    controller,
+                                    wide: wide,
+                                    sharing: sharing,
+                                  ),
+                                  trailing:
+                                      whiteboardWorkspace &&
+                                          widget
+                                                  .room
+                                                  .sharedContent
+                                                  ?.whiteboard
+                                                  .state
+                                                  ?.canEdit ==
+                                              true
+                                      ? WhiteboardToolRail(
+                                          session: widget
+                                              .room
+                                              .sharedContent!
+                                              .whiteboard,
+                                          controller: _whiteboardTools,
+                                        )
+                                      : null,
+                                )
+                              : null,
+                          stage: stage,
+                          dock: dock,
+                          sidebar: wide && _panel != RealtimeMeetingPanel.closed
+                              ? _sidePanel(
+                                  context,
+                                  workspaceMode: classroomWorkspace,
+                                )
+                              : null,
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
         ),
       );
     },
@@ -632,7 +656,11 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
               color: RealtimeUiTokens.textMuted,
             ),
           ),
-        RealtimeMeetingTimerBadge(startedAt: _enteredAt, live: classroomMode),
+        RealtimeMeetingTimerBadge(
+          startedAt: _enteredAt,
+          live: classroomMode,
+          active: !controller.snapshot.state.isTerminal,
+        ),
         RealtimeRecordingBadge(room: widget.room, compact: true),
         if (wide) const RealtimeConnectionIndicator(),
       ],
@@ -905,19 +933,21 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
   // The State's context lives ABOVE RealtimeRoomUiScope. Keep the controller
   // captured from the descendant builder instead of looking up an ancestor
   // that cannot exist on the State's element.
-  Widget _rtcDataPanel(RealtimeRoomUiController controller) => RoomRtcDataPanel(
-    session: widget.room.media.session,
-    onError: (message) {
-      if (message != null) {
-        controller.reportActionError(
-          RealtimeException(
-            code: RealtimeErrorCode.unknown,
-            message: 'room.data.send',
-          ),
-        );
-      }
-    },
-  );
+  Widget _rtcDataPanel(RealtimeRoomUiController controller) =>
+      RoomRtcDataPanel.sender(
+        canSendData: widget.room.canSendRtcData,
+        sendData: widget.room.sendRtcData,
+        onError: (message) {
+          if (message != null) {
+            controller.reportActionError(
+              const RealtimeException(
+                code: RealtimeErrorCode.unknown,
+                message: 'room.data.send',
+              ),
+            );
+          }
+        },
+      );
 
   Widget _sidePanel(BuildContext scopedContext, {bool workspaceMode = false}) =>
       RealtimeMeetingSidePanel(

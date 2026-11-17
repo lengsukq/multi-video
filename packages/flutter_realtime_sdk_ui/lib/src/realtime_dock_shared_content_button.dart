@@ -63,8 +63,12 @@ class RealtimeDockSharedContentButton extends StatelessWidget {
         final mode = status.content?.mode ?? SharedContentMode.members;
         final isSharing = mode != SharedContentMode.members;
 
-        final canManage = status.content?.canManage == true;
-        final canShowMenu = canManage || status.content?.canShareScreen == true;
+        final sessionActive =
+            !room.isDisposed && !controller.snapshot.state.isTerminal;
+        final canManage = sessionActive && status.content?.canManage == true;
+        final canShowMenu =
+            sessionActive &&
+            (canManage || status.content?.canShareScreen == true);
         return RealtimeDockCompactMenu(
           actions: [
             RealtimeCompactMenuAction(

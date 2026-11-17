@@ -8,12 +8,16 @@ class RealtimeMeetingTimerBadge extends StatefulWidget {
     super.key,
     this.startedAt,
     this.live = false,
+    this.active = true,
   });
 
   final DateTime? startedAt;
 
   /// Reference classroom style: a filled red LIVE pill with elapsed time.
   final bool live;
+
+  /// Whether the session is still running. Freezes elapsed time once false.
+  final bool active;
 
   @override
   State<RealtimeMeetingTimerBadge> createState() =>
@@ -31,7 +35,7 @@ class _RealtimeMeetingTimerBadgeState extends State<RealtimeMeetingTimerBadge> {
     _startTime = widget.startedAt ?? DateTime.now();
     _elapsed = DateTime.now().difference(_startTime);
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
+      if (mounted && widget.active) {
         setState(() {
           _elapsed = DateTime.now().difference(_startTime);
         });
@@ -44,7 +48,9 @@ class _RealtimeMeetingTimerBadgeState extends State<RealtimeMeetingTimerBadge> {
     super.didUpdateWidget(oldWidget);
     if (widget.startedAt != oldWidget.startedAt) {
       _startTime = widget.startedAt ?? DateTime.now();
-      _elapsed = DateTime.now().difference(_startTime);
+      if (widget.active) {
+        _elapsed = DateTime.now().difference(_startTime);
+      }
     }
   }
 

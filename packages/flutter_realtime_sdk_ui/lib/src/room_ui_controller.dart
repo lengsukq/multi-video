@@ -6,6 +6,8 @@ import 'package:flutter_realtime_room_ui/flutter_realtime_room_ui.dart'
     show RealtimeRoomUiAction;
 import 'package:flutter_realtime_live_preset/flutter_realtime_live_preset.dart';
 import 'package:flutter_realtime_classroom_preset/flutter_realtime_classroom_preset.dart';
+import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart'
+    show Cleanup, RealtimeRoomControls;
 
 class RealtimeRoomUiController extends room_ui.RealtimeRoomUiController {
   RealtimeRoomUiController(
@@ -69,7 +71,7 @@ class RealtimeRoomUiController extends room_ui.RealtimeRoomUiController {
     final classroom = room.classroom;
     if (classroom == null || !snapshot.localMuted) return true;
     final state = classroom.state;
-    if (state?.isTeacher == true || room.media.roomOwnerCredential != null) {
+    if (state?.isTeacher == true || room.hasOwnerCredential) {
       return true;
     }
     if (state == null) return false;
