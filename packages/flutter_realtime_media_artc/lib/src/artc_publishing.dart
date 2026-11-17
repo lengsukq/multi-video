@@ -24,6 +24,7 @@ class _ArtcPublishing {
     final engine = _session._engine as ArtcDesktopScreenCapture;
     await engine.selectDesktopScreenSource(source);
   }
+
   String get providerId => _session.providerId;
   MediaCapabilities get capabilities => _session.capabilities;
   MediaRole get role => _session.role;
@@ -132,9 +133,34 @@ class _ArtcPublishing {
       );
     }
     await _processedSink.attach(source);
+    _syncLocalProcessedTrack();
   }
 
-  Future<void> detachProcessedVideoSource() => _processedSink.detach();
+  Future<void> detachProcessedVideoSource() async {
+    await _processedSink.detach();
+    if (!_session._disposed) _syncLocalProcessedTrack();
+  }
+
+  void _syncLocalProcessedTrack() {
+    final info = _session._joinInfo;
+    if (!_session._snapshot.localVideoEnabled || info == null) return;
+    final localTrack = ArtcMediaVideoTrack(
+      userId: info.userId,
+      local: true,
+      generation: _session._mapper._trackGeneration,
+      processedSource: _processedSink.source,
+    );
+    final participants = _session._snapshot.participants
+        .map(
+          (item) => item.isLocal
+              ? item.copyWith(videoTrack: localTrack, isVideoEnabled: true)
+              : item,
+        )
+        .toList();
+    _session._setSnapshot(
+      _session._snapshot.copyWith(participants: participants),
+    );
+  }
 
   Future<List<MediaDevice>> listMediaDevices({
     Set<MediaDeviceKind>? kinds,
@@ -199,6 +225,7 @@ class _ArtcPublishing {
               userId: info.userId,
               local: true,
               generation: _session._mapper._trackGeneration,
+              processedSource: _processedSink.source,
             )
           : null;
       final participants = _session._snapshot.participants

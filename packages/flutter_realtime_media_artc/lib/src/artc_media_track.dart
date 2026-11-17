@@ -7,12 +7,14 @@ class ArtcMediaVideoTrack extends MediaVideoTrack {
     required this.local,
     this.screenShare = false,
     this.generation = 0,
+    this.processedSource,
   });
 
   final String userId;
   final bool local;
   final bool screenShare;
   final int generation;
+  final ProcessedVideoSource? processedSource;
 
   @override
   String get id =>
@@ -28,8 +30,8 @@ class ArtcMediaVideoTrack extends MediaVideoTrack {
   bool get isScreenShare => screenShare;
 
   @override
-  int get width => 0;
+  int get width => processedSource?.width ?? 0;
 
   @override
-  int get height => 0;
+  int get height => processedSource?.height ?? 0;
 }

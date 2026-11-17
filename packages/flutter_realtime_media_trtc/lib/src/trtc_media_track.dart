@@ -12,6 +12,7 @@ class TrtcMediaVideoTrack extends MediaVideoTrack {
     this.generation = 0,
     this.frameWidth,
     this.frameHeight,
+    this.processedSource,
   });
 
   /// Provider user id whose camera stream this track represents.
@@ -36,6 +37,9 @@ class TrtcMediaVideoTrack extends MediaVideoTrack {
   final int? frameWidth;
   final int? frameHeight;
 
+  /// Attached SDK processed video source for zero-copy local self-preview.
+  final ProcessedVideoSource? processedSource;
+
   @override
   String get id =>
       'trtc:$userId:${screenShare ? 'screen' : 'camera'}:$generation';
@@ -50,8 +54,8 @@ class TrtcMediaVideoTrack extends MediaVideoTrack {
   bool get isScreenShare => screenShare;
 
   @override
-  int get width => frameWidth ?? 0;
+  int get width => frameWidth ?? (processedSource?.width ?? 0);
 
   @override
-  int get height => frameHeight ?? 0;
+  int get height => frameHeight ?? (processedSource?.height ?? 0);
 }

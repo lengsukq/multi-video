@@ -4,9 +4,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
+import 'package:flutter_realtime_processed_video/flutter_realtime_processed_video.dart';
 
 import 'trtc_engine.dart';
-import 'package:flutter_realtime_processed_video/flutter_realtime_processed_video.dart';
 import 'trtc_join_info.dart';
 import 'trtc_media_track.dart';
 
@@ -356,23 +356,30 @@ abstract class _TrtcSessionBase
   }
 
   void _reportFailure(RealtimeException error) {
+    if (_disposed) return;
     _setSnapshot(_snapshot.copyWith(lastError: error));
-    _eventController.add(MediaFailureEvent(error));
+    if (!_eventController.isClosed) {
+      _eventController.add(MediaFailureEvent(error));
+    }
   }
 
   void _setState(MediaSessionState value, {RealtimeException? error}) {
+    if (_disposed && value != MediaSessionState.disposed) return;
     if (_snapshot.state == value && error == null) return;
     final previous = _snapshot.state;
     _setSnapshot(_snapshot.copyWith(state: value, lastError: error));
     if (previous != value) {
       if (!_stateController.isClosed) _stateController.add(value);
-      _eventController.add(
-        MediaConnectionStateChanged(previous: previous, current: value),
-      );
+      if (!_eventController.isClosed) {
+        _eventController.add(
+          MediaConnectionStateChanged(previous: previous, current: value),
+        );
+      }
     }
   }
 
   void _setSnapshot(MediaSnapshot value) {
+    if (_disposed && value.state != MediaSessionState.disposed) return;
     _snapshot = value;
     if (!_snapshotController.isClosed) _snapshotController.add(value);
   }

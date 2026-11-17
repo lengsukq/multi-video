@@ -279,15 +279,19 @@ class _TrtcSnapshotMapper {
 
   TrtcMediaVideoTrack _makeVideoTrack(String userId, {required bool local}) {
     final engine = _session._engine!;
+    final processedSource = local
+        ? _session._publishing._processedSink.source
+        : null;
     return TrtcMediaVideoTrack(
       userId: userId,
       local: local,
       generation: _streamGeneration,
+      processedSource: processedSource,
       startRendering: local
-          ? engine.startLocalPreview
+          ? (processedSource != null ? (_) {} : engine.startLocalPreview)
           : (viewId) => engine.startRemoteView(userId, viewId),
       stopRendering: local
-          ? engine.clearLocalView
+          ? (processedSource != null ? () {} : engine.clearLocalView)
           : () => engine.stopRemoteView(userId),
       setFillMode: local
           ? engine.setLocalFillMode

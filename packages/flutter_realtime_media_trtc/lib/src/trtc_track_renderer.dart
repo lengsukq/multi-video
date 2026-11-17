@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
+import 'package:flutter_realtime_processed_video/flutter_realtime_processed_video.dart';
 import 'package:tencent_rtc_sdk/trtc_cloud_video_view.dart';
 
 import 'trtc_media_track.dart';
@@ -10,7 +11,15 @@ class TrtcTrackRenderer extends MediaTrackRenderer {
 
   // TRTC's platform SDK configures fit render params for native video views.
   @override
-  bool handlesVideoFit(MediaVideoTrack track) => true;
+  bool handlesVideoFit(MediaVideoTrack track) {
+    if (track is TrtcMediaVideoTrack &&
+        track.isLocal &&
+        !track.isScreenShare &&
+        track.processedSource != null) {
+      return track.processedSource!.platform == ProcessedVideoPlatform.web;
+    }
+    return true;
+  }
 
   @override
   Widget buildView(BuildContext context, MediaVideoTrack track) =>
@@ -27,6 +36,15 @@ class TrtcTrackRenderer extends MediaTrackRenderer {
         track,
         'track',
         'TrtcTrackRenderer requires a TrtcMediaVideoTrack.',
+      );
+    }
+    if (track.isLocal &&
+        !track.isScreenShare &&
+        track.processedSource != null) {
+      return const ProcessedVideoTrackRenderer().buildViewWithFit(
+        context,
+        ProcessedVideoTrack(source: track.processedSource!),
+        fit: fit,
       );
     }
     return _TrtcVideoSurface(key: ValueKey(track.id), track: track, fit: fit);
@@ -54,6 +72,9 @@ class _TrtcVideoSurfaceState extends State<_TrtcVideoSurface> {
   void didUpdateWidget(covariant _TrtcVideoSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.track.id != widget.track.id) {
+      if (_viewId != null) {
+        oldWidget.track.stopRendering();
+      }
       _bindView();
     } else if (oldWidget.fit != widget.fit) {
       _applyFit();

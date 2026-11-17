@@ -86,6 +86,16 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
 </head><body><script src="agora-chat-provider.js"></script>
 <script src="windows_agora_chat_host.js"></script></body></html>
 ''', flush: true);
+      await WebviewController.initializeEnvironment(
+        additionalArguments:
+            '--use-fake-ui-for-media-stream '
+            '--autoplay-policy=no-user-gesture-required',
+      ).catchError((Object error) {
+        if (error is PlatformException &&
+            error.code == 'environment_already_initialized') {
+          return;
+        }
+      });
       browser = WebviewController();
       await browser.initialize();
       await browser.setSize(const Size(720, 420));

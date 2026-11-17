@@ -24,6 +24,7 @@ class _TrtcPublishing {
     final engine = _session._engine;
     (engine as TrtcDesktopScreenCapture).selectDesktopScreenSource(source);
   }
+
   bool _audioStarted = false;
 
   void _ensureAudioStarted() {
@@ -110,9 +111,13 @@ class _TrtcPublishing {
     }
     _session._engine!.stopLocalPreview();
     await _processedSink.attach(source);
+    _session._mapper._refreshLocalTrack();
   }
 
-  Future<void> detachProcessedVideoSource() => _processedSink.detach();
+  Future<void> detachProcessedVideoSource() async {
+    await _processedSink.detach();
+    if (!_session._disposed) _session._mapper._refreshLocalTrack();
+  }
 
   Future<List<MediaDevice>> listMediaDevices({
     Set<MediaDeviceKind>? kinds,

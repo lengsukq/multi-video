@@ -13,11 +13,15 @@ Future<TencentChatEngine> createPlatformTencentChatEngine() async =>
     _TencentSdkChatEngine();
 
 class _TencentSdkChatEngine implements TencentChatEngine {
+  /// Tracks the globally initialized SDKAppID across the process so disposing a
+  /// single room session does not tear down Tencent IM's process-wide singleton
+  /// while another room or immediate rejoin is active.
+  static int? _initializedSdkAppId;
+
   TencentChatEngineEvents _events = const TencentChatEngineEvents();
   TencentChatTokenProvider? _tokenProvider;
   TencentChatJoinInfo? _info;
   V2TimAdvancedMsgListener? _messageListener;
-  bool _initialized = false;
   bool _loggedIn = false;
   bool _joinedGroup = false;
   bool _connected = false;
@@ -38,25 +42,40 @@ class _TencentSdkChatEngine implements TencentChatEngine {
     _info = info;
     _events.onConnecting?.call(false);
 
+    if (_initializedSdkAppId != null && _initializedSdkAppId != info.sdkAppId) {
+      try {
+        await _manager.unInitSDK();
+      } catch (_) {
+        // Proceed with fresh initSDK when switching SDKAppIDs.
+      }
+      _initializedSdkAppId = null;
+    }
+
     final initResult = await _manager.initSDK(
       sdkAppID: info.sdkAppId,
       loglevel: LogLevelEnum.V2TIM_LOG_INFO,
       listener: V2TimSDKListener(
-        onConnecting: () => _events.onConnecting?.call(true),
-        onConnectSuccess: () {
-          if (_connected) _events.onConnected?.call();
+        onConnecting: () {
+          if (!_disposed) _events.onConnecting?.call(true);
         },
-        onConnectFailed: (code, message) =>
-            _events.onError?.call(code, message),
+        onConnectSuccess: () {
+          if (!_disposed && _connected) _events.onConnected?.call();
+        },
+        onConnectFailed: (code, message) {
+          if (!_disposed) _events.onError?.call(code, message);
+        },
         onKickedOffline: () {
+          if (_disposed) return;
           _connected = false;
           _events.onDisconnected?.call('kickedOffline');
         },
-        onUserSigExpired: () => unawaited(_refreshToken()),
+        onUserSigExpired: () {
+          if (!_disposed) unawaited(_refreshToken());
+        },
       ),
     );
     _requireSuccess(initResult, 'initialize Tencent Chat');
-    _initialized = true;
+    _initializedSdkAppId = info.sdkAppId;
 
     final loginResult = await _manager.login(
       userID: info.providerUserId,
@@ -65,29 +84,37 @@ class _TencentSdkChatEngine implements TencentChatEngine {
     _requireSuccess(loginResult, 'log in to Tencent Chat');
     _loggedIn = true;
 
-    _messageListener = V2TimAdvancedMsgListener(
-      onRecvNewMessage: (message) => _emitMessage(message),
-      onRecvMessageRevoked: (messageId) {
-        final id = messageId.toString().trim();
-        if (id.isNotEmpty) _events.onMessageDeleted?.call(id);
-      },
-    );
-    await _manager.getMessageManager().addAdvancedMsgListener(
-      listener: _messageListener!,
-    );
+    try {
+      _messageListener = V2TimAdvancedMsgListener(
+        onRecvNewMessage: (message) {
+          if (!_disposed) _emitMessage(message);
+        },
+        onRecvMessageRevoked: (messageId) {
+          if (_disposed) return;
+          final id = messageId.toString().trim();
+          if (id.isNotEmpty) _events.onMessageDeleted?.call(id);
+        },
+      );
+      await _manager.getMessageManager().addAdvancedMsgListener(
+        listener: _messageListener!,
+      );
 
-    final joinResult = await _manager.joinGroup(
-      groupID: info.groupId,
-      message: 'Join realtime media chat',
-      groupType: 'Meeting',
-    );
-    // 10013 means the user is already in the group. Treat that as success.
-    if ((joinResult.code ?? -1) != 0 && (joinResult.code ?? -1) != 10013) {
-      _requireSuccess(joinResult, 'join Tencent Chat group');
+      final joinResult = await _manager.joinGroup(
+        groupID: info.groupId,
+        message: 'Join realtime media chat',
+        groupType: 'Meeting',
+      );
+      // 10013 means the user is already in the group. Treat that as success.
+      if ((joinResult.code ?? -1) != 0 && (joinResult.code ?? -1) != 10013) {
+        _requireSuccess(joinResult, 'join Tencent Chat group');
+      }
+      _joinedGroup = true;
+      _connected = true;
+      _events.onConnected?.call();
+    } catch (_) {
+      await _cleanupSessionState(emitDisconnected: false);
+      rethrow;
     }
-    _joinedGroup = true;
-    _connected = true;
-    _events.onConnected?.call();
   }
 
   @override
@@ -126,7 +153,9 @@ class _TencentSdkChatEngine implements TencentChatEngine {
       throw UnsupportedError('Tencent Chat moderation is not enabled.');
 
   @override
-  Future<void> disconnect() async {
+  Future<void> disconnect() => _cleanupSessionState(emitDisconnected: true);
+
+  Future<void> _cleanupSessionState({required bool emitDisconnected}) async {
     final info = _info;
     if (_joinedGroup && info != null) {
       try {
@@ -159,8 +188,11 @@ class _TencentSdkChatEngine implements TencentChatEngine {
       _loggedIn = false;
     }
     if (_connected || info != null) {
+      final wasConnected = _connected;
       _connected = false;
-      _events.onDisconnected?.call('clientDisconnect');
+      if (emitDisconnected && (wasConnected || info != null)) {
+        _events.onDisconnected?.call('clientDisconnect');
+      }
     }
   }
 
@@ -168,15 +200,8 @@ class _TencentSdkChatEngine implements TencentChatEngine {
   Future<void> dispose() async {
     if (_disposed) return;
     await disconnect();
-    if (_initialized) {
-      try {
-        await _manager.unInitSDK();
-      } catch (_) {
-        // Best-effort native teardown. The Dart engine is disposed either way.
-      }
-      _initialized = false;
-    }
     _disposed = true;
+    _events = const TencentChatEngineEvents();
     _tokenProvider = null;
     _info = null;
   }
@@ -193,15 +218,16 @@ class _TencentSdkChatEngine implements TencentChatEngine {
     try {
       _events.onConnecting?.call(true);
       final refreshed = await provider();
+      if (_disposed) return;
       _info = refreshed;
       final result = await _manager.login(
         userID: refreshed.providerUserId,
         userSig: refreshed.userSig,
       );
       _requireSuccess(result, 'refresh Tencent Chat UserSig');
-      _events.onConnected?.call();
+      if (!_disposed) _events.onConnected?.call();
     } catch (error) {
-      _events.onError?.call(401, error.toString());
+      if (!_disposed) _events.onError?.call(401, error.toString());
     } finally {
       _refreshing = false;
     }
