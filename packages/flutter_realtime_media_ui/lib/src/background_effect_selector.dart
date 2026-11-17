@@ -230,7 +230,6 @@ class BackgroundEffectSelector extends StatelessWidget {
   }
 }
 
-// Flutter Web's image codec expects a native typed-array view. The public
-// effect keeps immutable bytes; this view is used only by the image decoder.
-Uint8List _decoderBytes(Uint8List bytes) =>
-    Uint8List.view(bytes.buffer, bytes.offsetInBytes, bytes.lengthInBytes);
+// Flutter Web's image codec expects a mutable NativeUint8List (.toJS rejects
+// _UnmodifiableUint8ListView). Copy into a plain Uint8List for decoding.
+Uint8List _decoderBytes(Uint8List bytes) => Uint8List.fromList(bytes);

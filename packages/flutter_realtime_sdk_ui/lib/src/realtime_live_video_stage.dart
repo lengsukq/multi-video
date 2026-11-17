@@ -58,12 +58,80 @@ class RealtimeLiveVideoStage extends StatelessWidget {
                 ),
               );
         }
-        return RealtimeVideoTile(
+        final activeCohostIds = {
+          for (final member in controller.liveState?.activeCohosts ?? const [])
+            ...{member.userId, member.participantId},
+        };
+        final cohosts = members
+            .where((p) {
+              if (p.id == host.id) return false;
+              if (p.isLocal) {
+                return controller.room.media.role == MediaRole.participant;
+              }
+              return p.isVideoEnabled ||
+                  p.videoTrack != null ||
+                  activeCohostIds.contains(p.id);
+            })
+            .toList(growable: false);
+        final mainTile = RealtimeVideoTile(
           key: ValueKey(host.id),
           participant: host,
-          showNameTag: showNameTag,
+          showNameTag: showNameTag || cohosts.isNotEmpty,
           borderless: true,
           fit: fit ?? BoxFit.contain,
+        );
+        if (cohosts.isEmpty) return mainTile;
+        return LayoutBuilder(
+          builder: (context, viewport) {
+            final compact = viewport.maxWidth < 480;
+            final pipWidth = compact ? 92.0 : 136.0;
+            final pipHeight = compact ? 124.0 : 92.0;
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                mainTile,
+                Positioned(
+                  top: compact ? 76 : 14,
+                  right: 12,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      for (final cohost in cohosts.take(4)) ...[
+                        Container(
+                          width: pipWidth,
+                          height: pipHeight,
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(
+                              RealtimeUiTokens.compactRadius,
+                            ),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.28),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.35),
+                                blurRadius: 8,
+                              ),
+                            ],
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: RealtimeVideoTile(
+                            key: ValueKey('cohost-${cohost.id}'),
+                            participant: cohost,
+                            showNameTag: true,
+                            borderless: true,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );

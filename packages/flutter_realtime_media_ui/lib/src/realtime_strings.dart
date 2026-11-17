@@ -689,6 +689,14 @@ class RealtimeStrings {
       isZh ? '发送消息与参会者实时沟通' : 'Send a message to chat with participants';
   String get sendMessage => isZh ? '发送消息' : 'Send message';
   String get replyMessage => isZh ? '回复消息' : 'Reply';
+
+  // Screen capture & mirroring guard
+  String get screenCaptureDetectedTitle =>
+      isZh ? '检测到录屏或投屏' : 'Screen Recording or Mirroring Detected';
+  String get screenCaptureDetectedMessage => isZh
+      ? '请关闭录屏或投屏功能后继续使用。'
+      : 'Please turn off screen recording, screen sharing, or mirroring to continue.';
+  String get recheckScreenCapture => isZh ? '重新检测' : 'Check again';
 }
 
 class _RealtimeStringsDelegate extends LocalizationsDelegate<RealtimeStrings> {

@@ -28,6 +28,7 @@ class RealtimeSdk {
   RealtimeSdk({
     this.backendUrl,
     this.requestTimeout,
+    this.preventScreenCapture = false,
     this.services = const RealtimeRoomServices(),
     required Iterable<RealtimeProviderPlugin> plugins,
     this.tokenProvider,
@@ -51,6 +52,7 @@ class RealtimeSdk {
   factory RealtimeSdk.standard({
     String? backendUrl,
     Duration? requestTimeout,
+    bool preventScreenCapture = false,
     RealtimeRoomServices services = const RealtimeRoomServices(),
     RealtimeTokenProvider? tokenProvider,
     RealtimeClientFactory? clientFactory,
@@ -68,6 +70,7 @@ class RealtimeSdk {
     return RealtimeSdk(
       backendUrl: backendUrl,
       requestTimeout: requestTimeout,
+      preventScreenCapture: preventScreenCapture,
       services: services,
       plugins: registry.resolvePlugins(additionalPlugins: additionalPlugins),
       tokenProvider: tokenProvider,
@@ -81,6 +84,7 @@ class RealtimeSdk {
 
   final String? backendUrl;
   final Duration? requestTimeout;
+  final bool preventScreenCapture;
   final RealtimeRoomServices services;
   final RealtimePluginRegistry plugins;
   final RealtimeDriverRegistry? driverRegistry;
@@ -230,6 +234,8 @@ class RealtimeSdk {
       RealtimeClient(
         backendUrl: backendUrl,
         requestTimeout: requestTimeout,
+        preventScreenCapture: preventScreenCapture,
+        screenCaptureProtection: services.screenCaptureProtection,
         effectsProbe: _videoEffects == null ? null : _probeEffects,
         videoEffects: _videoEffects,
         mediaClientFactory: services.mediaClientFactory,

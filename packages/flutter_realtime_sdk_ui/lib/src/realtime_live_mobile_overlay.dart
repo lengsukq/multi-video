@@ -267,7 +267,10 @@ class RealtimeLiveMobileOverlay extends StatelessWidget {
                       ),
                     SizedBox(height: compactHud ? 4 : 10),
 
-                    if (isHost) ...[
+                    if (isHost ||
+                        (controller.room.media.role != MediaRole.viewer &&
+                            (controller.canUseMicrophone ||
+                                controller.canUseCamera))) ...[
                       RealtimeLiveMediaControls(
                         onOpenHostTools: compactHud ? null : onOpenHostTools,
                       ),
@@ -284,6 +287,8 @@ class RealtimeLiveMobileOverlay extends StatelessWidget {
                             reverse: true,
                             dark: true,
                             children: [
+                              if (controller.canRequestCohost)
+                                RealtimeLiveCohostButton(compact: compactHud),
                               if (showLiveInteractions &&
                                   onOpenGiftSheet != null) ...[
                                 _CircleIconButton(

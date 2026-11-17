@@ -7,7 +7,7 @@ import 'package:flutter_realtime_room_ui/flutter_realtime_room_ui.dart'
 import 'package:flutter_realtime_live_preset/flutter_realtime_live_preset.dart';
 import 'package:flutter_realtime_classroom_preset/flutter_realtime_classroom_preset.dart';
 import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart'
-    show Cleanup, RealtimeRoomControls;
+    show Cleanup, MediaRole, RealtimeRoomControls;
 
 class RealtimeRoomUiController extends room_ui.RealtimeRoomUiController {
   RealtimeRoomUiController(
@@ -26,8 +26,12 @@ class RealtimeRoomUiController extends room_ui.RealtimeRoomUiController {
     _liveSubscription = room.liveInteractions?.states.listen((state) {
       if (isDisposed) return;
       _liveState = state;
+      _syncCohostMediaRole(state);
       notifyListeners();
     });
+    if (_liveState != null) {
+      _syncCohostMediaRole(_liveState!);
+    }
     _likeSubscription = room.liveInteractions?.likes.listen((event) {
       if (isDisposed) return;
       _receivedLikeCount += event.quantity;
@@ -63,8 +67,45 @@ class RealtimeRoomUiController extends room_ui.RealtimeRoomUiController {
   StreamSubscription<LiveLikeEvent>? _likeSubscription;
   LiveInteractionState? _liveState;
   int _receivedLikeCount = 0;
+  bool _syncingCohostRole = false;
   LiveInteractionState? get liveState => _liveState;
   int get receivedLikeCount => _receivedLikeCount;
+  bool get canRequestCohost =>
+      _liveState?.cohostSupported == true &&
+      room.media.role != MediaRole.host &&
+      _liveState?.selfUserId != _liveState?.recipientId;
+  LiveCohostStatus get selfCohostStatus =>
+      _liveState?.selfCohostStatus ?? LiveCohostStatus.none;
+
+  void _syncCohostMediaRole(LiveInteractionState state) {
+    if (_syncingCohostRole || isDisposed || !room.canSwitchMediaRole) return;
+    if (room.media.role == MediaRole.host) return;
+    final target =
+        (state.selfCohostStatus == LiveCohostStatus.approved ||
+            state.selfCohostStatus == LiveCohostStatus.active)
+        ? MediaRole.participant
+        : MediaRole.viewer;
+    if (room.media.role == target) return;
+    _syncingCohostRole = true;
+    unawaited(_applyCohostMediaRole(target));
+  }
+
+  Future<void> _applyCohostMediaRole(MediaRole target) async {
+    try {
+      await room.switchMediaRole(target);
+      if (!isDisposed) {
+        notifyListeners();
+      }
+    } catch (error) {
+      reportActionError(error);
+    } finally {
+      _syncingCohostRole = false;
+      final latest = _liveState;
+      if (!isDisposed && latest != null) {
+        _syncCohostMediaRole(latest);
+      }
+    }
+  }
   @override
   bool get canUseMicrophone => super.canUseMicrophone && _canSpeak;
   bool get _canSpeak {
@@ -207,6 +248,27 @@ class RealtimeRoomUiController extends room_ui.RealtimeRoomUiController {
     final live = room.liveInteractions;
     if (live == null) return;
     await execute(RealtimeRoomUiAction.liveLike, live.sendLike);
+  }
+
+  Future<void> requestCohost() async {
+    final live = room.liveInteractions;
+    if (live == null || !canRequestCohost) return;
+    await execute(RealtimeRoomUiAction.liveCohost, live.requestCohost);
+  }
+
+  Future<void> cancelCohost() async {
+    final live = room.liveInteractions;
+    if (live == null || !canRequestCohost) return;
+    await execute(RealtimeRoomUiAction.liveCohost, live.cancelCohost);
+  }
+
+  Future<void> respondCohost(String userId, String action) async {
+    final live = room.liveInteractions;
+    if (live == null || room.media.role != MediaRole.host) return;
+    await execute(
+      RealtimeRoomUiAction.liveCohost,
+      () => live.respondCohost(userId, action),
+    );
   }
 
   @override

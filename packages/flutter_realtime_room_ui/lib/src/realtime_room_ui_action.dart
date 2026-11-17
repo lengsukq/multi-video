@@ -9,6 +9,7 @@ enum RealtimeRoomUiAction {
   sendMessage,
   backgroundEffect,
   liveLike,
+  liveCohost,
   classroom,
   participantManagement,
   leave,

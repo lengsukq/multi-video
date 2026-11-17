@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
 import '../flutter_realtime_sdk_ui.dart';
+import 'meeting_shared_content.dart';
 import 'prepare_room_page.dart';
 
 /// Responsive broadcast page shared by the Demo and SDK integrations.
@@ -15,6 +16,7 @@ class RealtimeLivePage extends StatefulWidget {
     this.loadImagePresets,
     this.onLeft,
     this.confirmBeforeLeave = true,
+    this.preventScreenCapture,
     this.header,
     this.showChat = true,
     this.showLiveInteractions = true,
@@ -27,6 +29,9 @@ class RealtimeLivePage extends StatefulWidget {
   final Future<List<MediaBackgroundImagePreset>> Function()? loadImagePresets;
   final VoidCallback? onLeft;
   final bool confirmBeforeLeave;
+
+  /// Optional UI-level override; defaults to `room.preventScreenCapture`.
+  final bool? preventScreenCapture;
   final Widget? header;
   final bool showChat;
   final bool showLiveInteractions;
@@ -45,6 +50,8 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
   bool _remoteEndHandled = false;
   int _preparationRevision = 0;
   late Future<List<MediaBackgroundImagePreset>> _presets;
+  final WhiteboardToolsController _whiteboardTools = WhiteboardToolsController();
+  Stream<void>? _sharedContentUpdates;
   _LiveSidePanel _sidePanel = _LiveSidePanel.none;
   bool _cleanScreen = false;
   BoxFit _liveVideoFitOverride = BoxFit.contain;
@@ -59,6 +66,14 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
     _preparing = _prepare();
     _presets =
         widget.loadImagePresets?.call() ?? Future.value(widget.imagePresets);
+  }
+
+  void _onLeft() {
+    if (widget.onLeft != null) {
+      widget.onLeft!();
+    } else if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    }
   }
 
   void _watchRoomEnd() {
@@ -117,6 +132,7 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
   void dispose() {
     unawaited(_roomEndSubscription?.cancel());
     unawaited(_roomSnapshotEndSubscription?.cancel());
+    _whiteboardTools.dispose();
     super.dispose();
   }
 
@@ -146,6 +162,7 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
       _preparing = _prepare();
       _presets =
           widget.loadImagePresets?.call() ?? Future.value(widget.imagePresets);
+      _sharedContentUpdates = null;
       _sidePanel = _LiveSidePanel.none;
     }
   }
@@ -159,7 +176,14 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
         revision == _preparationRevision &&
         identical(widget.room, room) &&
         identical(widget.initialSettings, settings);
-    await prepareRoomPageWithDeadline(room, settings, isCurrent: isCurrent);
+    await prepareRoomPageWithDeadline(
+      room,
+      settings,
+      isCurrent: isCurrent,
+      startSharedContent: room.sharedContent != null,
+    );
+    if (!mounted || !isCurrent()) return;
+    _sharedContentUpdates = room.sharedContent?.stageUpdates;
   }
 
   Future<T> _withModalOcclusion<T>(Future<T> Function() action) async {
@@ -283,140 +307,166 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
         onActionError: _showActionError,
         child: MediaPlatformViewOcclusion(
           occluded: _modalOcclusionCount > 0,
-          child: Scaffold(
-            backgroundColor: RealtimeUiTokens.background,
-            body: RealtimeAmbientBackground(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = RealtimeBreakpoints.isWide(
-                      context,
-                      constraints.maxWidth,
-                    );
-                    final isHost = RealtimePresentationRole.forLive(
-                      widget.room.media.role,
-                    ).canShowLiveHostTools;
-                    final strings = RealtimeStrings.of(context);
-                    final isDark =
-                        Theme.of(context).brightness == Brightness.dark;
+          child: RealtimeScreenCaptureGuard(
+            room: widget.room,
+            enabled: widget.preventScreenCapture,
+            onLeaveRequested: _onLeft,
+            child: Scaffold(
+              backgroundColor: RealtimeUiTokens.background,
+              body: RealtimeAmbientBackground(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final wide = RealtimeBreakpoints.isWide(
+                          context,
+                          constraints.maxWidth,
+                        );
+                        final isHost = RealtimePresentationRole.forLive(
+                          widget.room.media.role,
+                        ).canShowLiveHostTools;
+                        final strings = RealtimeStrings.of(context);
+                        final isDark =
+                            Theme.of(context).brightness == Brightness.dark;
 
-                    if (_cleanScreen) {
-                      return GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: () => setState(() => _cleanScreen = false),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            RealtimeLiveVideoStage(fit: _liveVideoFitOverride),
-                            if (widget.showLiveInteractions &&
-                                widget.room.liveInteractions != null)
-                              Positioned(
-                                left: 16,
-                                right: 16,
-                                bottom: 24,
-                                child: IgnorePointer(
-                                  child: LiveGiftBanner(
-                                    session: widget.room.liveInteractions!,
+                        if (_cleanScreen) {
+                          return GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: () => setState(() => _cleanScreen = false),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                StreamBuilder<void>(
+                                  stream: _sharedContentUpdates,
+                                  builder: (context, _) {
+                                    final shared = MeetingSharedContent(
+                                      room: widget.room,
+                                      snapshot: widget.room.snapshot,
+                                      showClassroom: false,
+                                    );
+                                    if (shared.mode == SharedContentMode.screen ||
+                                        shared.mode ==
+                                            SharedContentMode.whiteboard) {
+                                      return shared.buildMain(
+                                        context,
+                                        withAnnotations: true,
+                                        whiteboardToolsController:
+                                            _whiteboardTools,
+                                      );
+                                    }
+                                    return RealtimeLiveVideoStage(
+                                      fit: _liveVideoFitOverride,
+                                    );
+                                  },
+                                ),
+                                if (widget.showLiveInteractions &&
+                                    widget.room.liveInteractions != null)
+                                  Positioned(
+                                    left: 16,
+                                    right: 16,
+                                    bottom: 24,
+                                    child: IgnorePointer(
+                                      child: LiveGiftBanner(
+                                        session: widget.room.liveInteractions!,
+                                      ),
+                                    ),
+                                  ),
+                                Positioned(
+                                  top: 16,
+                                  right: 16,
+                                  child: SafeArea(
+                                    child: RealtimePill(
+                                      label: strings.exitCleanScreen,
+                                      icon: Icons.fullscreen_exit_rounded,
+                                      foreground: isDark
+                                          ? Colors.white
+                                          : RealtimeUiTokens.text,
+                                      background: isDark
+                                          ? Colors.black.withValues(alpha: 0.65)
+                                          : Colors.white.withValues(
+                                              alpha: 0.85,
+                                            ),
+                                      borderColor: isDark
+                                          ? Colors.white.withValues(alpha: 0.35)
+                                          : RealtimeUiTokens.border,
+                                      onTap: () =>
+                                          setState(() => _cleanScreen = false),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            Positioned(
-                              top: 16,
-                              right: 16,
-                              child: SafeArea(
-                                child: RealtimePill(
-                                  label: strings.exitCleanScreen,
-                                  icon: Icons.fullscreen_exit_rounded,
-                                  foreground: isDark
-                                      ? Colors.white
-                                      : RealtimeUiTokens.text,
-                                  background: isDark
-                                      ? Colors.black.withValues(alpha: 0.65)
-                                      : Colors.white.withValues(alpha: 0.85),
-                                  borderColor: isDark
-                                      ? Colors.white.withValues(alpha: 0.35)
-                                      : RealtimeUiTokens.border,
-                                  onTap: () =>
-                                      setState(() => _cleanScreen = false),
-                                ),
-                              ),
+                              ],
                             ),
-                          ],
-                        ),
-                      );
-                    }
+                          );
+                        }
 
-                    return RealtimeLiveDesktopStage(
-                      showChat: widget.showChat,
-                      showLiveInteractions: widget.showLiveInteractions,
-                      videoFit: _liveVideoFitOverride,
-                      startedAt: _enteredAt,
-                      initialTab: _sidePanel == _LiveSidePanel.members ? 1 : 0,
-                      onSelectedTab: (index) => setState(
-                        () => _sidePanel = index == 1
-                            ? _LiveSidePanel.members
-                            : _LiveSidePanel.chat,
-                      ),
-                      onOpenChat: () => _openMobileSheet(
-                        _LiveSidePanel.chat,
-                        RealtimeRoomUiScope.of(context),
-                      ),
-                      onViewAudience: wide
-                          ? () => setState(
-                              () => _sidePanel = _LiveSidePanel.members,
-                            )
-                          : () => _openMobileSheet(
-                              _LiveSidePanel.members,
-                              RealtimeRoomUiScope.of(context),
-                            ),
-                      onToggleVideoFit: () => setState(
-                        () => _liveVideoFitOverride =
-                            _liveVideoFitOverride == BoxFit.contain
-                            ? BoxFit.cover
-                            : BoxFit.contain,
-                      ),
-                      exitAction: RealtimeLeaveButton(
-                        iconOnly: !wide,
-                        onConfirm: (ctx) => _confirmLeave(ctx),
-                        onLeft: () {
-                          if (widget.onLeft != null) {
-                            widget.onLeft!();
-                          } else if (context.mounted &&
-                              Navigator.canPop(context)) {
-                            Navigator.pop(context);
-                          }
-                        },
-                      ),
-                      onToggleCleanScreen: () =>
-                          setState(() => _cleanScreen = true),
-                      onOpenHostTools: isHost
-                          ? () => _openHostToolsSheet(context)
-                          : null,
-                      topTrailingActions: [
-                        if (widget.header != null) widget.header!,
-                        if (widget.showProvider && wide)
-                          Text(widget.room.providerId),
-                      ],
-                    );
-                  },
-                ),
-                Positioned(
-                  top: 90,
-                  left: 12,
-                  right: 12,
-                  child: SafeArea(
-                    child: RealtimeRoomEventOverlay(
-                      room: widget.room,
-                      showClassroom: false,
+                        return RealtimeLiveDesktopStage(
+                          showChat: widget.showChat,
+                          showLiveInteractions: widget.showLiveInteractions,
+                          videoFit: _liveVideoFitOverride,
+                          whiteboardToolsController: _whiteboardTools,
+                          sharedContentUpdates: _sharedContentUpdates,
+                          startedAt: _enteredAt,
+                          initialTab: _sidePanel == _LiveSidePanel.members
+                              ? 1
+                              : 0,
+                          onSelectedTab: (index) => setState(
+                            () => _sidePanel = index == 1
+                                ? _LiveSidePanel.members
+                                : _LiveSidePanel.chat,
+                          ),
+                          onOpenChat: () => _openMobileSheet(
+                            _LiveSidePanel.chat,
+                            RealtimeRoomUiScope.of(context),
+                          ),
+                          onViewAudience: wide
+                              ? () => setState(
+                                  () => _sidePanel = _LiveSidePanel.members,
+                                )
+                              : () => _openMobileSheet(
+                                  _LiveSidePanel.members,
+                                  RealtimeRoomUiScope.of(context),
+                                ),
+                          onToggleVideoFit: () => setState(
+                            () => _liveVideoFitOverride =
+                                _liveVideoFitOverride == BoxFit.contain
+                                ? BoxFit.cover
+                                : BoxFit.contain,
+                          ),
+                          exitAction: RealtimeLeaveButton(
+                            iconOnly: !wide,
+                            onConfirm: (ctx) => _confirmLeave(ctx),
+                            onLeft: _onLeft,
+                          ),
+                          onToggleCleanScreen: () =>
+                              setState(() => _cleanScreen = true),
+                          onOpenHostTools: isHost
+                              ? () => _openHostToolsSheet(context)
+                              : null,
+                          topTrailingActions: [
+                            if (widget.header != null) widget.header!,
+                            if (widget.showProvider && wide)
+                              Text(widget.room.providerId),
+                          ],
+                        );
+                      },
                     ),
-                  ),
+                    Positioned(
+                      top: 90,
+                      left: 12,
+                      right: 12,
+                      child: SafeArea(
+                        child: RealtimeRoomEventOverlay(
+                          room: widget.room,
+                          showClassroom: false,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
-        ),
         ),
       );
     },

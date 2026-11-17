@@ -16,6 +16,8 @@ dependencies:
     sdk: flutter
   flutter_realtime_media_core:
     path: ../flutter_realtime_media_core
+  flutter_realtime_processed_video:
+    path: ../flutter_realtime_processed_video
   flutter_realtime_chat_core:
     path: ../flutter_realtime_chat_core
   flutter_realtime_chat_rtc:

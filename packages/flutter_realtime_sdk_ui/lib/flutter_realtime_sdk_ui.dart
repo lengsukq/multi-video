@@ -51,6 +51,7 @@ export 'src/realtime_recording_button.dart';
 export 'src/realtime_recording_result_dialog.dart';
 export 'src/realtime_recording_panel.dart';
 export 'src/realtime_recording_layout_picker.dart';
+export 'src/realtime_screen_capture_guard.dart';
 
 export 'src/realtime_room_view_config.dart';
 export 'src/realtime_pre_join_enter.dart';

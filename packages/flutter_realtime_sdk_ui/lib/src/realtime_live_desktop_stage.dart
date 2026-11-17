@@ -4,15 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_realtime_media_ui/flutter_realtime_media_ui.dart';
 import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
 import 'package:flutter_realtime_live_preset/flutter_realtime_live_preset.dart';
+import 'package:flutter_realtime_shared_content_preset/flutter_realtime_shared_content_preset.dart';
+import 'package:flutter_realtime_whiteboard_ui/flutter_realtime_whiteboard_ui.dart';
 import 'package:flutter_realtime_room_ui/flutter_realtime_room_ui.dart'
     show RealtimeConnectionIndicator;
 
+import 'meeting_shared_content.dart';
 import 'realtime_dock_microphone_button.dart';
 import 'realtime_dock_camera_button.dart';
 import 'realtime_live_gift_banner.dart';
 import 'realtime_live_gift_button.dart';
 import 'realtime_live_hearts_overlay.dart';
 import 'realtime_live_like_button.dart';
+import 'realtime_live_media_controls.dart';
 import 'realtime_live_video_stage.dart';
 import 'realtime_meeting_dock.dart';
 import 'realtime_meeting_rail.dart';
@@ -47,6 +51,8 @@ class RealtimeLiveDesktopStage extends StatelessWidget {
     this.startedAt,
     this.initialTab = 0,
     this.onSelectedTab,
+    this.whiteboardToolsController,
+    this.sharedContentUpdates,
   });
 
   final bool showChat;
@@ -71,31 +77,37 @@ class RealtimeLiveDesktopStage extends StatelessWidget {
   final DateTime? startedAt;
   final int initialTab;
   final ValueChanged<int>? onSelectedTab;
+  final WhiteboardToolsController? whiteboardToolsController;
+  final Stream<void>? sharedContentUpdates;
 
   @override
   Widget build(BuildContext context) {
     final controller = RealtimeRoomUiScope.of(context);
-    final room = controller.room;
-    final style = RealtimeStyle.of(context);
-    final strings = RealtimeStrings.of(context);
-    final isHost = room.media.role == MediaRole.host;
-    final participants = controller.snapshot.participants;
-    final host = isHost
-        ? controller.snapshot.localParticipant
-        : controller.snapshot.remoteParticipants.firstOrNull;
-    final members = participants
-        .map(
-          (p) => RealtimeMeetingMemberItem(
-            id: p.id,
-            name: p.displayName.isEmpty ? p.id : p.displayName,
-            avatarUrl: p.avatarUrl,
-            roleTitle: p.isLocal ? (strings.isZh ? '我' : 'You') : null,
-            isMuted: p.isMuted,
-            isVideoOff: !p.isVideoEnabled,
-            isSpeaking: p.isSpeaking,
-          ),
-        )
-        .toList(growable: false);
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final room = controller.room;
+        final style = RealtimeStyle.of(context);
+        final strings = RealtimeStrings.of(context);
+        final isHost = room.media.role == MediaRole.host;
+        final canPublishMedia = room.media.role != MediaRole.viewer;
+        final participants = controller.snapshot.participants;
+        final host = isHost
+            ? controller.snapshot.localParticipant
+            : controller.snapshot.remoteParticipants.firstOrNull;
+        final members = participants
+            .map(
+              (p) => RealtimeMeetingMemberItem(
+                id: p.id,
+                name: p.displayName.isEmpty ? p.id : p.displayName,
+                avatarUrl: p.avatarUrl,
+                roleTitle: p.isLocal ? (strings.isZh ? '我' : 'You') : null,
+                isMuted: p.isMuted,
+                isVideoOff: !p.isVideoEnabled,
+                isSpeaking: p.isSpeaking,
+              ),
+            )
+            .toList(growable: false);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -227,45 +239,106 @@ class RealtimeLiveDesktopStage extends StatelessWidget {
                   RealtimeUiTokens.stageRadius,
                 ),
               ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onDoubleTap: !liveEnabled
-                        ? null
-                        : () {
-                            for (var i = 0; i < 2; i++) {
-                              unawaited(
-                                controller.sendLiveLike().catchError(
-                                  controller.reportActionError,
+              child: StreamBuilder<void>(
+                stream: sharedContentUpdates ?? room.sharedContent?.stageUpdates,
+                builder: (context, _) => ListenableBuilder(
+                  listenable: controller,
+                  builder: (context, _) {
+                    final shared = MeetingSharedContent(
+                      room: room,
+                      snapshot: controller.snapshot,
+                      showClassroom: false,
+                    );
+                    final isSharedMode =
+                        shared.mode == SharedContentMode.whiteboard ||
+                        shared.mode == SharedContentMode.screen;
+                    final canEditWhiteboard =
+                        shared.mode == SharedContentMode.whiteboard &&
+                        room.sharedContent?.whiteboard.state?.canEdit == true &&
+                        whiteboardToolsController != null;
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (isSharedMode)
+                          shared.buildMain(
+                            context,
+                            withAnnotations: true,
+                            whiteboardToolsController: whiteboardToolsController,
+                          )
+                        else
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onDoubleTap: !liveEnabled
+                                ? null
+                                : () {
+                                    for (var i = 0; i < 2; i++) {
+                                      unawaited(
+                                        controller.sendLiveLike().catchError(
+                                          controller.reportActionError,
+                                        ),
+                                      );
+                                    }
+                                  },
+                            child: RealtimeLiveVideoStage(fit: videoFit),
+                          ),
+                        if (isSharedMode && !compact)
+                          Positioned(
+                            top: 12,
+                            right: 12,
+                            width: 148,
+                            height: 92,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(
+                                RealtimeUiTokens.compactRadius,
+                              ),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.25),
+                                  ),
                                 ),
-                              );
-                            }
-                          },
-                    child: RealtimeLiveVideoStage(fit: videoFit),
-                  ),
-                  if (liveEnabled) ...[
-                    const Positioned(
-                      right: 16,
-                      bottom: 12,
-                      width: 120,
-                      height: 210,
-                      child: IgnorePointer(child: RealtimeLiveHeartsOverlay()),
-                    ),
-                    const Positioned(
-                      left: 16,
-                      right: 16,
-                      bottom: 16,
-                      child: IgnorePointer(
-                        child: Align(
-                          alignment: Alignment.bottomLeft,
-                          child: RealtimeLiveGiftBanner(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                                child: const RealtimeLiveVideoStage(
+                                  fit: BoxFit.cover,
+                                  showNameTag: true,
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (canEditWhiteboard)
+                          Positioned(
+                            top: 16,
+                            left: 12,
+                            child: WhiteboardToolRail(
+                              session: room.sharedContent!.whiteboard,
+                              controller: whiteboardToolsController!,
+                            ),
+                          ),
+                        if (liveEnabled) ...[
+                          const Positioned(
+                            right: 16,
+                            bottom: 12,
+                            width: 120,
+                            height: 210,
+                            child: IgnorePointer(
+                              child: RealtimeLiveHeartsOverlay(),
+                            ),
+                          ),
+                          const Positioned(
+                            left: 16,
+                            right: 16,
+                            bottom: 16,
+                            child: IgnorePointer(
+                              child: Align(
+                                alignment: Alignment.bottomLeft,
+                                child: RealtimeLiveGiftBanner(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -281,12 +354,14 @@ class RealtimeLiveDesktopStage extends StatelessWidget {
           child: RealtimeMeetingDock(
             showLabels: false,
             mediaGroup: [
-              if (isHost && controller.canUseMicrophone)
+              if (canPublishMedia && controller.canUseMicrophone)
                 const RealtimeDockMicrophoneButton(showLabel: false),
-              if (isHost && controller.canUseCamera)
+              if (canPublishMedia && controller.canUseCamera)
                 const RealtimeDockCameraButton(showLabel: false),
             ],
             collaborationGroup: [
+              if (controller.canRequestCohost)
+                RealtimeLiveCohostButton(compact: compact),
               if (liveEnabled && !wide) ...[
                 if (customGiftPanel != null)
                   customGiftPanel!
@@ -354,6 +429,8 @@ class RealtimeLiveDesktopStage extends StatelessWidget {
                 )
               : null,
         );
+      },
+    );
       },
     );
   }

@@ -22,6 +22,7 @@ class RealtimeMeetingPage extends StatefulWidget {
     this.loadImagePresets,
     this.onLeft,
     this.confirmBeforeLeave = true,
+    this.preventScreenCapture,
     this.header,
     this.showChat = true,
     this.showClassroom = true,
@@ -44,6 +45,9 @@ class RealtimeMeetingPage extends StatefulWidget {
   final Future<List<MediaBackgroundImagePreset>> Function()? loadImagePresets;
   final VoidCallback? onLeft;
   final bool confirmBeforeLeave;
+
+  /// Optional UI-level override; defaults to `room.preventScreenCapture`.
+  final bool? preventScreenCapture;
   final Widget? header;
   final bool showChat;
   final bool showClassroom;
@@ -383,7 +387,11 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
         onActionError: _showActionError,
         child: MediaPlatformViewOcclusion(
           occluded: _modalOcclusionCount > 0,
-          child: Scaffold(
+          child: RealtimeScreenCaptureGuard(
+            room: widget.room,
+            enabled: widget.preventScreenCapture,
+            onLeaveRequested: _onLeft,
+            child: Scaffold(
             backgroundColor: RealtimeUiTokens.background,
             body: RealtimeAmbientBackground(
               child: SafeArea(
@@ -580,6 +588,7 @@ class _RealtimeMeetingPageState extends State<RealtimeMeetingPage> {
                   ),
                 ),
               ),
+            ),
             ),
           ),
         ),

@@ -3,6 +3,11 @@ library;
 export 'package:flutter_realtime_chat_core/flutter_realtime_chat_core.dart';
 export 'package:flutter_realtime_interaction_core/flutter_realtime_interaction_core.dart';
 export 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
+export 'package:flutter_realtime_processed_video/flutter_realtime_processed_video.dart'
+    show
+        ScreenCaptureProtectionLease,
+        ScreenCaptureProtectionService,
+        SystemScreenCaptureProtection;
 export 'src/media_adapter.dart';
 export 'src/provider_driver.dart';
 export 'src/provider_web_assets.dart';

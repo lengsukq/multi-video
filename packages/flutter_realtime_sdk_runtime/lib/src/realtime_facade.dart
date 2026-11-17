@@ -28,6 +28,7 @@ class Realtime {
     required Iterable<RealtimeProviderBundle> providers,
     String? backendUrl,
     Duration? requestTimeout,
+    bool preventScreenCapture = false,
     RealtimeRoomServices services = const RealtimeRoomServices(),
     RealtimeTokenProvider? tokenProvider,
     InteractionControlPlaneFactory? interactionControlPlaneFactory,
@@ -59,6 +60,7 @@ class Realtime {
     final sdk = RealtimeSdk(
       backendUrl: backendUrl,
       requestTimeout: requestTimeout,
+      preventScreenCapture: preventScreenCapture,
       services: services,
       plugins: plugins,
       driverRegistry: registry,
@@ -87,6 +89,7 @@ class Realtime {
   factory Realtime.standard({
     String? backendUrl,
     Duration? requestTimeout,
+    bool preventScreenCapture = false,
     RealtimeRoomServices services = const RealtimeRoomServices(),
     RealtimeTokenProvider? tokenProvider,
     InteractionControlPlaneFactory? interactionControlPlaneFactory,
@@ -100,6 +103,7 @@ class Realtime {
     final sdk = RealtimeSdk.standard(
       backendUrl: backendUrl,
       requestTimeout: requestTimeout,
+      preventScreenCapture: preventScreenCapture,
       services: services,
       tokenProvider: tokenProvider,
       interactionControlPlaneFactory: interactionControlPlaneFactory,
@@ -132,6 +136,7 @@ class Realtime {
   final RealtimeStandaloneChatProvisionerFactory?
   standaloneChatProvisionerFactory;
 
+  bool get preventScreenCapture => sdk.preventScreenCapture;
   Iterable<String> get supportedProviderIds => sdk.supportedProviderIds;
   RealtimeRuntimePlatform get platform => sdk.platform;
   bool supportsProvider(String providerId) => sdk.supportsProvider(providerId);

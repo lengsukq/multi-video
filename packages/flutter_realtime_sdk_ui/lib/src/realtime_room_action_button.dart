@@ -54,6 +54,7 @@ class RealtimeRoomActionButton extends StatelessWidget {
             snapshot.capabilities.canPublishVideo,
           RealtimeRoomUiAction.liveLike =>
             controller.room.liveInteractions != null,
+          RealtimeRoomUiAction.liveCohost => controller.canRequestCohost,
         };
         final pending = controller.isPending(action);
         final buttonLabel =
@@ -76,6 +77,8 @@ class RealtimeRoomActionButton extends StatelessWidget {
               RealtimeRoomUiAction.backgroundEffect =>
                 isZh ? '虚拟背景' : 'Background effects',
               RealtimeRoomUiAction.liveLike => isZh ? '点赞' : 'Like',
+              RealtimeRoomUiAction.liveCohost =>
+                isZh ? '申请连麦' : 'Co-host',
             };
         final icon = switch (action) {
           RealtimeRoomUiAction.microphone => active ? Icons.mic : Icons.mic_off,
@@ -93,6 +96,7 @@ class RealtimeRoomActionButton extends StatelessWidget {
           RealtimeRoomUiAction.classroom => Icons.school_outlined,
           RealtimeRoomUiAction.backgroundEffect => Icons.blur_on_outlined,
           RealtimeRoomUiAction.liveLike => Icons.favorite_rounded,
+          RealtimeRoomUiAction.liveCohost => Icons.record_voice_over_outlined,
         };
         void invoke() {
           Future<void> task() => switch (action) {
@@ -110,6 +114,7 @@ class RealtimeRoomActionButton extends StatelessWidget {
             RealtimeRoomUiAction.backgroundEffect =>
               showRealtimeBackgroundEffectsSheet(context),
             RealtimeRoomUiAction.liveLike => controller.sendLiveLike(),
+            RealtimeRoomUiAction.liveCohost => controller.requestCohost(),
           };
           unawaited(
             task().catchError(

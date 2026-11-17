@@ -10,6 +10,11 @@ import 'dart:async';
 import 'package:flutter_realtime_chat_core/flutter_realtime_chat_core.dart';
 import 'package:flutter_realtime_chat_rtc/flutter_realtime_chat_rtc.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
+import 'package:flutter_realtime_processed_video/flutter_realtime_processed_video.dart'
+    show
+        ScreenCaptureProtectionLease,
+        ScreenCaptureProtectionService,
+        SystemScreenCaptureProtection;
 
 import 'realtime_error.dart';
 import 'realtime_event.dart';
@@ -29,6 +34,8 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
     String? publicProviderId,
     required this.renderer,
     this.chat,
+    this.preventScreenCapture = false,
+    ScreenCaptureProtectionService? screenCaptureProtection,
     this.interactionControlPlane,
     this.interactionRevisionTransport,
     this.featureBackendUrl,
@@ -43,6 +50,9 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
     MediaBackgroundCapabilities effectsCapabilities =
         const MediaBackgroundCapabilities.none(),
   }) : publicProviderId = publicProviderId ?? media.providerId,
+       _screenCaptureProtection = preventScreenCapture
+           ? (screenCaptureProtection ?? SystemScreenCaptureProtection.instance)
+           : null,
        _productChatRoom = productChatRoom,
        _rtcChatRoom = rtcChatRoom,
        _disposeClients = disposeClients {
@@ -69,8 +79,15 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
       cloudRecordingSession: cloudRecordingSession,
       onFailure: _reportFailure,
     );
+    _lastLocalScreenSharing = media.snapshot.localScreenShareEnabled;
     _mediaEventSubscription = media.session.events.listen(_onMediaEvent);
     _mediaStateSubscription = media.session.states.listen(_onMediaState);
+    if (_screenCaptureProtection != null) {
+      media.beforeLocalScreenShareStart = _prepareForLocalScreenShareStart;
+      _localShareStartingSubscription = media.localScreenShareStartingChanges
+          .listen(_onLocalScreenShareStartingChanged);
+      _mediaSnapshotSubscription = media.snapshots.listen(_onMediaSnapshot);
+    }
     _backendErrorSubscription = media.backendErrors.listen((error) {
       if (_disposed) return;
       _eventController.add(
@@ -88,9 +105,18 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
     unawaited(initialize());
   }
 
+  static const Duration _localShareStopGraceDuration = Duration(
+    milliseconds: 1500,
+  );
+
   final MediaRoomSession media;
   final String publicProviderId;
   final MediaTrackRenderer renderer;
+
+  /// Whether SDK screen-capture protection & external recording alerts are
+  /// enabled for this room.
+  final bool preventScreenCapture;
+  final ScreenCaptureProtectionService? _screenCaptureProtection;
 
   /// UI-independent RTC + IM roster and moderation operations.
   final RoomMembersController memberDirectory = RoomMembersController();
@@ -130,18 +156,49 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
       StreamController<RealtimeEvent>.broadcast();
   final StreamController<RealtimeRoomState> _stateController =
       StreamController<RealtimeRoomState>.broadcast();
+  final StreamController<bool> _screenCaptureController =
+      StreamController<bool>.broadcast();
   StreamSubscription<MediaEvent>? _mediaEventSubscription;
   StreamSubscription<MediaSessionState>? _mediaStateSubscription;
+  StreamSubscription<MediaSnapshot>? _mediaSnapshotSubscription;
+  StreamSubscription<bool>? _localShareStartingSubscription;
   StreamSubscription<RealtimeException>? _backendErrorSubscription;
   StreamSubscription<ChatEvent>? _chatEventSubscription;
   StreamSubscription<ChatConnectionState>? _chatStateSubscription;
+  ScreenCaptureProtectionLease? _screenProtectionLease;
+  StreamSubscription<bool>? _screenProtectionSubscription;
+  Timer? _localShareStopGraceTimer;
+  bool _lastLocalScreenSharing = false;
+  bool _capturedBeforeLocalShareAttempt = false;
+  bool _inLocalShareStopGrace = false;
+  bool _externalScreenCaptured = false;
   bool _disposed = false;
   Future<void>? _disposeFuture;
   Future<void>? _leaveRoomFuture;
   Future<void>? _initializeFuture;
 
-  /// Starts optional classroom/live sessions exactly once per room lifetime.
-  /// Failure is reported via [events] and does not disconnect healthy media.
+  /// Whether external OS screen recording or mirroring is currently active
+  /// while [preventScreenCapture] is enabled and in-room local screen sharing
+  /// is not active or transitioning.
+  bool get isScreenCaptured => _externalScreenCaptured;
+
+  /// Emits transitions of [isScreenCaptured].
+  Stream<bool> get screenCaptureChanges => _screenCaptureController.stream;
+
+  /// Re-evaluates the OS screen-capture state on demand (e.g., on foreground
+  /// resume or initial UI guard mount).
+  Future<bool> refreshScreenCaptureState() async {
+    if (_disposed || !preventScreenCapture) return false;
+    final lease = _screenProtectionLease;
+    if (lease == null) return _externalScreenCaptured;
+    await lease.refresh();
+    _recomputeExternalCaptureState();
+    return _externalScreenCaptured;
+  }
+
+  /// Starts optional classroom/live sessions and screen protection once per
+  /// room lifetime. Failure is reported via [events] and does not disconnect
+  /// healthy media.
   Future<void> initialize() => _initializeFuture ??= _initialize();
 
   /// Waits only for room feature attachment (not its initial HTTP snapshot).
@@ -185,12 +242,169 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
     }
 
     // Registration runs synchronously until its first unresolved async attach.
-    // Start those ready presets immediately; a slow unrelated feature must
-    // not hold up the initial Classroom/Live authoritative snapshot.
+    // Start those ready presets immediately; a slow unrelated feature or screen
+    // protection check must not delay initial feature attachment.
     final attachment = readyFeatures();
+    await start('screen.protection', _startScreenProtection);
+    if (_disposed) return;
     await start('features.start', features.startAttached);
     if (_disposed) return;
     await start('features.attach', () => attachment);
+  }
+
+  bool get _shouldSuspendSecureWindow =>
+      media.snapshot.localScreenShareEnabled ||
+      media.isLocalScreenShareStarting ||
+      _inLocalShareStopGrace;
+
+  Future<void> _prepareForLocalScreenShareStart() async {
+    if (_disposed) return;
+    _capturedBeforeLocalShareAttempt = _externalScreenCaptured;
+    _clearLocalShareStopGrace();
+    final lease = _screenProtectionLease;
+    if (lease != null) {
+      await lease.setSuspendSecureWindow(true);
+    }
+    _recomputeExternalCaptureState();
+  }
+
+  void _onLocalScreenShareStartingChanged(bool starting) {
+    if (_disposed) return;
+    if (starting) {
+      _capturedBeforeLocalShareAttempt = _externalScreenCaptured;
+      _clearLocalShareStopGrace();
+    } else if (!media.snapshot.localScreenShareEnabled) {
+      // Picker was cancelled or failed before local screen share became active.
+      _capturedBeforeLocalShareAttempt = false;
+      final lease = _screenProtectionLease;
+      if (lease != null) {
+        unawaited(lease.setSuspendSecureWindow(_shouldSuspendSecureWindow));
+        unawaited(refreshScreenCaptureState());
+      }
+    }
+    _recomputeExternalCaptureState();
+  }
+
+  Future<void> _startScreenProtection() async {
+    final service = _screenCaptureProtection;
+    if (service == null || _disposed || media.session.state.isTerminal) return;
+    final lease = await service.acquire(
+      suspendSecureWindow: _shouldSuspendSecureWindow,
+    );
+    if (_disposed || media.session.state.isTerminal) {
+      await lease.release();
+      return;
+    }
+    _screenProtectionLease = lease;
+    _screenProtectionSubscription = lease.changes.listen((captured) {
+      if (!captured && _inLocalShareStopGrace) {
+        _finishLocalShareStopGrace();
+        return;
+      }
+      _recomputeExternalCaptureState();
+    });
+    _recomputeExternalCaptureState();
+  }
+
+  void _onMediaSnapshot(MediaSnapshot next) {
+    if (_disposed) return;
+    final sharing = next.localScreenShareEnabled;
+    if (sharing != _lastLocalScreenSharing) {
+      _lastLocalScreenSharing = sharing;
+      if (sharing) {
+        _capturedBeforeLocalShareAttempt = false;
+        _clearLocalShareStopGrace();
+        final lease = _screenProtectionLease;
+        if (lease != null) {
+          unawaited(lease.setSuspendSecureWindow(true));
+        }
+      } else {
+        // ReplayKit Broadcast Extensions and Android MediaProjection can take
+        // a few hundred milliseconds after track teardown before OS `isCaptured`
+        // flips back to false. Hold a brief grace window if OS capture is still
+        // reported, clearing immediately as soon as OS posts `captured = false`.
+        final lease = _screenProtectionLease;
+        if (lease != null && lease.isCaptured) {
+          _startLocalShareStopGrace();
+        } else {
+          _finishLocalShareStopGrace();
+        }
+      }
+    }
+    _recomputeExternalCaptureState();
+  }
+
+  void _startLocalShareStopGrace() {
+    _localShareStopGraceTimer?.cancel();
+    _inLocalShareStopGrace = true;
+    _localShareStopGraceTimer = Timer(_localShareStopGraceDuration, () {
+      _localShareStopGraceTimer = null;
+      if (_disposed) return;
+      _finishLocalShareStopGrace();
+    });
+  }
+
+  void _clearLocalShareStopGrace() {
+    _localShareStopGraceTimer?.cancel();
+    _localShareStopGraceTimer = null;
+    _inLocalShareStopGrace = false;
+  }
+
+  void _finishLocalShareStopGrace() {
+    _clearLocalShareStopGrace();
+    final lease = _screenProtectionLease;
+    if (lease != null) {
+      unawaited(lease.setSuspendSecureWindow(_shouldSuspendSecureWindow));
+      unawaited(refreshScreenCaptureState());
+    } else {
+      _recomputeExternalCaptureState();
+    }
+  }
+
+  bool get _isExemptForLocalScreenShare {
+    if (media.snapshot.localScreenShareEnabled || _lastLocalScreenSharing) {
+      return true;
+    }
+    if (_inLocalShareStopGrace) return true;
+    if (media.isLocalScreenShareStarting && !_capturedBeforeLocalShareAttempt) {
+      return true;
+    }
+    return false;
+  }
+
+  void _recomputeExternalCaptureState() {
+    final lease = _screenProtectionLease;
+    final next =
+        !_disposed &&
+        preventScreenCapture &&
+        !media.session.state.isTerminal &&
+        !_isExemptForLocalScreenShare &&
+        (lease?.isCaptured ?? false);
+    if (_externalScreenCaptured == next) return;
+    _externalScreenCaptured = next;
+    if (!_screenCaptureController.isClosed) {
+      _screenCaptureController.add(next);
+    }
+    if (!_disposed && !_eventController.isClosed) {
+      _eventController.add(RealtimeScreenCaptureChanged(isCaptured: next));
+    }
+  }
+
+  Future<void> _releaseScreenProtection() async {
+    _clearLocalShareStopGrace();
+    if (identical(
+      media.beforeLocalScreenShareStart,
+      _prepareForLocalScreenShareStart,
+    )) {
+      media.beforeLocalScreenShareStart = null;
+    }
+    final sub = _screenProtectionSubscription;
+    final lease = _screenProtectionLease;
+    _screenProtectionSubscription = null;
+    _screenProtectionLease = null;
+    _recomputeExternalCaptureState();
+    await sub?.cancel();
+    await lease?.release();
   }
 
   Duration cleanupTimeout = const Duration(seconds: 10);
@@ -329,6 +543,7 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
             state != MediaSessionState.disposed)) {
       return;
     }
+    unawaited(_releaseScreenProtection());
     unawaited(
       (_effects?.release() ?? Future<void>.value()).catchError((
         Object error,
@@ -385,6 +600,7 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
     // Startup may be waiting on a remote snapshot indefinitely; disposal
     // must cancel/close the auxiliary sessions without waiting for that read.
     // Late startup errors are ignored once _disposed is set.
+    await cleanup.run('screen.protection', _releaseScreenProtection);
     await cleanup.run('recording', recording.dispose);
     await cleanup.run('video.effects', () async {
       await _effects?.dispose();
@@ -401,6 +617,12 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
     });
     await cleanup.run('media.states', () async {
       await _mediaStateSubscription?.cancel();
+    });
+    await cleanup.run('media.snapshots', () async {
+      await _mediaSnapshotSubscription?.cancel();
+    });
+    await cleanup.run('media.screen.starting', () async {
+      await _localShareStartingSubscription?.cancel();
     });
     await cleanup.run('backend.errors', () async {
       await _backendErrorSubscription?.cancel();
@@ -422,6 +644,9 @@ class RealtimeRoom implements MediaBackgroundEffectsController {
     });
     await cleanup.run('states', () async {
       await _stateController.close();
+    });
+    await cleanup.run('screen.protection.stream', () async {
+      await _screenCaptureController.close();
     });
     await cleanup.run('events', () async {
       await _eventController.close();

@@ -3,7 +3,9 @@ import 'package:flutter_realtime_room_ui/flutter_realtime_room_ui.dart'
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_realtime_media_ui/flutter_realtime_media_ui.dart';
+import 'package:flutter_realtime_live_preset/flutter_realtime_live_preset.dart';
 import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
+import 'package:flutter_realtime_shared_content_preset/flutter_realtime_shared_content_preset.dart';
 import 'room_ui_controller.dart';
 import 'room_control_components.dart';
 import 'realtime_host_tools_panel.dart';
@@ -731,6 +733,13 @@ class RoomLiveComponentsRealtimeHostToolsPanelState
                       ),
                     ),
 
+                  // Section 2.5: Live Whiteboard & Co-Host
+                  _buildWhiteboardAndCohostTools(
+                    context,
+                    controller: controller,
+                    isZh: isZh,
+                  ),
+
                   // Section 3: Extensions / Recording
                   if (widget.extraTools.isNotEmpty) ...[
                     const SizedBox(height: 6),
@@ -757,6 +766,192 @@ class RoomLiveComponentsRealtimeHostToolsPanelState
           ],
         );
       },
+    );
+  }
+
+  Widget _buildWhiteboardAndCohostTools(
+    BuildContext context, {
+    required RealtimeRoomUiController controller,
+    required bool isZh,
+  }) {
+    final style = RealtimeStyle.of(context);
+    final shared = controller.room.sharedContent;
+    final liveState = controller.liveState;
+    final showWhiteboard = shared != null;
+    final showCohosts = liveState?.cohostSupported == true;
+    if (!showWhiteboard && !showCohosts) {
+      return const SizedBox.shrink();
+    }
+    final requests = liveState?.cohostRequests ?? const <LiveCohostRequest>[];
+    final activeCohosts = liveState?.activeCohosts ?? const <LiveCohostMember>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (showWhiteboard)
+          StreamBuilder<void>(
+            stream: shared.stageUpdates,
+            builder: (context, _) {
+              final content = shared.content;
+              if (content?.canManage != true) return const SizedBox.shrink();
+              final isOpen = content!.mode == SharedContentMode.whiteboard;
+              return RealtimeCard(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                radius: RealtimeUiTokens.cardRadius,
+                child: _HostToolRow(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: RealtimeUiTokens.iosBlue.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(
+                          RealtimeUiTokens.compactRadius,
+                        ),
+                        border: Border.all(
+                          color: RealtimeUiTokens.iosBlue.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.draw_outlined,
+                        size: 19,
+                        color: RealtimeUiTokens.iosBlue,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isZh ? '互动白板' : 'Interactive Whiteboard',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: style.text,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            isOpen
+                                ? (isZh
+                                      ? '白板已向观众开启'
+                                      : 'Whiteboard visible to audience')
+                                : (isZh
+                                      ? '在直播主舞台开启实时白板'
+                                      : 'Open live whiteboard on stage'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: style.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => controller.execute(
+                        RealtimeRoomUiAction.classroom,
+                        () => shared.selectMode(
+                          isOpen
+                              ? SharedContentMode.members
+                              : SharedContentMode.whiteboard,
+                        ),
+                      ),
+                      icon: Icon(
+                        isOpen ? Icons.close_rounded : Icons.open_in_new_rounded,
+                        size: 16,
+                      ),
+                      label: Text(
+                        isOpen
+                            ? (isZh ? '关闭白板' : 'Close')
+                            : (isZh ? '开启白板' : 'Open'),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        if (showCohosts) ...[
+          const SizedBox(height: 6),
+          _buildSectionHeader(
+            icon: Icons.co_present_outlined,
+            title: isZh ? '观众连麦管理' : 'Audience Co-Hosts',
+            style: style,
+          ),
+          RealtimeCard(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            radius: RealtimeUiTokens.cardRadius,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (requests.isEmpty && activeCohosts.isEmpty)
+                  Text(
+                    isZh ? '暂无连麦请求或连麦观众' : 'No co-host requests or active guests',
+                    style: TextStyle(fontSize: 12, color: style.textMuted),
+                  ),
+                    for (final req in requests) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${req.displayName.isEmpty ? req.userId : req.displayName} (${isZh ? '申请连麦' : 'Requested'})',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: style.text,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () =>
+                                controller.respondCohost(req.userId, 'decline'),
+                            child: Text(isZh ? '拒绝' : 'Decline'),
+                          ),
+                          const SizedBox(width: 4),
+                          FilledButton(
+                            onPressed: () =>
+                                controller.respondCohost(req.userId, 'approve'),
+                            child: Text(isZh ? '同意' : 'Approve'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+                    for (final guest in activeCohosts) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${guest.displayName.isEmpty ? guest.userId : guest.displayName} (${isZh ? '连麦中' : 'On mic'})',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: style.text,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          OutlinedButton(
+                            onPressed: () =>
+                                controller.respondCohost(guest.userId, 'end'),
+                            child: Text(isZh ? '下麦' : 'Remove'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

@@ -63,7 +63,7 @@ extension RealtimeRoomControls on RealtimeRoom {
 
   bool get canListAudioOutputs =>
       _canControlActiveSession &&
-      _interactiveSession != null &&
+      (_interactiveSession != null || media.session is MediaDeviceController) &&
       snapshot.capabilities.canEnumerateAudioDevices;
 
   bool get canSelectAudioOutput =>
@@ -193,7 +193,7 @@ extension RealtimeRoomControls on RealtimeRoom {
     if (enabled && source != null) {
       await selectScreenShareSource(source);
     }
-    await session.setScreenShareEnabled(enabled);
+    await media.setScreenShareEnabled(enabled);
     if (verifySnapshot && media.snapshot.localScreenShareEnabled != enabled) {
       throw RealtimeException(
         code: RealtimeErrorCode.providerError,
@@ -256,50 +256,83 @@ extension RealtimeRoomControls on RealtimeRoom {
     return media.session.selectMediaDevice(device);
   }
 
-  /// Lists audio output routes exposed by interactive mobile/desktop sessions.
-  Future<List<MediaAudioDevice>> listAudioOutputs() {
-    if (_disposed) {
-      return Future<List<MediaAudioDevice>>.error(
-        const RealtimeException(
-          code: RealtimeErrorCode.invalidState,
-          message: 'The room has been disposed.',
-        ),
+  /// Whether the active provider supports switching local media role live.
+  bool get canSwitchMediaRole => media.canSwitchRole;
+
+  /// Upgrades or downgrades the active session role (e.g. viewer ↔ co-host).
+  Future<void> switchMediaRole(MediaRole targetRole) async {
+    if (_disposed) _throwDisposed();
+    final previous = media.session;
+    await media.switchRole(targetRole);
+    final current = media.session;
+    if (!identical(current, previous)) {
+      unawaited(_mediaEventSubscription?.cancel());
+      unawaited(_mediaStateSubscription?.cancel());
+      _mediaEventSubscription = current.events.listen(_onMediaEvent);
+      _mediaStateSubscription = current.states.listen(_onMediaState);
+      _emitState();
+    }
+  }
+
+  /// Lists audio output routes exposed by interactive or device-capable sessions.
+  Future<List<MediaAudioDevice>> listAudioOutputs() async {
+    if (_disposed) _throwDisposed();
+    if (!snapshot.capabilities.canEnumerateAudioDevices) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        message: 'Audio output enumeration is unavailable for this room.',
+        providerId: providerId,
       );
     }
     final session = _interactiveSession;
-    if (session == null || !snapshot.capabilities.canEnumerateAudioDevices) {
-      return Future<List<MediaAudioDevice>>.error(
-        RealtimeException(
-          code: RealtimeErrorCode.unsupportedFeature,
-          message: 'Audio output enumeration is unavailable for this room.',
-          providerId: providerId,
-        ),
-      );
+    if (session != null) {
+      return session.listAudioDevices();
     }
-    return session.listAudioDevices();
+    final raw = media.session;
+    if (raw is MediaDeviceController) {
+      final devices = await (raw as MediaDeviceController).listMediaDevices(
+        kinds: const {MediaDeviceKind.audioOutput},
+      );
+      return devices
+          .map((d) => MediaAudioDevice.fromLabel(d.label, id: d.id))
+          .toList(growable: false);
+    }
+    throw RealtimeException(
+      code: RealtimeErrorCode.unsupportedFeature,
+      message: 'Audio output enumeration is unavailable for this room.',
+      providerId: providerId,
+    );
   }
 
   /// Selects an audio output route returned by [listAudioOutputs].
-  Future<void> selectAudioOutput(MediaAudioDevice device) {
-    if (_disposed) {
-      return Future<void>.error(
-        const RealtimeException(
-          code: RealtimeErrorCode.invalidState,
-          message: 'The room has been disposed.',
-        ),
+  Future<void> selectAudioOutput(MediaAudioDevice device) async {
+    if (_disposed) _throwDisposed();
+    if (!canSelectAudioOutput) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        message: 'Audio output selection is unavailable for this room.',
+        providerId: providerId,
       );
     }
     final session = _interactiveSession;
-    if (session == null || !canSelectAudioOutput) {
-      return Future<void>.error(
-        RealtimeException(
-          code: RealtimeErrorCode.unsupportedFeature,
-          message: 'Audio output selection is unavailable for this room.',
-          providerId: providerId,
+    if (session != null) {
+      return session.selectAudioDevice(device);
+    }
+    final raw = media.session;
+    if (raw is MediaDeviceController) {
+      return (raw as MediaDeviceController).selectMediaDevice(
+        MediaDevice(
+          id: device.id ?? device.label,
+          label: device.label,
+          kind: MediaDeviceKind.audioOutput,
         ),
       );
     }
-    return session.selectAudioDevice(device);
+    throw RealtimeException(
+      code: RealtimeErrorCode.unsupportedFeature,
+      message: 'Audio output selection is unavailable for this room.',
+      providerId: providerId,
+    );
   }
 
   /// Sends a realtime RTC data message on the room's media data channel.

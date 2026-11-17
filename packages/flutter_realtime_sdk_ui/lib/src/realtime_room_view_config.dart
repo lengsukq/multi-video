@@ -12,6 +12,7 @@ class RealtimeRoomViewConfig {
     this.showChat = true,
     this.showRtcDataMessages = false,
     this.confirmBeforeLeave = true,
+    this.preventScreenCapture,
     this.initialMediaSettings,
     this.backgroundImageBytes,
     this.backgroundImagePresets = const [],
@@ -25,6 +26,10 @@ class RealtimeRoomViewConfig {
   final bool showChat;
   final bool showRtcDataMessages;
   final bool confirmBeforeLeave;
+
+  /// Optional UI-level override for screen-capture alert guarding. When `null`,
+  /// inherits `room.preventScreenCapture` configured on the SDK.
+  final bool? preventScreenCapture;
   final MediaLocalPreviewSettings? initialMediaSettings;
   final Uint8List? backgroundImageBytes;
   final List<MediaBackgroundImagePreset> backgroundImagePresets;

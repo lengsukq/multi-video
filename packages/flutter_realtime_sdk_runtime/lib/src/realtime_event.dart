@@ -26,3 +26,8 @@ class RealtimeBackendFailure extends RealtimeEvent {
   const RealtimeBackendFailure(this.error);
   final RealtimeException error;
 }
+
+class RealtimeScreenCaptureChanged extends RealtimeEvent {
+  const RealtimeScreenCaptureChanged({required this.isCaptured});
+  final bool isCaptured;
+}

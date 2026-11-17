@@ -135,10 +135,13 @@ class MediaInteractionRevisionTransport
       .cast<int>();
 
   @override
-  Future<void> publish(int revision) => media.sendData(
-    InteractionRevisionHintCodec.encode(roomCode, revision, type: eventType),
-    options: MediaSendOptions(topic: topic),
-  );
+  Future<void> publish(int revision) {
+    if (!media.capabilities.canSendData) return Future<void>.value();
+    return media.sendData(
+      InteractionRevisionHintCodec.encode(roomCode, revision, type: eventType),
+      options: MediaSendOptions(topic: topic),
+    );
+  }
 
   @override
   Future<void> dispose() async {}

@@ -7,6 +7,8 @@ import 'package:flutter_realtime_interaction_core/flutter_realtime_interaction_c
 import 'package:flutter_realtime_chat_core/flutter_realtime_chat_core.dart';
 import 'package:flutter_realtime_chat_rtc/flutter_realtime_chat_rtc.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
+import 'package:flutter_realtime_processed_video/flutter_realtime_processed_video.dart'
+    show ScreenCaptureProtectionService;
 
 import 'media_adapter.dart';
 import 'realtime_room.dart';
@@ -30,6 +32,8 @@ class RealtimeClient {
   RealtimeClient({
     this.backendUrl,
     this.requestTimeout,
+    this.preventScreenCapture = false,
+    ScreenCaptureProtectionService? screenCaptureProtection,
     this.effectsProbe,
     this.videoEffects,
     RealtimeRecordingSessionFactory? recordingSessionFactory,
@@ -43,6 +47,7 @@ class RealtimeClient {
     Iterable<RealtimeFeaturePlugin<Object>> featurePlugins = const [],
   }) : chatRegistry = chatRegistry ?? ChatRegistry(),
        featurePlugins = List.unmodifiable(featurePlugins),
+       _screenCaptureProtection = screenCaptureProtection,
        _tokenProvider = tokenProvider,
        _mediaClientFactory = mediaClientFactory,
        _chatClientFactory = chatClientFactory,
@@ -66,6 +71,8 @@ class RealtimeClient {
   final RealtimeRecordingSessionFactory? recordingSessionFactory;
   final String? backendUrl;
   final Duration? requestTimeout;
+  final bool preventScreenCapture;
+  final ScreenCaptureProtectionService? _screenCaptureProtection;
   final Future<MediaBackgroundCapabilities> Function(String, MediaRole)?
   effectsProbe;
   final RealtimeMediaAdapters mediaAdapters;
@@ -98,7 +105,12 @@ class RealtimeClient {
         joinInfo,
         credentialProvider: credentialProvider,
       );
-      return RealtimeChatRoom(room: room, disposeClient: client.dispose);
+      return RealtimeChatRoom(
+        room: room,
+        disposeClient: client.dispose,
+        preventScreenCapture: preventScreenCapture,
+        screenCaptureProtection: _screenCaptureProtection,
+      );
     } catch (error, stack) {
       final primary = normalizeRealtimeException(
         error,
@@ -132,7 +144,12 @@ class RealtimeClient {
         role: role,
         roomCode: roomCode,
       );
-      return RealtimeChatRoom(room: room, disposeClient: client.dispose);
+      return RealtimeChatRoom(
+        room: room,
+        disposeClient: client.dispose,
+        preventScreenCapture: preventScreenCapture,
+        screenCaptureProtection: _screenCaptureProtection,
+      );
     } catch (error, stack) {
       final primary = normalizeRealtimeException(
         error,
@@ -166,7 +183,12 @@ class RealtimeClient {
         avatarUrl: avatarUrl,
         role: role,
       );
-      return RealtimeChatRoom(room: room, disposeClient: client.dispose);
+      return RealtimeChatRoom(
+        room: room,
+        disposeClient: client.dispose,
+        preventScreenCapture: preventScreenCapture,
+        screenCaptureProtection: _screenCaptureProtection,
+      );
     } catch (error, stack) {
       final primary = normalizeRealtimeException(
         error,
@@ -370,6 +392,8 @@ class RealtimeClient {
         effectsCapabilities: effects,
         videoEffects: videoEffects,
         cloudRecordingSession: recordingSessionFactory?.call(room),
+        preventScreenCapture: preventScreenCapture,
+        screenCaptureProtection: _screenCaptureProtection,
         media: room,
         publicProviderId:
             _publicProviderResolver?.call(room.providerId) ?? room.providerId,
