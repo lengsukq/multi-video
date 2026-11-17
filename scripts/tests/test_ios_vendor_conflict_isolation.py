@@ -113,6 +113,71 @@ puts JSON.generate({
             "    #endif", registration,
         )
 
+    def _evaluate_source_podspec(self, podspec_path: pathlib.Path, *, chime=False, artc=False):
+        stub = r"""
+require 'json'
+module Pod
+  class Spec
+    attr_accessor :source_files, :pod_target_xcconfig
+    attr_reader :dependencies
+    def initialize
+      @dependencies = []
+      yield self
+      $captured_spec = self
+    end
+    def dependency(name, *args); @dependencies << name; end
+    def method_missing(name, *args)
+      return instance_variable_set("@#{name.to_s.chomp('=')}", args.first) if name.to_s.end_with?('=')
+      return instance_variable_get("@#{name}") if instance_variable_defined?("@#{name}")
+      super
+    end
+  end
+end
+load ARGV[0]
+puts JSON.generate({
+  dependencies: $captured_spec.dependencies,
+  source_files: $captured_spec.source_files,
+  conditions: ($captured_spec.pod_target_xcconfig || {})['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] || ''
+})
+"""
+        env = dict(os.environ)
+        env["FRSDK_IOS_DISABLE_CHIME"] = "1" if chime else "0"
+        env["FRSDK_IOS_DISABLE_ARTC"] = "1" if artc else "0"
+        result = subprocess.run(
+            [RUBY, "-e", stub, str(podspec_path)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_modular_source_podspecs_also_respect_vendor_isolation_flags(self):
+        chime_spec = ROOT / "packages/flutter_aws_chime/ios/flutter_aws_chime.podspec"
+        artc_spec = ROOT / "packages/flutter_realtime_media_artc/ios/flutter_realtime_media_artc.podspec"
+
+        chime_enabled = self._evaluate_source_podspec(chime_spec, chime=False)
+        self.assertIn("AmazonChimeSDKMedia", chime_enabled["dependencies"])
+        self.assertNotIn("FRSDK_DISABLE_CHIME", chime_enabled["conditions"])
+
+        chime_disabled = self._evaluate_source_podspec(chime_spec, chime=True)
+        self.assertFalse(any(d.startswith("AmazonChimeSDK") for d in chime_disabled["dependencies"]))
+        self.assertIn("FRSDK_DISABLE_CHIME", chime_disabled["conditions"])
+        self.assertEqual(
+            chime_disabled["source_files"],
+            "flutter_aws_chime/Sources/flutter_aws_chime/FlutterAwsChimePlugin.swift",
+        )
+
+        artc_enabled = self._evaluate_source_podspec(artc_spec, artc=False)
+        self.assertIn("AliVCSDK_ARTC", artc_enabled["dependencies"])
+        self.assertNotIn("FRSDK_DISABLE_ARTC", artc_enabled["conditions"])
+
+        artc_disabled = self._evaluate_source_podspec(artc_spec, artc=True)
+        self.assertNotIn("AliVCSDK_ARTC", artc_disabled["dependencies"])
+        self.assertIn("FRSDK_DISABLE_ARTC", artc_disabled["conditions"])
+        self.assertEqual(
+            artc_disabled["source_files"],
+            "Classes/FlutterRealtimeMediaArtcPlugin.swift",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

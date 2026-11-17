@@ -26,22 +26,26 @@ Future<MediaLocalPreviewSession> _windowsLocalPreviewFallback({
 }
 
 /// Demo explicitly elects every optional capability it showcases.
-Realtime createDemoRealtime(String backendUrl, {String appToken = ''}) =>
-    Realtime(
-      providers: createDemoProviders(),
-      backendUrl: backendUrl,
-      services: RealtimeRoomServices(
-        videoEffectsFactory: DefaultRealtimeVideoEffects.new,
-        localPreviewFallbackFactory:
-            resolveRealtimeRuntimePlatform() == RealtimeRuntimePlatform.windows
-            ? _windowsLocalPreviewFallback
-            : null,
-      ),
-      tokenProvider: appToken.trim().isEmpty ? null : () async => appToken,
-      featurePlugins: const [
-        ClassroomPreset(),
-        SharedContentPreset(),
-        SystemAnnotationPreset(),
-        LivePreset(),
-      ],
-    );
+Realtime createDemoRealtime(
+  String backendUrl, {
+  String appToken = '',
+  bool preventScreenCapture = false,
+}) => Realtime(
+  providers: createDemoProviders(),
+  backendUrl: backendUrl,
+  preventScreenCapture: preventScreenCapture,
+  services: RealtimeRoomServices(
+    videoEffectsFactory: DefaultRealtimeVideoEffects.new,
+    localPreviewFallbackFactory:
+        resolveRealtimeRuntimePlatform() == RealtimeRuntimePlatform.windows
+        ? _windowsLocalPreviewFallback
+        : null,
+  ),
+  tokenProvider: appToken.trim().isEmpty ? null : () async => appToken,
+  featurePlugins: const [
+    ClassroomPreset(),
+    SharedContentPreset(),
+    SystemAnnotationPreset(),
+    LivePreset(),
+  ],
+);

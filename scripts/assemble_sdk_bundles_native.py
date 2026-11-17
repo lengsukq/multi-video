@@ -372,7 +372,29 @@ def _assemble_ios_bundle(
                 shutil.copy2(item, target)
 
     plugin_cls = plugin_class_for_bundle(bundle_id)
-    registrations = "\n".join(f"    {cls}.register(with: registrar)" for _, cls in native)
+    has_chime = "flutter_aws_chime" in owned_modules
+    has_artc = "flutter_realtime_media_artc" in owned_modules
+    isolation_header = ""
+    if has_chime:
+        isolation_header += "disable_chime = ENV['FRSDK_IOS_DISABLE_CHIME'] == '1'\n"
+    if has_artc:
+        isolation_header += "disable_artc = ENV['FRSDK_IOS_DISABLE_ARTC'] == '1'\n"
+    if isolation_header:
+        isolation_header += "\n"
+
+    registrations_list = []
+    for m_name, cls in native:
+        if m_name == "flutter_aws_chime":
+            registrations_list.append(
+                f"    #if !FRSDK_DISABLE_CHIME\n    {cls}.register(with: registrar)\n    #endif"
+            )
+        elif m_name == "flutter_realtime_media_artc":
+            registrations_list.append(
+                f"    #if !FRSDK_DISABLE_ARTC\n    {cls}.register(with: registrar)\n    #endif"
+            )
+        else:
+            registrations_list.append(f"    {cls}.register(with: registrar)")
+    registrations = "\n".join(registrations_list)
     (classes / f"{plugin_cls}.swift").write_text(
         "import Flutter\nimport Foundation\n\n"
         f"public final class {plugin_cls}: NSObject, FlutterPlugin {{\n"
@@ -423,16 +445,42 @@ def _assemble_ios_bundle(
             dest / "ios" / "podfile.rb",
         )
 
-    pod_lines = [
-        f"  s.dependency '{m}', '{c}'" if c else f"  s.dependency '{m}'"
-        for m, c in sorted(dependencies.items())
-    ]
+    pod_lines = []
+    for m, c in sorted(dependencies.items()):
+        cond = (
+            " unless disable_chime" if has_chime and m.startswith("AmazonChimeSDK")
+            else " unless disable_artc" if has_artc and m == "AliVCSDK_ARTC"
+            else ""
+        )
+        pod_lines.append(
+            f"  s.dependency '{m}', '{c}'{cond}" if c else f"  s.dependency '{m}'{cond}"
+        )
     pub_headers = "'Classes/**/include/**/*.h'"
     if "flutter_realtime_media_livekit" in owned_modules:
         pub_headers += ", 'Classes/**/FlutterRealtimeMediaLivekitPlugin.h'"
 
+    exclude_lines = ""
+    condition_lines = "  conditions = ['$(inherited)']\n"
+    if has_chime:
+        exclude_lines += (
+            "  excluded_sources << 'Classes/flutter_aws_chime/**/*' if disable_chime\n"
+        )
+        condition_lines += "  conditions << 'FRSDK_DISABLE_CHIME' if disable_chime\n"
+    if has_artc:
+        exclude_lines += (
+            "  excluded_sources << 'Classes/flutter_realtime_media_artc/**/*' if disable_artc\n"
+        )
+        condition_lines += "  conditions << 'FRSDK_DISABLE_ARTC' if disable_artc\n"
+    exclude_block = (
+        "  excluded_sources = []\n"
+        f"{exclude_lines}"
+        "  s.exclude_files = excluded_sources\n"
+        if exclude_lines
+        else ""
+    )
+
     spec = (
-        f"{ivs_header}"
+        f"{ivs_header}{isolation_header}"
         "Pod::Spec.new do |s|\n"
         f"  s.name = '{bundle_id}'\n"
         "  s.version = '0.1.0'\n"
@@ -444,12 +492,17 @@ def _assemble_ios_bundle(
         "  s.source = { :path => '.' }\n"
         f"  s.source_files = 'Classes/**/*.{{swift,m,mm,c,cc,cpp}}', {pub_headers}\n"
         f"  s.public_header_files = {pub_headers}\n"
+        f"{exclude_block}"
         + ("  s.resources = 'Resources/**/*'\n" if resources.exists() else "")
         + "  s.platform = :ios, '15.0'\n"
         "  s.swift_version = '5.9'\n"
         "  s.static_framework = true\n"
         f"{ivs_spec_lines}"
-        "  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }\n"
+        f"{condition_lines}"
+        "  s.pod_target_xcconfig = {\n"
+        "    'DEFINES_MODULE' => 'YES',\n"
+        "    'SWIFT_ACTIVE_COMPILATION_CONDITIONS' => conditions.join(' '),\n"
+        "  }\n"
         + "\n".join(pod_lines)
         + "\nend\n"
     )

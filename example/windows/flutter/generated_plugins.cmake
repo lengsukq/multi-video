@@ -7,6 +7,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
   flutter_realtime_media_agora
   flutter_realtime_media_artc
+  flutter_realtime_media_aws_desktop
   flutter_realtime_media_livekit
   flutter_realtime_media_trtc
   flutter_realtime_screen_annotation

@@ -141,6 +141,45 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'Chinese action cards do not overflow near 260px CanvasKit wrap boundary',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      tester.view.devicePixelRatio = 1;
+      final realtime = _PreviewRealtime();
+      for (final size in [
+        const Size(640, 820),
+        const Size(1080, 820),
+        const Size(1160, 820),
+      ]) {
+        tester.view.physicalSize = size;
+        await tester.pumpWidget(
+          designCaptureApp(
+            MaterialApp(
+              debugShowCheckedModeBanner: false,
+              locale: const Locale('zh', 'CN'),
+              supportedLocales: RealtimeStrings.supportedLocales,
+              localizationsDelegates: RealtimeStrings.localizationsDelegates,
+              theme: designTestTheme(),
+              home: JoinScreen(
+                onLocaleChanged: (_) {},
+                realtimeFactory: (_) => realtime,
+              ),
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'Chinese JoinScreen $size must not overflow',
+        );
+      }
+    },
+  );
 }
 
 class _PreviewRealtime extends Fake implements Realtime {

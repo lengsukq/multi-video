@@ -11,11 +11,16 @@ class DemoServerSettingsPanel extends StatelessWidget {
     required this.diagnostics,
     required this.defaultBackendUrl,
     required this.onTest,
+    this.preventScreenCapture = false,
+    this.onPreventScreenCaptureChanged,
   });
   final TextEditingController controller;
   final DemoBackendDiagnostics diagnostics;
   final String defaultBackendUrl;
   final Future<void> Function() onTest;
+  final bool preventScreenCapture;
+  final ValueChanged<bool>? onPreventScreenCaptureChanged;
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: Listenable.merge([controller, diagnostics]),
@@ -23,6 +28,7 @@ class DemoServerSettingsPanel extends StatelessWidget {
   );
   Widget _contents(BuildContext context) {
     final style = RealtimeStyle.of(context);
+    final isZh = DemoStrings.of(context).isZh;
     return RealtimeCardSurface(
       radius: RealtimeUiTokens.cardRadius,
       padding: const EdgeInsets.all(16),
@@ -123,6 +129,29 @@ class DemoServerSettingsPanel extends StatelessWidget {
               _preset(context, 'Android 10.0.2.2', 'http://10.0.2.2:3000'),
             ],
           ),
+          if (onPreventScreenCaptureChanged != null) ...[
+            const SizedBox(height: 14),
+            Divider(height: 1, thickness: 1, color: style.borderSubtle),
+            const SizedBox(height: 6),
+            RealtimeCupertinoSwitchRow(
+              key: const ValueKey('demo-prevent-screen-capture-switch'),
+              leading: Icon(
+                Icons.screen_lock_portrait_rounded,
+                size: 20,
+                color: style.textMuted,
+              ),
+              title: Text(
+                isZh ? '开启防录屏保护 (SDK 参数)' : 'Prevent Screen Capture (SDK)',
+              ),
+              subtitle: Text(
+                isZh
+                    ? 'iOS / Android 检测到系统录屏或投屏时弹窗拦截，Android 同步启用窗口防截屏保护'
+                    : 'Alerts on iOS/Android external recording or mirroring and secures Android window',
+              ),
+              value: preventScreenCapture,
+              onChanged: onPreventScreenCaptureChanged,
+            ),
+          ],
         ],
       ),
     );

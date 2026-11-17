@@ -1,6 +1,14 @@
 # Uncomment this line to define a global platform for your project
 platform :ios, '15.0'
 
+# Optional iOS WebRTC binary symbol conflict isolation:
+# When combining standalone WebRTC (LiveKit) with Chime or ARTC on iOS, set
+# FRSDK_IOS_DISABLE_CHIME=1 and/or FRSDK_IOS_DISABLE_ARTC=1 in the build
+# environment (or uncomment below) before `pod install` so conflicting
+# Objective-C RTC* frameworks are excluded cleanly while preserving IVS Live.
+# ENV['FRSDK_IOS_DISABLE_CHIME'] ||= '0'
+# ENV['FRSDK_IOS_DISABLE_ARTC'] ||= '0'
+
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 

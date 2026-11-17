@@ -10,6 +10,7 @@
 #include <connectivity_plus/connectivity_plus_windows_plugin.h>
 #include <flutter_realtime_media_agora/flutter_realtime_media_agora_plugin_c_api.h>
 #include <flutter_realtime_media_artc/flutter_realtime_media_artc_plugin_c_api.h>
+#include <flutter_realtime_media_aws_desktop/flutter_realtime_media_aws_desktop_plugin_c_api.h>
 #include <flutter_realtime_media_livekit/flutter_realtime_media_livekit_plugin_c_api.h>
 #include <flutter_realtime_media_trtc/flutter_realtime_media_trtc_plugin_c_api.h>
 #include <flutter_realtime_screen_annotation/flutter_realtime_screen_annotation_plugin_c_api.h>
@@ -32,6 +33,8 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("FlutterRealtimeMediaAgoraPluginCApi"));
   FlutterRealtimeMediaArtcPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FlutterRealtimeMediaArtcPluginCApi"));
+  FlutterRealtimeMediaAwsDesktopPluginCApiRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FlutterRealtimeMediaAwsDesktopPluginCApi"));
   FlutterRealtimeMediaLivekitPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FlutterRealtimeMediaLivekitPluginCApi"));
   FlutterRealtimeMediaTrtcPluginCApiRegisterWithRegistrar(

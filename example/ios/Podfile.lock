@@ -72,7 +72,7 @@ SPEC CHECKSUMS:
   agora_chat_sdk_ios: dab1789944511cb43153580d2b7e27b7ed375aef
   AliVCSDK_ARTC: 746ae545f16c74c519914e6b85afbebcf426a7fe
   Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
-  flutter_realtime_media_artc: 986694ed59baccfa8da795913cbe94a2737f4377
+  flutter_realtime_media_artc: bc119a5fdaf43de7b82571bf4b32ccaf462d17a2
   HydraAsync: 8d589bd725b0224f899afafc9a396327405f8063
   HyphenateChat: 97cf56506e2282722c0b3321a6968d9968bfeca7
   ShengwangInfra_iOS: b72ce9eb087e6056e3f2bb8c4869c1f335a09267
@@ -83,6 +83,6 @@ SPEC CHECKSUMS:
   TXIMSDK_Plus_iOS_XCFramework: 5e451a76880a59c99d4abf77eef80b9adf4f8e6b
   TXLiteAVSDK_Professional: 914aa2e59545c8cdff80ab70c1bc8191c683ecfc
 
-PODFILE CHECKSUM: 1f22f2987adfe2459939cf1dc007436da5a363cc
+PODFILE CHECKSUM: 5800680f0b24357a94f9789033fa55a7efc82533
 
 COCOAPODS: 1.16.2

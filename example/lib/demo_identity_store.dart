@@ -27,6 +27,27 @@ class DemoIdentityStore {
   static const deviceIdKey = 'realtime_media_demo_device_id';
   static const displayNameKey = 'realtime_media_demo_display_name';
   static const avatarUrlKey = 'realtime_media_demo_avatar_url';
+  static const preventScreenCaptureKey =
+      'realtime_media_demo_prevent_screen_capture';
+
+  Future<bool> loadPreventScreenCapture() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(preventScreenCaptureKey) ?? false;
+    } catch (error, stack) {
+      _report(error, stack);
+      return false;
+    }
+  }
+
+  Future<void> savePreventScreenCapture(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(preventScreenCaptureKey, enabled);
+    } catch (error, stack) {
+      _report(error, stack);
+    }
+  }
 
   Future<String> loadAvatarUrl() async {
     try {

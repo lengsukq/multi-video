@@ -85,6 +85,7 @@ class _JoinScreenState extends State<JoinScreen> with TickerProviderStateMixin {
   MediaRoomMode _createRoomMode = MediaRoomMode.meeting;
   MediaMeetingMode _createMeetingMode = MediaMeetingMode.standard;
   MediaRoomMode _joinRoomMode = MediaRoomMode.meeting;
+  bool _preventScreenCapture = false;
 
   // Backend connection status: null = untested, true = online, false = offline
   bool? get _serverOnline => _diagnostics.online;
@@ -175,9 +176,12 @@ class _JoinScreenState extends State<JoinScreen> with TickerProviderStateMixin {
     final id = await _deviceIdFuture;
     final name = await _identityStore.loadDisplayName(id);
     final avatarUrl = await _identityStore.loadAvatarUrl();
+    final preventScreenCapture = await _identityStore
+        .loadPreventScreenCapture();
     if (!mounted) return;
     _displayNameController.text = name;
     _avatarUrlController.text = avatarUrl;
+    _preventScreenCapture = preventScreenCapture;
     setState(() {});
   }
 
@@ -246,7 +250,11 @@ class _JoinScreenState extends State<JoinScreen> with TickerProviderStateMixin {
             : null,
         createRealtime: (url) =>
             widget.realtimeFactory?.call(url) ??
-            createDemoRealtime(url, appToken: _appToken),
+            createDemoRealtime(
+              url,
+              appToken: _appToken,
+              preventScreenCapture: _preventScreenCapture,
+            ),
       );
       if (!mounted) return;
       switch (result) {
@@ -297,7 +305,11 @@ class _JoinScreenState extends State<JoinScreen> with TickerProviderStateMixin {
 
   Realtime _newRealtime() =>
       widget.realtimeFactory?.call(_server) ??
-      createDemoRealtime(_server, appToken: _appToken);
+      createDemoRealtime(
+        _server,
+        appToken: _appToken,
+        preventScreenCapture: _preventScreenCapture,
+      );
 
   Future<void> _runPreJoin(
     Realtime realtime, {
@@ -617,6 +629,11 @@ class _JoinScreenState extends State<JoinScreen> with TickerProviderStateMixin {
     diagnostics: _diagnostics,
     defaultBackendUrl: _defaultBackendUrl,
     onTest: _testConnection,
+    preventScreenCapture: _preventScreenCapture,
+    onPreventScreenCaptureChanged: (enabled) {
+      setState(() => _preventScreenCapture = enabled);
+      unawaited(_identityStore.savePreventScreenCapture(enabled));
+    },
   );
   Widget _buildIdentitySettingsSection() => DemoIdentitySettingsPanel(
     deviceId: _deviceIdFuture,
@@ -669,20 +686,22 @@ class _JoinScreenState extends State<JoinScreen> with TickerProviderStateMixin {
           fillAvailableHeight: !stack,
           onPressed: () => _showCreateForm(true),
         );
-        return stack
-            ? Column(
-                children: [meetingCard, const SizedBox(height: 12), liveCard],
-              )
-            : IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: meetingCard),
-                    const SizedBox(width: 14),
-                    Expanded(child: liveCard),
-                  ],
-                ),
-              );
+        if (stack) {
+          return Column(
+            children: [meetingCard, const SizedBox(height: 12), liveCard],
+          );
+        }
+        // Avoid IntrinsicHeight + stretched Row around wrapped Text: CanvasKit
+        // intrinsic measurement can underestimate near-boundary line wraps by
+        // one line, overflowing the bottom button by 16 px.
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: meetingCard),
+            const SizedBox(width: 14),
+            Expanded(child: liveCard),
+          ],
+        );
       },
     );
 
@@ -1376,6 +1395,7 @@ class _QuickActionTile extends StatelessWidget {
       onTap: busy ? null : onPressed,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -1416,22 +1436,30 @@ class _QuickActionTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            description,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontFamily: bodyFamily,
-              fontSize: 12.5,
-              height: 1.4,
-              color: style.textMuted,
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: fillAvailableHeight
+                  ? 36 * MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0)
+                  : 0,
+            ),
+            child: Text(
+              description,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: bodyFamily,
+                fontSize: 12.5,
+                height: 1.4,
+                color: style.textMuted,
+              ),
             ),
           ),
           const SizedBox(height: 16),
-          if (fillAvailableHeight) const Spacer(),
-          SizedBox(
-            width: double.infinity,
-            height: 38,
+          ConstrainedBox(
+            constraints: const BoxConstraints(
+              minWidth: double.infinity,
+              minHeight: 38,
+            ),
             child: OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
                 foregroundColor: isLive ? const Color(0xFFD93A3F) : style.text,
