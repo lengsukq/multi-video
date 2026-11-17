@@ -76,7 +76,9 @@ class _ChimeSnapshotMapper {
       localMuted: providerSnapshot.localMuted,
       localVideoEnabled: providerSnapshot.localVideoEnabled,
       localScreenShareEnabled:
-          _session._controls._iosScreenCaptureSource != null,
+          _session._controls._iosScreenCaptureSource != null ||
+          _session._controls._desktopScreenShareEnabled ||
+          (providerSnapshot.contentShareTile?.isLocal == true),
       contentShareTrack: providerSnapshot.contentShareTile == null
           ? null
           : ChimeMediaVideoTrack(providerSnapshot.contentShareTile!),
@@ -178,6 +180,9 @@ class _ChimeSnapshotMapper {
     if (oldContent == null && newContent != null) {
       _session._emit(MediaTrackPublished(newContent));
     } else if (oldContent != null && newContent == null) {
+      if (oldContent.isLocal) {
+        _session._controls._desktopScreenShareEnabled = false;
+      }
       _session._emit(
         MediaTrackUnpublished(
           trackId: oldContent.id,

@@ -122,7 +122,7 @@ Future<IvsDeviceCounts> probeNativeIvsDevices() async {
       cameras: (raw?['cameras'] as num?)?.toInt() ?? 0,
     );
   } on PlatformException catch (error) {
-    throw _mapPlatformError(error);
+    throw mapIvsPlatformError(error);
   }
 }
 
@@ -241,12 +241,12 @@ class _NativeIvsEngine implements IvsEngine {
     try {
       await _methods.invokeMethod<void>(method, arguments);
     } on PlatformException catch (error) {
-      throw _mapPlatformError(error);
+      throw mapIvsPlatformError(error);
     }
   }
 }
 
-RealtimeException _mapPlatformError(PlatformException error) =>
+RealtimeException mapIvsPlatformError(PlatformException error) =>
     RealtimeException(
       code: switch (error.code) {
         'permission_denied' => RealtimeErrorCode.permissionDenied,

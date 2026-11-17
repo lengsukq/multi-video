@@ -201,6 +201,10 @@ class WindowsIvsWebView2Engine implements IvsEngine {
     }
   }
 
+  Future<void> setScreenShareEnabled(bool enabled) async {
+    await _command('setScreenShareEnabled', {'enabled': enabled});
+  }
+
   @override
   Future<void> switchCamera(MediaCameraPosition position) async {
     throw const RealtimeException(

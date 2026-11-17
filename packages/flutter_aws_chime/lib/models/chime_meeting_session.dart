@@ -313,6 +313,43 @@ class ChimeMeetingSession {
     });
   }
 
+  /// Enumerates shareable desktop displays and windows when supported.
+  Future<List<Map<String, dynamic>>> listScreenShareSources() async {
+    _ensureActive();
+    final value = await _channel.invoke('listScreenShareSources');
+    if (value is! List) return const <Map<String, dynamic>>[];
+    return value
+        .whereType<Map<Object?, Object?>>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  /// Selects a desktop display or window to share on the next capture start.
+  Future<void> selectScreenShareSource({
+    required String id,
+    required String name,
+    required String kind,
+  }) async {
+    _ensureActive();
+    if (id.trim().isEmpty) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.invalidArgument,
+        message: 'Screen share source id must not be empty.',
+      );
+    }
+    await _channel.invoke('selectScreenShareSource', {
+      'id': id,
+      'name': name,
+      'kind': kind,
+    });
+  }
+
+  /// Starts or stops desktop content sharing through the native/WebView bridge.
+  Future<void> setScreenShareEnabled(bool enabled) async {
+    _ensureActive();
+    await _channel.invoke('setScreenShareEnabled', {'enabled': enabled});
+  }
+
   Future<void> sendMessage(
     String message, {
     String topic = _chatTopic,

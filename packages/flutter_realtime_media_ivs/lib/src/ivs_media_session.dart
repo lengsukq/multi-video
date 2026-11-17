@@ -70,7 +70,11 @@ abstract class _IvsMediaSession
       canPublishAudio: publisher,
       canPublishVideo: publisher,
       canScreenShare:
-          publisher && !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
+          publisher &&
+          !kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.iOS ||
+              defaultTargetPlatform == TargetPlatform.macOS ||
+              defaultTargetPlatform == TargetPlatform.windows),
       canSwitchCamera:
           publisher &&
           defaultTargetPlatform != TargetPlatform.macOS &&
@@ -362,6 +366,7 @@ abstract class _IvsMediaSession
   Future<void> _releaseEngine({required bool leave}) async {
     final engine = _engine;
     final cleanup = Cleanup(timeout: cleanupTimeout);
+    _publishing._desktopScreenShareEnabled = false;
     await cleanup.run('screenCapture', _publishing._stopIosScreenCapture);
     await cleanup.run('processed.input', _publishing._processedSink.detach);
     if (engine != null) {

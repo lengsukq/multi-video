@@ -14,6 +14,46 @@ class _IvsPublishing {
     'com.oneplusdream.flutter_realtime_media_ivs/methods',
   );
   ProcessedVideoSource? _iosScreenSource;
+  bool _desktopScreenShareEnabled = false;
+
+  Future<List<MediaScreenShareSource>> listScreenShareSources() async {
+    _session._requireActive();
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS) {
+      return const <MediaScreenShareSource>[];
+    }
+    try {
+      final raw = await _iosChannel.invokeListMethod<dynamic>(
+        'listScreenShareSources',
+      );
+      return [
+        for (final item in raw ?? const <dynamic>[])
+          if (item is Map)
+            MediaScreenShareSource(
+              id: item['id']?.toString() ?? '',
+              name: item['name']?.toString() ?? '',
+              kind: item['kind'] == 'window'
+                  ? MediaScreenShareSourceKind.window
+                  : MediaScreenShareSourceKind.display,
+            ),
+      ].where((source) => source.id.isNotEmpty).toList(growable: false);
+    } on PlatformException catch (error) {
+      throw mapIvsPlatformError(error);
+    }
+  }
+
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
+    _session._requireActive();
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS) return;
+    try {
+      await _iosChannel.invokeMethod<void>('selectScreenShareSource', {
+        'id': source.id,
+        'name': source.name,
+        'kind': source.kind.name,
+      });
+    } on PlatformException catch (error) {
+      throw mapIvsPlatformError(error);
+    }
+  }
 
   Future<void> _stopIosScreenCapture() async {
     if (_iosScreenSource == null) return;
@@ -38,6 +78,33 @@ class _IvsPublishing {
   Future<void> _setScreenShareEnabled(bool enabled) async {
     _session._requireActive();
     _session._requireCapability(capabilities.canScreenShare, 'screen sharing');
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      final engine = _session._engine;
+      if (engine is WindowsIvsWebView2Engine) {
+        if (_desktopScreenShareEnabled == enabled) return;
+        await engine.setScreenShareEnabled(enabled);
+        _desktopScreenShareEnabled = enabled;
+        _session._setSnapshot(
+          _session._snapshot.copyWith(localScreenShareEnabled: enabled),
+        );
+        return;
+      }
+    }
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS) {
+      if (_desktopScreenShareEnabled == enabled) return;
+      try {
+        await _iosChannel.invokeMethod<void>('setScreenShareEnabled', {
+          'enabled': enabled,
+        });
+      } on PlatformException catch (error) {
+        throw mapIvsPlatformError(error);
+      }
+      _desktopScreenShareEnabled = enabled;
+      _session._setSnapshot(
+        _session._snapshot.copyWith(localScreenShareEnabled: enabled),
+      );
+      return;
+    }
     if ((_iosScreenSource != null) == enabled) return;
     if (!enabled) {
       await _stopIosScreenCapture();

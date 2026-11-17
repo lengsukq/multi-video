@@ -14,6 +14,7 @@ class _ChimeMediaControls {
     'com.oneplusdream.aws.chime.methodChannel',
   );
   ProcessedVideoSource? _iosScreenCaptureSource;
+  bool _desktopScreenShareEnabled = false;
 
   Future<void> _stopIosSystemScreenCapture() async {
     if (_iosScreenCaptureSource == null) return;
@@ -257,14 +258,65 @@ class _ChimeMediaControls {
     }
   }
 
+  Future<List<MediaScreenShareSource>> listScreenShareSources() async {
+    _session._ensureActive();
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS) {
+      return const <MediaScreenShareSource>[];
+    }
+    try {
+      final raw = await _session._session.listScreenShareSources();
+      return raw
+          .map(
+            (item) => MediaScreenShareSource(
+              id: item['id']?.toString() ?? '',
+              name: item['name']?.toString() ?? '',
+              kind: item['kind'] == 'window'
+                  ? MediaScreenShareSourceKind.window
+                  : MediaScreenShareSourceKind.display,
+            ),
+          )
+          .where((source) => source.id.isNotEmpty)
+          .toList(growable: false);
+    } on chime.RealtimeException catch (error, stack) {
+      throw _mapError(error, stage: 'listScreenShareSources', stack: stack);
+    }
+  }
+
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
+    _session._ensureActive();
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS) return;
+    try {
+      await _session._session.selectScreenShareSource(
+        id: source.id,
+        name: source.name,
+        kind: source.kind.name,
+      );
+    } on chime.RealtimeException catch (error, stack) {
+      throw _mapError(error, stage: 'selectScreenShareSource', stack: stack);
+    }
+  }
+
   Future<void> setScreenShareEnabled(bool enabled) async {
     _session._ensureActive();
     if (!capabilities.canScreenShare) {
       throw RealtimeException(
         code: RealtimeErrorCode.unsupportedFeature,
-        message: 'Native Chime screen capture requires iOS 27+.',
+        message: 'Screen sharing is not supported on this platform for Chime.',
         providerId: providerId,
       );
+    }
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.windows)) {
+      if (_desktopScreenShareEnabled == enabled) return;
+      try {
+        await _session._session.setScreenShareEnabled(enabled);
+        _desktopScreenShareEnabled = enabled;
+        _session._mapper._onProviderSnapshot(_session._session.snapshot);
+      } on chime.RealtimeException catch (error, stack) {
+        throw _mapError(error, stage: 'setScreenShareEnabled', stack: stack);
+      }
+      return;
     }
     if ((_iosScreenCaptureSource != null) == enabled) return;
     if (!enabled) {

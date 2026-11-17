@@ -1,9 +1,16 @@
 part of 'ivs_media_session.dart';
 
 class IvsParticipantSession extends _IvsMediaSession
-    implements InteractiveMediaSession {
+    implements InteractiveMediaSession, MediaScreenShareSourceSelector {
   IvsParticipantSession({required super.engineFactory})
     : super(role: MediaRole.participant);
+
+  @override
+  Future<List<MediaScreenShareSource>> listScreenShareSources() =>
+      _publishing.listScreenShareSources();
+  @override
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) =>
+      _publishing.selectScreenShareSource(source);
 
   @override
   Future<void> setMuted(bool muted) => _publishing._setMuted(muted);

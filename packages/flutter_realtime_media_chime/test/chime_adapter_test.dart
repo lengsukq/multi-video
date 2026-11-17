@@ -418,6 +418,8 @@ void main() {
     );
 
     test('maps join state and the local attendee', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
       await session.join(joinInfo);
 
       expect(session.state, MediaSessionState.connected);
@@ -432,6 +434,31 @@ void main() {
       expect(session.capabilities.canReportNetworkStats, isFalse);
       await session.dispose();
     });
+
+    test(
+      'macOS supports desktop screen source selection and sharing',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        await session.join(joinInfo);
+        expect(session.capabilities.canScreenShare, isTrue);
+        final sources = await session.listScreenShareSources();
+        expect(sources, hasLength(2));
+        await session.selectScreenShareSource(sources.last);
+        await session.setScreenShareEnabled(true);
+        expect(session.snapshot.localScreenShareEnabled, isTrue);
+        await session.setScreenShareEnabled(false);
+        expect(session.snapshot.localScreenShareEnabled, isFalse);
+        expect(providerSession.actions, contains('listScreenShareSources'));
+        expect(
+          providerSession.actions,
+          contains('selectScreenShareSource:window:42'),
+        );
+        expect(providerSession.actions, contains('screen:true'));
+        expect(providerSession.actions, contains('screen:false'));
+        await session.dispose();
+      },
+    );
 
     test(
       'maps remote participants, video tiles, speaking, and messages',
@@ -480,6 +507,8 @@ void main() {
     test(
       'delegates controls and rejects unsupported outgoing screen share',
       () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
         await session.join(joinInfo);
 
         await session.setMuted(false);

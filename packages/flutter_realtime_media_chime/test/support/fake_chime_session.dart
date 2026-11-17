@@ -107,6 +107,29 @@ class FakeChimeMeetingSession extends chime.ChimeMeetingSession {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> listScreenShareSources() async {
+    actions.add('listScreenShareSources');
+    return const [
+      {'id': 'display:1', 'name': 'Main Display', 'kind': 'display'},
+      {'id': 'window:42', 'name': 'Notes', 'kind': 'window'},
+    ];
+  }
+
+  @override
+  Future<void> selectScreenShareSource({
+    required String id,
+    required String name,
+    required String kind,
+  }) async {
+    actions.add('selectScreenShareSource:$id');
+  }
+
+  @override
+  Future<void> setScreenShareEnabled(bool enabled) async {
+    actions.add('screen:$enabled');
+  }
+
+  @override
   Future<void> sendMessage(
     String message, {
     String topic = 'chat',

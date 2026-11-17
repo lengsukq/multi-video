@@ -247,6 +247,56 @@ void main() {
     },
   );
 
+  test(
+    'IVS macOS supports desktop screen source selection and sharing',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const ivsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_ivs/methods',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final calls = <String>[];
+      messenger.setMockMethodCallHandler(ivsChannel, (call) async {
+        calls.add(call.method);
+        if (call.method == 'listScreenShareSources') {
+          return const [
+            {'id': 'display:1', 'name': 'Main Display', 'kind': 'display'},
+            {'id': 'window:9', 'name': 'Slides', 'kind': 'window'},
+          ];
+        }
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(ivsChannel, null));
+      final info = IvsJoinInfo.fromJson(_joinJson());
+      final session =
+          IvsSessionFactory(
+                engineFactory: () async => _FakeIvsEngine(),
+              ).createSession(info)
+              as InteractiveMediaSession;
+      await session.join(info);
+      expect(session.capabilities.canScreenShare, isTrue);
+      final selector = session as MediaScreenShareSourceSelector;
+      final sources = await selector.listScreenShareSources();
+      expect(sources, hasLength(2));
+      await selector.selectScreenShareSource(sources.last);
+      await session.setScreenShareEnabled(true);
+      expect(session.snapshot.localScreenShareEnabled, isTrue);
+      await session.setScreenShareEnabled(false);
+      expect(session.snapshot.localScreenShareEnabled, isFalse);
+      expect(
+        calls,
+        containsAll([
+          'listScreenShareSources',
+          'selectScreenShareSource',
+          'setScreenShareEnabled',
+        ]),
+      );
+      await session.dispose();
+    },
+  );
+
   for (final disposing in [false, true]) {
     test(
       'late IVS refresh preserves the next active owner after $disposing',

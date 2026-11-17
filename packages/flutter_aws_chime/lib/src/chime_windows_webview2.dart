@@ -116,6 +116,11 @@ class ChimeWindowsWebview2Transport {
         case 'sendMessage':
           await _command('sendMessage', args);
           return _success();
+        case 'setScreenShareEnabled':
+          await _command('setScreenShareEnabled', {
+            'enabled': args['enabled'] == true,
+          });
+          return _success();
         case 'setCameraPosition':
         case 'probeProcessedVideoInput':
         case 'attachProcessedVideoSource':

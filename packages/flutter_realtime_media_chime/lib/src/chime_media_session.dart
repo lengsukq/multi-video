@@ -15,7 +15,11 @@ part 'chime_snapshot_mapper.dart';
 MediaCapabilities get _chimeCapabilities => MediaCapabilities(
   canPublishAudio: true,
   canPublishVideo: true,
-  canScreenShare: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
+  canScreenShare:
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows),
   canSwitchCamera: defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS,
   canSendData: true,
@@ -31,7 +35,8 @@ class ChimeMediaSession
     implements
         InteractiveMediaSession,
         MediaDeviceController,
-        ProcessedVideoSink {
+        ProcessedVideoSink,
+        MediaScreenShareSourceSelector {
   ChimeMediaSession({chime.ChimeMeetingSession? session})
     : _session = session ?? chime.ChimeMeetingSession();
 
@@ -135,6 +140,12 @@ class ChimeMediaSession
   @override
   Future<void> setScreenShareEnabled(bool enabled) =>
       _controls.setScreenShareEnabled(enabled);
+  @override
+  Future<List<MediaScreenShareSource>> listScreenShareSources() =>
+      _controls.listScreenShareSources();
+  @override
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) =>
+      _controls.selectScreenShareSource(source);
   @override
   Future<void> switchCamera(MediaCameraPosition position) =>
       _controls.switchCamera(position);
