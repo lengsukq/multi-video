@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.source = { :path => '.' }
   s.source_files = 'flutter_realtime_processed_video/Sources/flutter_realtime_processed_video/**/*.swift'
   s.dependency 'Flutter'
-  s.frameworks = 'AVFoundation', 'CoreVideo', 'CoreMedia'
+  s.frameworks = 'AVFoundation', 'CoreImage', 'CoreVideo', 'CoreMedia', 'ReplayKit'
   s.platform = :ios, '15.0'
   s.swift_version = '5.9'
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }

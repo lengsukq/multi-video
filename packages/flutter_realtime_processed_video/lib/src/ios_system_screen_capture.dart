@@ -1,103 +1,95 @@
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
-/// One shared native iOS 27+ ScreenCaptureKit source for all media providers.
-///
-/// Captured CVPixelBuffers stay inside the native FrameHub. Agora, TRTC, and
-/// LiveKit attach their own provider-specific publishing sinks to [source].
-/// It intentionally does not depend on a particular RTC provider.
-class IosSystemScreenCapture {
-  IosSystemScreenCapture._() {
-    _channel.setMethodCallHandler(_handleCall);
-  }
+import 'native_system_screen_capture.dart';
 
-  static final IosSystemScreenCapture instance = IosSystemScreenCapture._();
-  static const _channel = MethodChannel(
+/// Describes which iOS screen capture backend will be used by [IosSystemScreenCapture].
+class IosScreenCaptureConfiguration {
+  const IosScreenCaptureConfiguration({
+    required this.captureBackend,
+    required this.crossAppSupported,
+    required this.broadcastExtensionConfigured,
+    this.appGroup = '',
+    this.extensionId = '',
+  });
+
+  /// One of `'screenCaptureKit'` (iOS 27+), `'broadcastExtension'` (iOS 15–26
+  /// with signed ReplayKit `.appex` and App Group), `'inAppReplayKit'`, or
+  /// `'unavailable'`.
+  final String captureBackend;
+  final bool crossAppSupported;
+  final bool broadcastExtensionConfigured;
+  final String appGroup;
+  final String extensionId;
+
+  factory IosScreenCaptureConfiguration.fromMap(Map<Object?, Object?> raw) {
+    final backend = raw['captureBackend']?.toString() ?? 'unavailable';
+    return IosScreenCaptureConfiguration(
+      captureBackend: backend,
+      crossAppSupported: raw['crossAppSupported'] == true,
+      broadcastExtensionConfigured: raw['configured'] == true,
+      appGroup: raw['appGroup']?.toString() ?? '',
+      extensionId: raw['extensionId']?.toString() ?? '',
+    );
+  }
+}
+
+/// Shared native iOS screen capture source for all media providers.
+///
+/// Uses `ScreenCaptureKit` on iOS 27+, a signed ReplayKit Broadcast Upload
+/// Extension (`rtc_SSFD` App Group socket) on iOS 15–26 when configured on the
+/// host target, and falls back to `RPScreenRecorder` in-app capture otherwise.
+/// Captured `CVPixelBuffer`s stay inside the native FrameHub.
+class IosSystemScreenCapture extends NativeSystemScreenCaptureClient {
+  IosSystemScreenCapture._()
+    : super(
+        _iosCaptureChannel,
+        TargetPlatform.iOS,
+        ProcessedVideoPlatform.ios,
+        'iosScreenCaptureKit',
+        'iOS screen capture requires native iOS.',
+      );
+
+  static const _iosCaptureChannel = MethodChannel(
     'flutter_realtime_processed_video/ios_system_screen_capture',
   );
 
-  ProcessedVideoSource? _source;
-  ProcessedVideoSource? get source => _source;
-  Future<void> Function()? _onStopped;
-  bool _starting = false;
-  int _generation = 0;
+  static final IosSystemScreenCapture instance = IosSystemScreenCapture._();
 
-  void onSystemStopped(Future<void> Function()? handler) {
-    _onStopped = handler;
-  }
-
-  Future<bool> get isAvailable async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return false;
-    try {
-      return await _channel.invokeMethod<bool>(
-            'iosScreenCaptureKitAvailable',
-          ) ??
-          false;
-    } on MissingPluginException {
-      return false;
-    }
-  }
-
-  Future<ProcessedVideoSource> start() async {
+  /// Queries the active iOS screen-capture backend and Broadcast Extension readiness.
+  Future<IosScreenCaptureConfiguration> configuration() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
-      throw UnsupportedError('ScreenCaptureKit requires native iOS 27+.');
-    }
-    if (_starting || _source != null) {
-      throw StateError('An iOS screen capture is already active.');
-    }
-    _starting = true;
-    final generation = ++_generation;
-    try {
-      final result = await _channel.invokeMapMethod<String, Object?>(
-        'iosScreenCaptureKitStart',
+      return const IosScreenCaptureConfiguration(
+        captureBackend: 'unavailable',
+        crossAppSupported: false,
+        broadcastExtensionConfigured: false,
       );
-      if (result == null) {
-        throw StateError('ScreenCaptureKit did not start a capture.');
-      }
-      if (generation != _generation) {
-        throw StateError('Screen capture was stopped while starting.');
-      }
-      final source = ProcessedVideoSource.fromJson(result);
-      if (source.kind != ProcessedVideoSourceKind.nativeFrameHub ||
-          source.platform != ProcessedVideoPlatform.ios) {
-        throw StateError('Unexpected native screen capture source.');
-      }
-      _source = source;
-      return source;
-    } catch (_) {
-      await stop();
-      rethrow;
-    } finally {
-      _starting = false;
     }
-  }
-
-  Future<void> stop() async {
-    ++_generation;
-    _source = null;
-    _onStopped = null;
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-      await _channel.invokeMethod<void>('iosScreenCaptureKitStop');
+    try {
+      final raw = await _iosCaptureChannel.invokeMapMethod<Object?, Object?>(
+        'iosScreenCaptureConfiguration',
+      );
+      if (raw == null) {
+        return const IosScreenCaptureConfiguration(
+          captureBackend: 'unavailable',
+          crossAppSupported: false,
+          broadcastExtensionConfigured: false,
+        );
+      }
+      return IosScreenCaptureConfiguration.fromMap(raw);
+    } on MissingPluginException {
+      return const IosScreenCaptureConfiguration(
+        captureBackend: 'unavailable',
+        crossAppSupported: false,
+        broadcastExtensionConfigured: false,
+      );
+    } on PlatformException {
+      return const IosScreenCaptureConfiguration(
+        captureBackend: 'unavailable',
+        crossAppSupported: false,
+        broadcastExtensionConfigured: false,
+      );
     }
-  }
-
-  Future<void> _handleCall(MethodCall call) async {
-    if (call.method != 'iosScreenCaptureKitEnded') return;
-    final source = _source;
-    final arguments = call.arguments;
-    if (source == null ||
-        arguments is! Map ||
-        arguments['sourceId'] != source.id) {
-      // A late stop notification from an earlier capture must not terminate
-      // the current meeting's new screen-share source.
-      return;
-    }
-    ++_generation;
-    _source = null;
-    final handler = _onStopped;
-    _onStopped = null;
-    if (handler != null) await handler();
   }
 }

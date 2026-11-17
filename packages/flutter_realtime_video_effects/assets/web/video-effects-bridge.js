@@ -224,13 +224,10 @@
       foregroundCanvas.height = outputHeight;
 
       if (!outputTrack) {
-        // Capture exactly the frames we render. A separate capture timer can
-        // discard frames when its phase differs from the camera/pacing clock.
-        let outputStream = outputCanvas.captureStream(0);
-        if (typeof outputStream.getVideoTracks()[0]?.requestFrame !== 'function') {
-          outputStream.getTracks().forEach((track) => track.stop());
-          outputStream = outputCanvas.captureStream(frameRate);
-        }
+        // Use frameRate-backed captureStream so cloned provider tracks receive
+        // rendered canvas frames across all browsers (including Safari/WebKit,
+        // where captureStream(0) clones do not receive requestFrame() updates).
+        const outputStream = outputCanvas.captureStream(frameRate);
         outputTrack = outputStream.getVideoTracks()[0];
         if (!outputTrack) {
           throw new Error('Canvas capture did not produce a video track.');

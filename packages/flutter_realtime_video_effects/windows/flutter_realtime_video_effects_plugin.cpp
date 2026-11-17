@@ -113,6 +113,51 @@ std::string Utf8(const std::wstring& text) {
                       out.data(), len, nullptr, nullptr);
   return out;
 }
+std::wstring LowerWide(std::wstring value) {
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](wchar_t ch) { return static_cast<wchar_t>(::towlower(ch)); });
+  return value;
+}
+std::wstring StripTrailingTag(std::wstring value) {
+  const auto open = value.rfind(L'(');
+  const auto close = value.rfind(L')');
+  if (open != std::wstring::npos && close != std::wstring::npos &&
+      close > open && close + 1 == value.size()) {
+    value.erase(open);
+  }
+  while (!value.empty() && value.back() == L' ') value.pop_back();
+  return LowerWide(std::move(value));
+}
+std::optional<std::wstring> ResolveCameraId(
+    const std::vector<realtime_video_effects::Camera>& cameras,
+    const std::wstring& requested,
+    bool fallback_to_default) {
+  if (cameras.empty()) return std::nullopt;
+  if (requested.empty()) return std::wstring{};
+  for (const auto& camera : cameras) {
+    if (camera.id == requested) return camera.id;
+  }
+  const auto lowered = LowerWide(requested);
+  const auto stripped = StripTrailingTag(requested);
+  for (const auto& camera : cameras) {
+    const auto name_lower = LowerWide(camera.name);
+    const auto name_stripped = StripTrailingTag(camera.name);
+    if (name_lower == lowered ||
+        (!stripped.empty() && name_stripped == stripped)) {
+      return camera.id;
+    }
+  }
+  if (lowered == L"front" || lowered == L"back") {
+    for (const auto& camera : cameras) {
+      if (LowerWide(camera.name).find(lowered) != std::wstring::npos) {
+        return camera.id;
+      }
+    }
+    return lowered == L"back" ? cameras.back().id : cameras.front().id;
+  }
+  if (fallback_to_default) return std::wstring{};
+  return std::nullopt;
+}
 std::filesystem::path ModelFile() {
   wchar_t name[32768] = {};
   const auto count = GetModuleFileNameW(nullptr, name, 32768);
@@ -327,14 +372,14 @@ class Source final : public std::enable_shared_from_this<Source> {
   bool SelectCamera(std::wstring id) {
     if (disposed_.load()) return false;
     auto available = realtime_video_effects::FindCameras();
-    if (!id.empty() && std::none_of(available.begin(), available.end(),
-        [&](const auto& camera) { return camera.id == id; })) return false;
+    const auto resolved = ResolveCameraId(available, id, false);
+    if (!resolved.has_value()) return false;
     // Camera disconnection can mark the processor as failed. Selecting a
     // newly attached device is the explicit recovery path: stop the old
     // worker first, reset the failure and throttle, then start the new one.
     capture_.Stop();
     InvalidateFrames();
-    camera_id_ = std::move(id);
+    camera_id_ = *resolved;
     failed_.store(false);
     if (enabled_.load()) RestartCapture();
     return true;
@@ -686,10 +731,8 @@ class VideoEffectsPlugin final : public flutter::Plugin {
       }
       auto cameras = realtime_video_effects::FindCameras();
       const auto requested = Wide(String(Field(map, "cameraDeviceId")));
-      if (cameras.empty() ||
-          (!requested.empty() &&
-           std::none_of(cameras.begin(), cameras.end(),
-             [&](const auto& camera) { return camera.id == requested; }))) {
+      const auto resolved = ResolveCameraId(cameras, requested, true);
+      if (!resolved.has_value()) {
         result->Error("camera_unavailable", "Requested camera does not exist");
         return;
       }
@@ -697,7 +740,7 @@ class VideoEffectsPlugin final : public flutter::Plugin {
       // An omitted selection means "first camera that can actually open".
       // Do not lock the source to the first enumerated device: Windows may
       // enumerate an unplugged or already busy USB camera ahead of a usable one.
-      const auto device = requested;
+      const auto device = *resolved;
       auto source = std::make_shared<Source>(
           textures_, &hub_, source_id, device, background, frame_rate,
           [this](const std::string& id, const std::string& reason) {

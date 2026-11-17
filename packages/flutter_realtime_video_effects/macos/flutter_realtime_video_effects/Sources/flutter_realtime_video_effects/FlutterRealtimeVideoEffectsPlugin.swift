@@ -235,7 +235,21 @@ private final class MacOSVideoEffectsSource: NSObject,
 
   private func selectedCamera() -> AVCaptureDevice? {
     let devices = FlutterRealtimeVideoEffectsPlugin.availableCameras()
-    if let cameraDeviceId { return devices.first(where: { $0.uniqueID == cameraDeviceId }) }
+    guard let raw = cameraDeviceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !raw.isEmpty
+    else {
+      return devices.first
+    }
+    if let byId = devices.first(where: { $0.uniqueID == raw }) {
+      return byId
+    }
+    let lowered = raw.lowercased()
+    if let byName = devices.first(where: { $0.localizedName.lowercased() == lowered }) {
+      return byName
+    }
+    if lowered == "back" {
+      return devices.last ?? devices.first
+    }
     return devices.first
   }
 
