@@ -2,26 +2,6 @@ name: Windows SDK native media smoke
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/windows-video-effects-smoke.yml'
-      - 'packages/flutter_realtime_processed_video/**'
-      - 'packages/flutter_realtime_video_effects/**'
-      - 'packages/flutter_realtime_media_livekit/**'
-      - 'packages/flutter_realtime_media_agora/**'
-      - 'packages/flutter_realtime_media_trtc/**'
-      - 'packages/flutter_webrtc/windows/**'
-      - 'example/**'
-  pull_request:
-    paths:
-      - '.github/workflows/windows-video-effects-smoke.yml'
-      - 'packages/flutter_realtime_processed_video/**'
-      - 'packages/flutter_realtime_video_effects/**'
-      - 'packages/flutter_realtime_media_livekit/**'
-      - 'packages/flutter_realtime_media_agora/**'
-      - 'packages/flutter_realtime_media_trtc/**'
-      - 'packages/flutter_webrtc/windows/**'
-      - 'example/**'
 
 permissions:
   contents: read
