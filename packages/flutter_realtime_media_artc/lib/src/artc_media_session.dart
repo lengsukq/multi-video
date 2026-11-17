@@ -79,9 +79,11 @@ abstract class _ArtcMediaSession
     canReplaceBackgroundImage:
         _capabilities.canPublishVideo && _publishing._effectsPlatform,
     canEnumerateCameras:
-        _capabilities.canPublishVideo && _publishing._effectsPlatform,
+        _capabilities.canPublishVideo &&
+        (_publishing._effectsPlatform || _publishing._desktopCameraPlatform),
     canSelectCamera:
-        _capabilities.canPublishVideo && _publishing._effectsPlatform,
+        _capabilities.canPublishVideo &&
+        (_publishing._effectsPlatform || _publishing._desktopCameraPlatform),
   );
 
   @override
@@ -198,14 +200,18 @@ abstract class _ArtcMediaSession
       ),
     };
     if (role != MediaRole.viewer &&
+        !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS)) {
+            defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.windows)) {
       _capabilities = _capabilities.copyWith(canSwitchCamera: true);
     }
     if (role != MediaRole.viewer &&
         !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS ||
             defaultTargetPlatform == TargetPlatform.windows)) {
       _capabilities = _capabilities.copyWith(canScreenShare: true);
     }
@@ -290,6 +296,7 @@ abstract class _ArtcMediaSession
     _mapper._trackGeneration++;
     _publishing._screenShareEnabled = false;
     _publishing._localScreenTrack = null;
+    _publishing._selectedCameraDevice = null;
     _mapper._remoteScreens.clear();
     _setSnapshot(
       _snapshot.copyWith(

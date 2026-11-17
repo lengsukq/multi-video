@@ -29,19 +29,29 @@ Future<MediaBackgroundCapabilities> _probeEffects(
   if (role == MediaRole.viewer ||
       (!kIsWeb &&
           defaultTargetPlatform != TargetPlatform.android &&
-          defaultTargetPlatform != TargetPlatform.macOS)) {
+          defaultTargetPlatform != TargetPlatform.macOS &&
+          defaultTargetPlatform != TargetPlatform.windows)) {
     return const MediaBackgroundCapabilities.none();
   }
-  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS) {
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows)) {
     final channel = {
       'artc': 'com.oneplusdream.flutter_realtime_media_artc/methods',
     }[engine];
-    if (channel != null &&
-        await MethodChannel(
+    if (channel != null) {
+      try {
+        if (await MethodChannel(
               channel,
             ).invokeMethod<bool>('probeProcessedVideoInput') !=
             true) {
-      return const MediaBackgroundCapabilities.none();
+          return const MediaBackgroundCapabilities.none();
+        }
+      } on MissingPluginException {
+        return const MediaBackgroundCapabilities.none();
+      } on PlatformException {
+        return const MediaBackgroundCapabilities.none();
+      }
     }
   }
   return const MediaBackgroundCapabilities(

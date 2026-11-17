@@ -4,6 +4,11 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 set(PLUGIN_NAME "${PROJECT_NAME}_plugin")
 get_filename_component(ARTC_REAL_WINDOWS_DIR "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)
 get_filename_component(ARTC_REPO_ROOT "${ARTC_REAL_WINDOWS_DIR}/../../.." REALPATH)
+get_filename_component(REALTIME_PROCESSED_VIDEO_INCLUDE
+  "${ARTC_REAL_WINDOWS_DIR}/../../flutter_realtime_processed_video/windows/include" ABSOLUTE)
+if(NOT EXISTS "${REALTIME_PROCESSED_VIDEO_INCLUDE}/processed_video_frame_client.h")
+  message(FATAL_ERROR "Shared processed-video headers missing: ${REALTIME_PROCESSED_VIDEO_INCLUDE}")
+endif()
 
 # Local vendor cache is intentionally ignored by git. Consumer projects may
 # pass FLUTTER_ARTC_WINDOWS_SDK_ROOT to locate their own licensed SDK.
@@ -26,6 +31,7 @@ set_target_properties(${PLUGIN_NAME} PROPERTIES CXX_VISIBILITY_PRESET hidden)
 target_compile_features(${PLUGIN_NAME} PRIVATE cxx_std_17)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL NOMINMAX)
 target_include_directories(${PLUGIN_NAME}
+  PRIVATE "${REALTIME_PROCESSED_VIDEO_INCLUDE}"
   INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin)
 if(ARTC_HAS_SDK)

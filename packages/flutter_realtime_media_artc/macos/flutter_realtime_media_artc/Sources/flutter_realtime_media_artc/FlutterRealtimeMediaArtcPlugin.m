@@ -1,4 +1,5 @@
 #import "FlutterRealtimeMediaArtcPlugin.h"
+#import "ArtcMacosScreenCapture.h"
 #import "ArtcProcessedVideoInput.h"
 
 #import <AVFoundation/AVFoundation.h>
@@ -20,8 +21,12 @@ static NSString *const kArtcViewType =
 @property(nonatomic, copy, nullable) NSString *localUserId;
 @property(nonatomic, assign) BOOL viewer;
 @property(nonatomic, assign) BOOL inChannel;
+@property(nonatomic, assign) BOOL localVideoEnabled;
+@property(nonatomic, copy, nullable) NSString *selectedCameraId;
+@property(nonatomic, copy, nullable) NSString *selectedCameraName;
 @property(nonatomic, strong) NSHashTable<ArtcVideoPlatformView *> *videoViews;
 @property(nonatomic, strong, nullable) ArtcProcessedVideoInput *processedVideo;
+@property(nonatomic, strong, nullable) ArtcMacosScreenCapture *screenCapture;
 @end
 
 @interface ArtcVideoPlatformView : NSView
@@ -44,32 +49,46 @@ static NSString *const kArtcViewType =
 - (instancetype)initWithPlugin:(FlutterRealtimeMediaArtcPlugin *)plugin;
 @end
 
-static NSInteger ArtcSendInt0(id target, SEL selector) {
-  return ((NSInteger(*)(id, SEL))objc_msgSend)(target, selector);
+static int ArtcSendInt0(id target, SEL selector) {
+  return ((int (*)(id, SEL))objc_msgSend)(target, selector);
 }
 
-static NSInteger ArtcSendIntBool(id target, SEL selector, BOOL value) {
-  return ((NSInteger(*)(id, SEL, BOOL))objc_msgSend)(target, selector, value);
+static int ArtcSendIntBool(id target, SEL selector, BOOL value) {
+  return ((int (*)(id, SEL, BOOL))objc_msgSend)(target, selector, value);
 }
 
-static NSInteger ArtcSendIntInteger(id target, SEL selector, NSInteger value) {
-  return ((NSInteger(*)(id, SEL, NSInteger))objc_msgSend)(target, selector, value);
+static int ArtcSendIntInteger(id target, SEL selector, NSInteger value) {
+  return ((int (*)(id, SEL, NSInteger))objc_msgSend)(target, selector, value);
 }
 
-static NSInteger ArtcSendIntObject(id target, SEL selector, id value) {
-  return ((NSInteger(*)(id, SEL, id))objc_msgSend)(target, selector, value);
+static int ArtcSendIntObject(id target, SEL selector, id value) {
+  return ((int (*)(id, SEL, id))objc_msgSend)(target, selector, value);
 }
 
-static NSInteger ArtcSendIntObjectInteger(
-    id target, SEL selector, id value, NSInteger integerValue) {
-  return ((NSInteger(*)(id, SEL, id, NSInteger))objc_msgSend)(
+static int ArtcSendIntObjectUInteger(
+    id target, SEL selector, id value, NSUInteger integerValue) {
+  return ((int (*)(id, SEL, id, NSUInteger))objc_msgSend)(
       target, selector, value, integerValue);
 }
 
-static NSInteger ArtcSendIntObjectObjectInteger(
-    id target, SEL selector, id first, id second, NSInteger integerValue) {
-  return ((NSInteger(*)(id, SEL, id, id, NSInteger))objc_msgSend)(
+static int ArtcSendIntObjectObjectUInteger(
+    id target, SEL selector, id first, id second, NSUInteger integerValue) {
+  return ((int (*)(id, SEL, id, id, NSUInteger))objc_msgSend)(
       target, selector, first, second, integerValue);
+}
+
+static NSString *ArtcNormalizeCameraLabel(NSString *label) {
+  if (label.length == 0) return @"";
+  NSString *trimmed = [label
+      stringByTrimmingCharactersInSet:NSCharacterSet
+                                          .whitespaceAndNewlineCharacterSet];
+  NSRange open = [trimmed rangeOfString:@"(" options:NSBackwardsSearch];
+  if (open.location != NSNotFound && [trimmed hasSuffix:@")"]) {
+    trimmed = [[trimmed substringToIndex:open.location]
+        stringByTrimmingCharactersInSet:NSCharacterSet
+                                            .whitespaceAndNewlineCharacterSet];
+  }
+  return trimmed.lowercaseString;
 }
 
 @implementation FlutterRealtimeMediaArtcPlugin
@@ -110,11 +129,29 @@ static NSInteger ArtcSendIntObjectObjectInteger(
   if ([call.method isEqualToString:@"isAvailable"]) {
     result(@([self engineClass] != Nil));
   } else if ([call.method isEqualToString:@"probeProcessedVideoInput"]) {
-    result(@([ArtcProcessedVideoInput isSupportedWithEngineClass:[self engineClass]]));
+    result(
+        @([ArtcProcessedVideoInput isSupportedWithEngineClass:[self engineClass]]));
   } else if ([call.method isEqualToString:@"attachProcessedVideoSource"]) {
     [self attachProcessedVideo:arguments result:result];
   } else if ([call.method isEqualToString:@"detachProcessedVideoSource"]) {
-    [self.processedVideo dispose]; self.processedVideo = nil; result(nil);
+    [self.processedVideo dispose];
+    self.processedVideo = nil;
+    if (self.inChannel && self.engine != nil && self.localVideoEnabled) {
+      ArtcSendIntBool(self.engine, NSSelectorFromString(@"enableLocalVideo:"),
+                      YES);
+      ArtcSendInt0(self.engine, NSSelectorFromString(@"startPreview"));
+    }
+    result(nil);
+  } else if ([call.method isEqualToString:@"listCameras"]) {
+    result([self availableCameras]);
+  } else if ([call.method isEqualToString:@"selectCamera"]) {
+    [self selectCamera:arguments result:result];
+  } else if ([call.method isEqualToString:@"switchCamera"]) {
+    [self switchCamera:arguments result:result];
+  } else if ([call.method isEqualToString:@"listScreenShareSources"]) {
+    [self listScreenShareSources:result];
+  } else if ([call.method isEqualToString:@"setScreenShareEnabled"]) {
+    [self setScreenShareEnabled:arguments result:result];
   } else if ([call.method isEqualToString:@"join"]) {
     [self join:arguments result:result];
   } else if ([call.method isEqualToString:@"leave"]) {
@@ -123,10 +160,6 @@ static NSInteger ArtcSendIntObjectObjectInteger(
     [self setMuted:[arguments[@"muted"] boolValue] result:result];
   } else if ([call.method isEqualToString:@"setVideoEnabled"]) {
     [self setVideoEnabled:[arguments[@"enabled"] boolValue] result:result];
-  } else if ([call.method isEqualToString:@"switchCamera"]) {
-    result([FlutterError errorWithCode:@"unsupported_feature"
-                               message:@"ARTC macOS does not expose a front/back camera switch."
-                               details:nil]);
   } else if ([call.method isEqualToString:@"sendMessage"]) {
     [self sendMessage:arguments result:result];
   } else if ([call.method isEqualToString:@"dispose"]) {
@@ -141,6 +174,313 @@ static NSInteger ArtcSendIntObjectObjectInteger(
   Class type = NSClassFromString(@"AliRtcEngine");
   if (type == Nil) type = NSClassFromString(@"AliRTCEngine");
   return type;
+}
+
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)availableCameras {
+  NSMutableArray<NSDictionary<NSString *, NSString *> *> *cameras =
+      [NSMutableArray array];
+  NSMutableSet<NSString *> *seenIds = [NSMutableSet set];
+
+  AVCaptureDeviceDiscoverySession *discovery = [AVCaptureDeviceDiscoverySession
+      discoverySessionWithDeviceTypes:@[
+        AVCaptureDeviceTypeBuiltInWideAngleCamera,
+        AVCaptureDeviceTypeExternalUnknown
+      ]
+                            mediaType:AVMediaTypeVideo
+                             position:AVCaptureDevicePositionUnspecified];
+  for (AVCaptureDevice *device in discovery.devices) {
+    NSString *deviceId = device.uniqueID ?: @"";
+    NSString *label = device.localizedName ?: @"";
+    if (deviceId.length == 0) continue;
+    [seenIds addObject:deviceId];
+    [cameras addObject:@{
+      @"id" : deviceId,
+      @"label" : label.length > 0 ? label : deviceId,
+    }];
+  }
+
+  SEL getCamerasSel = NSSelectorFromString(@"getCameraList");
+  if (self.engine != nil && [self.engine respondsToSelector:getCamerasSel]) {
+    id rawList = ((id(*)(id, SEL))objc_msgSend)(self.engine, getCamerasSel);
+    if ([rawList isKindOfClass:NSArray.class]) {
+      for (id item in (NSArray *)rawList) {
+        NSString *itemId = nil;
+        NSString *itemName = nil;
+        if ([item isKindOfClass:NSString.class]) {
+          itemId = item;
+          itemName = item;
+        } else {
+          SEL idSel = NSSelectorFromString(@"deviceID");
+          SEL nameSel = NSSelectorFromString(@"deviceName");
+          if ([item respondsToSelector:idSel]) {
+            id v = ((id(*)(id, SEL))objc_msgSend)(item, idSel);
+            if ([v isKindOfClass:NSString.class]) itemId = v;
+          }
+          if ([item respondsToSelector:nameSel]) {
+            id v = ((id(*)(id, SEL))objc_msgSend)(item, nameSel);
+            if ([v isKindOfClass:NSString.class]) itemName = v;
+          }
+        }
+        if (itemId.length == 0 && itemName.length > 0) itemId = itemName;
+        if (itemId.length == 0 || [seenIds containsObject:itemId]) continue;
+        NSString *normName = ArtcNormalizeCameraLabel(itemName ?: itemId);
+        BOOL duplicateByName = NO;
+        for (NSDictionary<NSString *, NSString *> *existing in cameras) {
+          if (normName.length > 0 &&
+              [ArtcNormalizeCameraLabel(existing[@"label"])
+                  isEqualToString:normName]) {
+            duplicateByName = YES;
+            break;
+          }
+        }
+        if (!duplicateByName) {
+          [seenIds addObject:itemId];
+          [cameras addObject:@{
+            @"id" : itemId,
+            @"label" : itemName.length > 0 ? itemName : itemId,
+          }];
+        }
+      }
+    }
+  }
+  return cameras;
+}
+
+- (int)applyCameraOnEngineWithId:(NSString *)cameraId
+                           label:(NSString *)cameraLabel {
+  if (self.engine == nil || self.processedVideo != nil) return 0;
+  NSArray<NSString *> *idSelectors = @[
+    @"setCurrentCameraID:",
+    @"setCurrentCameraWithID:",
+  ];
+  for (NSString *name in idSelectors) {
+    SEL sel = NSSelectorFromString(name);
+    if ([self.engine respondsToSelector:sel] && cameraId.length > 0) {
+      int code = ArtcSendIntObject(self.engine, sel, cameraId);
+      if (code == 0) return 0;
+    }
+  }
+  SEL setByNameSel = NSSelectorFromString(@"setCurrentCamera:");
+  if ([self.engine respondsToSelector:setByNameSel]) {
+    if (cameraLabel.length > 0) {
+      int code = ArtcSendIntObject(self.engine, setByNameSel, cameraLabel);
+      if (code == 0) return 0;
+    }
+    if (cameraId.length > 0) {
+      int code = ArtcSendIntObject(self.engine, setByNameSel, cameraId);
+      if (code == 0) return 0;
+    }
+    return -1;
+  }
+  return 0;
+}
+
+- (void)selectCamera:(NSDictionary *)arguments result:(FlutterResult)result {
+  if (![self requirePublisher:result]) return;
+  NSString *requestedId = [self string:arguments key:@"deviceId"];
+  NSString *requestedLabel = [self string:arguments key:@"label"];
+  if (requestedId.length == 0 && requestedLabel.length == 0) {
+    result([FlutterError errorWithCode:@"invalid_argument"
+                               message:@"A camera deviceId is required."
+                               details:nil]);
+    return;
+  }
+  NSArray<NSDictionary<NSString *, NSString *> *> *cameras =
+      [self availableCameras];
+  if (cameras.count == 0) {
+    result([FlutterError errorWithCode:@"unsupported_feature"
+                               message:@"No camera devices are available on this Mac."
+                               details:nil]);
+    return;
+  }
+  NSDictionary<NSString *, NSString *> *matched = nil;
+  for (NSDictionary<NSString *, NSString *> *item in cameras) {
+    if (requestedId.length > 0 && [item[@"id"] isEqualToString:requestedId]) {
+      matched = item;
+      break;
+    }
+  }
+  if (matched == nil) {
+    NSString *normReqLabel = ArtcNormalizeCameraLabel(requestedLabel);
+    NSString *normReqId = ArtcNormalizeCameraLabel(requestedId);
+    for (NSDictionary<NSString *, NSString *> *item in cameras) {
+      NSString *itemLabel = item[@"label"] ?: @"";
+      NSString *normItem = ArtcNormalizeCameraLabel(itemLabel);
+      if ((requestedId.length > 0 && [itemLabel isEqualToString:requestedId]) ||
+          (requestedLabel.length > 0 &&
+           [itemLabel isEqualToString:requestedLabel]) ||
+          (normReqLabel.length > 0 && [normItem isEqualToString:normReqLabel]) ||
+          (normReqId.length > 0 && [normItem isEqualToString:normReqId])) {
+        matched = item;
+        break;
+      }
+    }
+  }
+  if (matched == nil) {
+    result([FlutterError errorWithCode:@"invalid_argument"
+                               message:@"The requested camera is not available."
+                               details:nil]);
+    return;
+  }
+  int code =
+      [self applyCameraOnEngineWithId:matched[@"id"] label:matched[@"label"]];
+  if (code != 0) {
+    [self failNative:result
+             message:@"ARTC failed to select the requested camera"
+                code:code];
+    return;
+  }
+  self.selectedCameraId = matched[@"id"];
+  self.selectedCameraName = matched[@"label"];
+  result(nil);
+}
+
+- (void)switchCamera:(NSDictionary *)arguments result:(FlutterResult)result {
+  if (![self requirePublisher:result]) return;
+  NSArray<NSDictionary<NSString *, NSString *> *> *cameras =
+      [self availableCameras];
+  if (cameras.count == 0) {
+    SEL mobileSwitch = NSSelectorFromString(@"switchCamera");
+    if ([self.engine respondsToSelector:mobileSwitch]) {
+      int code = ArtcSendInt0(self.engine, mobileSwitch);
+      [self complete:code
+              result:result
+             message:@"ARTC failed to switch camera"];
+      return;
+    }
+    result([FlutterError errorWithCode:@"unsupported_feature"
+                               message:@"No camera devices are available on this Mac."
+                               details:nil]);
+    return;
+  }
+
+  NSString *position = [[self string:arguments key:@"position"] lowercaseString];
+  NSUInteger currentIndex = 0;
+  BOOL foundCurrent = NO;
+  if (self.selectedCameraId.length > 0) {
+    for (NSUInteger i = 0; i < cameras.count; i++) {
+      if ([cameras[i][@"id"] isEqualToString:self.selectedCameraId]) {
+        currentIndex = i;
+        foundCurrent = YES;
+        break;
+      }
+    }
+  }
+  NSDictionary<NSString *, NSString *> *target = nil;
+  if (cameras.count > 1 &&
+      ([position isEqualToString:@"front"] ||
+       [position isEqualToString:@"back"])) {
+    for (NSUInteger i = 0; i < cameras.count; i++) {
+      if (foundCurrent && i == currentIndex) continue;
+      NSString *lower = [cameras[i][@"label"] lowercaseString];
+      BOOL isFront = [lower containsString:@"facetime"] ||
+                     [lower containsString:@"built-in"] ||
+                     [lower containsString:@"front"] ||
+                     [lower containsString:@"前置"] ||
+                     [lower containsString:@"内建"];
+      BOOL isBack = [lower containsString:@"usb"] ||
+                    [lower containsString:@"external"] ||
+                    [lower containsString:@"back"] ||
+                    [lower containsString:@"rear"] ||
+                    [lower containsString:@"后置"] ||
+                    [lower containsString:@"外接"];
+      if (([position isEqualToString:@"front"] && isFront) ||
+          ([position isEqualToString:@"back"] && isBack)) {
+        target = cameras[i];
+        break;
+      }
+    }
+  }
+  if (target == nil) {
+    NSUInteger nextIndex =
+        cameras.count > 1 ? (currentIndex + 1) % cameras.count : 0;
+    target = cameras[nextIndex];
+  }
+  int code =
+      [self applyCameraOnEngineWithId:target[@"id"] label:target[@"label"]];
+  if (code != 0) {
+    [self failNative:result message:@"ARTC failed to switch camera" code:code];
+    return;
+  }
+  self.selectedCameraId = target[@"id"];
+  self.selectedCameraName = target[@"label"];
+  result(nil);
+}
+
+- (void)listScreenShareSources:(FlutterResult)result {
+  if (![self requirePublisher:result]) return;
+  [ArtcMacosScreenCapture
+      listSourcesWithCompletion:^(
+          NSArray<NSDictionary<NSString *, NSString *> *> *_Nullable sources,
+          NSString *_Nullable errorCode, NSString *_Nullable errorMessage) {
+        if (errorCode != nil) {
+          result([FlutterError errorWithCode:errorCode
+                                     message:errorMessage
+                                     details:nil]);
+          return;
+        }
+        result(sources ?: @[]);
+      }];
+}
+
+- (void)setScreenShareEnabled:(NSDictionary *)arguments
+                       result:(FlutterResult)result {
+  if (![self requirePublisher:result]) return;
+  BOOL enabled = [arguments[@"enabled"] boolValue];
+  if (!enabled) {
+    if (self.screenCapture != nil) {
+      [self.screenCapture stop];
+      self.screenCapture = nil;
+    } else if (self.engine != nil) {
+      SEL stopSel = NSSelectorFromString(@"stopScreenShare");
+      if ([self.engine respondsToSelector:stopSel]) {
+        ArtcSendInt0(self.engine, stopSel);
+      }
+    }
+    [self emit:@{@"type" : @"localScreenChanged", @"available" : @NO}];
+    result(nil);
+    return;
+  }
+
+  [self.screenCapture stop];
+  ArtcMacosScreenCapture *capture = [[ArtcMacosScreenCapture alloc] init];
+  self.screenCapture = capture;
+  NSString *sourceId = [self string:arguments key:@"sourceId"];
+  NSString *sourceKind = [self string:arguments key:@"sourceKind"];
+  __weak FlutterRealtimeMediaArtcPlugin *weakSelf = self;
+  [capture startWithSourceId:(sourceId.length > 0 ? sourceId : nil)
+                  sourceKind:(sourceKind.length > 0 ? sourceKind : nil)
+                      engine:self.engine
+                   onStopped:^(__unused NSString *_Nullable errorMessage) {
+                     FlutterRealtimeMediaArtcPlugin *strongSelf = weakSelf;
+                     if (strongSelf == nil) return;
+                     if (strongSelf.screenCapture == capture) {
+                       strongSelf.screenCapture = nil;
+                     }
+                     [strongSelf emit:@{
+                       @"type" : @"localScreenChanged",
+                       @"available" : @NO
+                     }];
+                   }
+                  completion:^(NSString *_Nullable errorCode,
+                               NSString *_Nullable errorMessage) {
+                    FlutterRealtimeMediaArtcPlugin *strongSelf = weakSelf;
+                    if (errorCode != nil) {
+                      if (strongSelf != nil &&
+                          strongSelf.screenCapture == capture) {
+                        strongSelf.screenCapture = nil;
+                      }
+                      result([FlutterError errorWithCode:errorCode
+                                                 message:errorMessage
+                                                 details:nil]);
+                      return;
+                    }
+                    [strongSelf emit:@{
+                      @"type" : @"localScreenChanged",
+                      @"available" : @YES
+                    }];
+                    result(nil);
+                  }];
 }
 
 - (void)join:(NSDictionary *)values result:(FlutterResult)result {
@@ -192,10 +532,11 @@ static NSInteger ArtcSendIntObjectObjectInteger(
 
   self.viewer = [role isEqualToString:@"viewer"];
   self.localUserId = userId;
+  self.localVideoEnabled = NO;
   BOOL interactive = ![role isEqualToString:@"participant"] ||
                      [roomMode isEqualToString:@"interactiveLive"];
 
-  NSInteger code = ArtcSendIntInteger(
+  int code = ArtcSendIntInteger(
       self.engine, NSSelectorFromString(@"setChannelProfile:"),
       interactive ? 1 : 0);
   if (code != 0) {
@@ -227,8 +568,8 @@ static NSInteger ArtcSendIntObjectObjectInteger(
                                details:nil]);
     return;
   }
-  NSInteger joinCode =
-      ((NSInteger(*)(id, SEL, id, id, id, id, id))objc_msgSend)(
+  int joinCode =
+      ((int (*)(id, SEL, id, id, id, id, id))objc_msgSend)(
           self.engine, joinSelector, authInfo, channelId, userId,
           displayName.length == 0 ? userId : displayName, nil);
   if (joinCode != 0) {
@@ -241,13 +582,16 @@ static NSInteger ArtcSendIntObjectObjectInteger(
 }
 
 - (void)leave:(FlutterResult)result {
-  [self.processedVideo dispose]; self.processedVideo = nil;
+  [self.screenCapture stop];
+  self.screenCapture = nil;
+  [self.processedVideo dispose];
+  self.processedVideo = nil;
+  self.localVideoEnabled = NO;
   if (self.engine == nil || !self.inChannel) {
     result(nil);
     return;
   }
-  NSInteger code =
-      ArtcSendInt0(self.engine, NSSelectorFromString(@"leaveChannel"));
+  int code = ArtcSendInt0(self.engine, NSSelectorFromString(@"leaveChannel"));
   self.inChannel = NO;
   for (ArtcVideoPlatformView *view in self.videoViews) [view detach];
   if (code == 0) {
@@ -260,7 +604,7 @@ static NSInteger ArtcSendIntObjectObjectInteger(
 - (void)setMuted:(BOOL)muted result:(FlutterResult)result {
   if (![self requirePublisher:result]) return;
   if (!muted && ![self ensurePermission:AVMediaTypeAudio result:result]) return;
-  NSInteger code = ArtcSendIntBool(
+  int code = ArtcSendIntBool(
       self.engine, NSSelectorFromString(@"publishLocalAudioStream:"), !muted);
   [self complete:code result:result message:@"ARTC failed to update audio publishing"];
 }
@@ -268,16 +612,26 @@ static NSInteger ArtcSendIntObjectObjectInteger(
 - (void)setVideoEnabled:(BOOL)enabled result:(FlutterResult)result {
   if (![self requirePublisher:result]) return;
   if (enabled && ![self ensurePermission:AVMediaTypeVideo result:result]) return;
-  NSInteger capture = ArtcSendIntBool(
-      self.engine, NSSelectorFromString(@"enableLocalVideo:"), enabled && self.processedVideo == nil);
-  NSInteger publish = capture == 0
-                          ? ArtcSendIntBool(
-                                self.engine,
-                                NSSelectorFromString(@"publishLocalVideoStream:"),
-                                enabled)
-                          : capture;
-  if (enabled && publish == 0 && self.processedVideo == nil) {
-    ArtcSendInt0(self.engine, NSSelectorFromString(@"startPreview"));
+  if (enabled && self.processedVideo == nil && self.selectedCameraId.length > 0) {
+    [self applyCameraOnEngineWithId:self.selectedCameraId
+                              label:self.selectedCameraName ?: @""];
+  }
+  int capture = ArtcSendIntBool(
+      self.engine, NSSelectorFromString(@"enableLocalVideo:"),
+      enabled && self.processedVideo == nil);
+  int publish = capture == 0
+                    ? ArtcSendIntBool(
+                          self.engine,
+                          NSSelectorFromString(@"publishLocalVideoStream:"),
+                          enabled)
+                    : capture;
+  if (publish == 0) {
+    self.localVideoEnabled = enabled;
+    if (enabled && self.processedVideo == nil) {
+      ArtcSendInt0(self.engine, NSSelectorFromString(@"startPreview"));
+    } else if (!enabled) {
+      ArtcSendInt0(self.engine, NSSelectorFromString(@"stopPreview"));
+    }
   }
   [self complete:publish result:result message:@"ARTC failed to update video publishing"];
 }
@@ -287,23 +641,43 @@ static NSInteger ArtcSendIntObjectObjectInteger(
   if (![ArtcProcessedVideoInput isSupportedWithEngineClass:[self engineClass]]) {
     result([FlutterError errorWithCode:@"unsupported_feature"
       message:@"The installed ARTC macOS framework does not provide a compatible external video input."
-      details:nil]); return;
+      details:nil]);
+    return;
   }
   NSString *sourceId = [self string:arguments key:@"sourceId"];
   if (!sourceId.length) {
-    result([FlutterError errorWithCode:@"invalid_argument" message:@"A processed source ID is required." details:nil]); return;
+    result([FlutterError errorWithCode:@"invalid_argument"
+                               message:@"A processed source ID is required."
+                               details:nil]);
+    return;
   }
-  [self.processedVideo dispose]; self.processedVideo = nil;
+  [self.processedVideo dispose];
+  self.processedVideo = nil;
   ArtcSendInt0(self.engine, NSSelectorFromString(@"stopPreview"));
   ArtcSendIntBool(self.engine, NSSelectorFromString(@"enableLocalVideo:"), NO);
   __weak FlutterRealtimeMediaArtcPlugin *weakSelf = self;
-  self.processedVideo = [[ArtcProcessedVideoInput alloc] initWithSourceId:sourceId engine:self.engine
-    onFailure:^(NSString *message) {
-      [weakSelf emit:@{@"type": @"error", @"code": @-1, @"message": message}];
-    }];
+  self.processedVideo = [[ArtcProcessedVideoInput alloc]
+      initWithSourceId:sourceId
+                engine:self.engine
+             onFailure:^(NSString *message) {
+               FlutterRealtimeMediaArtcPlugin *strongSelf = weakSelf;
+               if (strongSelf == nil) return;
+               strongSelf.processedVideo = nil;
+               strongSelf.localVideoEnabled = NO;
+               [strongSelf emit:@{
+                 @"type" : @"error",
+                 @"code" : @-1,
+                 @"message" : message
+               }];
+             }];
   if (!self.processedVideo) {
-    ArtcSendIntBool(self.engine, NSSelectorFromString(@"publishLocalVideoStream:"), NO);
-    result([FlutterError errorWithCode:@"attach_provider_failed" message:@"ARTC rejected the processed video source." details:nil]); return;
+    ArtcSendIntBool(self.engine,
+                    NSSelectorFromString(@"publishLocalVideoStream:"), NO);
+    self.localVideoEnabled = NO;
+    result([FlutterError errorWithCode:@"attach_provider_failed"
+                               message:@"ARTC rejected the processed video source."
+                               details:nil]);
+    return;
   }
   result(nil);
 }
@@ -325,7 +699,7 @@ static NSInteger ArtcSendIntObjectObjectInteger(
   id message = [[messageClass alloc] init];
   [message setValue:@2 forKey:@"type"];
   [message setValue:data forKey:@"data"];
-  NSInteger code = ArtcSendIntObject(
+  int code = ArtcSendIntObject(
       self.engine, NSSelectorFromString(@"sendDataChannelMessage:"), message);
   [self complete:code result:result message:@"ARTC failed to send the data message"];
 }
@@ -370,9 +744,15 @@ static NSInteger ArtcSendIntObjectObjectInteger(
 }
 
 - (void)disposeEngine {
-  [self.processedVideo dispose]; self.processedVideo = nil;
+  [self.screenCapture stop];
+  self.screenCapture = nil;
+  [self.processedVideo dispose];
+  self.processedVideo = nil;
   for (ArtcVideoPlatformView *view in self.videoViews) [view detach];
   self.inChannel = NO;
+  self.localVideoEnabled = NO;
+  self.selectedCameraId = nil;
+  self.selectedCameraName = nil;
   self.localUserId = nil;
   self.engine = nil;
   Class engineClass = [self engineClass];
@@ -431,14 +811,16 @@ static NSInteger ArtcSendIntObjectObjectInteger(
   [canvas setValue:view forKey:@"view"];
   // AliRtcRenderModeFill (2) preserves the full frame; Crop (3) fills the view.
   [canvas setValue:@(view.fitMode == 1 ? 2 : 3) forKey:@"renderMode"];
-  NSInteger source = view.screen ? 2 : 1;
+  NSUInteger source = view.screen ? 2 : 1;
   if (view.local) {
-    ArtcSendIntObjectInteger(
+    ArtcSendIntObjectUInteger(
         self.engine, NSSelectorFromString(@"setLocalViewConfig:forTrack:"),
         canvas, source);
-    if (self.processedVideo == nil) ArtcSendInt0(self.engine, NSSelectorFromString(@"startPreview"));
+    if (self.processedVideo == nil && !view.screen && self.localVideoEnabled) {
+      ArtcSendInt0(self.engine, NSSelectorFromString(@"startPreview"));
+    }
   } else {
-    ArtcSendIntObjectObjectInteger(
+    ArtcSendIntObjectObjectUInteger(
         self.engine, NSSelectorFromString(@"setRemoteViewConfig:uid:forTrack:"),
         canvas, view.userId, source);
   }
@@ -446,13 +828,13 @@ static NSInteger ArtcSendIntObjectObjectInteger(
 
 - (void)detachView:(ArtcVideoPlatformView *)view {
   if (self.engine == nil) return;
-  NSInteger source = view.screen ? 2 : 1;
+  NSUInteger source = view.screen ? 2 : 1;
   if (view.local) {
-    ArtcSendIntObjectInteger(
+    ArtcSendIntObjectUInteger(
         self.engine, NSSelectorFromString(@"setLocalViewConfig:forTrack:"),
         nil, source);
   } else {
-    ArtcSendIntObjectObjectInteger(
+    ArtcSendIntObjectObjectUInteger(
         self.engine, NSSelectorFromString(@"setRemoteViewConfig:uid:forTrack:"),
         nil, view.userId, source);
   }
@@ -460,10 +842,10 @@ static NSInteger ArtcSendIntObjectObjectInteger(
 
 #pragma mark - AliRtcEngine delegate selectors
 
-- (void)onJoinChannelResult:(NSInteger)result
+- (void)onJoinChannelResult:(int)result
                     channel:(NSString *)channel
                      userId:(NSString *)userId
-                    elapsed:(NSInteger)elapsed {
+                    elapsed:(int)elapsed {
   if (result != 0) {
     self.inChannel = NO;
     [self emit:@{@"type" : @"error",
@@ -472,7 +854,7 @@ static NSInteger ArtcSendIntObjectObjectInteger(
   }
 }
 
-- (void)onRemoteUserOnLineNotify:(NSString *)uid elapsed:(NSInteger)elapsed {
+- (void)onRemoteUserOnLineNotify:(NSString *)uid elapsed:(int)elapsed {
   [self emit:@{@"type" : @"participantJoined", @"userId" : uid ?: @""}];
 }
 
@@ -482,8 +864,8 @@ static NSInteger ArtcSendIntObjectObjectInteger(
 }
 
 - (void)onRemoteTrackAvailableNotify:(NSString *)uid
-                          audioTrack:(NSInteger)audioTrack
-                          videoTrack:(NSInteger)videoTrack {
+                          audioTrack:(NSUInteger)audioTrack
+                          videoTrack:(NSUInteger)videoTrack {
   [self emit:@{@"type" : @"audioChanged",
                @"userId" : uid ?: @"",
                @"available" : @(audioTrack != 0)}];
@@ -493,6 +875,17 @@ static NSInteger ArtcSendIntObjectObjectInteger(
   [self emit:@{@"type" : @"screenChanged",
                @"userId" : uid ?: @"",
                @"available" : @((videoTrack & 2) != 0)}];
+}
+
+- (void)onScreenSharePublishStateChanged:(NSInteger)oldState
+                                newState:(NSInteger)newState
+                    elapseSinceLastState:(NSInteger)elapseSinceLastState
+                                 channel:(NSString *)channel {
+  if (newState == 3) {
+    [self emit:@{@"type" : @"localScreenChanged", @"available" : @YES}];
+  } else if (newState == 1 && self.screenCapture == nil) {
+    [self emit:@{@"type" : @"localScreenChanged", @"available" : @NO}];
+  }
 }
 
 - (void)onDataChannelMessage:(NSString *)uid controlMsg:(id)message {
@@ -527,7 +920,7 @@ static NSInteger ArtcSendIntObjectObjectInteger(
   }
 }
 
-- (void)onOccurError:(NSInteger)error message:(NSString *)message {
+- (void)onOccurError:(int)error message:(NSString *)message {
   [self emit:@{@"type" : @"error",
                @"code" : @(error),
                @"message" : message ?: @"ARTC reported an error."}];

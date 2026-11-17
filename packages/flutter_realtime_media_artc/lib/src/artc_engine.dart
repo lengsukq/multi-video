@@ -46,11 +46,17 @@ abstract interface class ArtcEngine {
   Future<void> dispose();
 }
 
-/// Optional Windows-only source interface. Android/iOS test engines remain
-/// compatible without implementing desktop capture methods.
+/// Optional desktop (Windows/macOS) screen capture source interface.
+/// Mobile test engines remain compatible without implementing desktop methods.
 abstract interface class ArtcDesktopScreenCapture {
   Future<List<MediaScreenShareSource>> listDesktopScreenSources();
   Future<void> selectDesktopScreenSource(MediaScreenShareSource source);
+}
+
+/// Optional desktop camera enumeration and selection seam.
+abstract interface class ArtcCameraDeviceControl {
+  Future<List<MediaDevice>> listCameras();
+  Future<void> selectCamera(MediaDevice device);
 }
 
 /// Typed callbacks delivered to the session from ARTC notifications.
@@ -95,7 +101,8 @@ Future<ArtcEngine> createNativeArtcEngine() async {
   return _NativeArtcEngine();
 }
 
-class _NativeArtcEngine implements ArtcEngine, ArtcDesktopScreenCapture {
+class _NativeArtcEngine
+    implements ArtcEngine, ArtcDesktopScreenCapture, ArtcCameraDeviceControl {
   static const MethodChannel _methodChannel = MethodChannel(
     'com.oneplusdream.flutter_realtime_media_artc/methods',
   );
@@ -109,18 +116,18 @@ class _NativeArtcEngine implements ArtcEngine, ArtcDesktopScreenCapture {
 
   @override
   Future<List<MediaScreenShareSource>> listDesktopScreenSources() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) {
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.windows &&
+            defaultTargetPlatform != TargetPlatform.macOS)) {
       throw const RealtimeException(
         code: RealtimeErrorCode.unsupportedFeature,
         providerId: ArtcJoinInfo.providerIdValue,
-        message: 'ARTC desktop source selection requires Windows.',
+        message: 'ARTC desktop source selection requires macOS or Windows.',
       );
     }
-    final raw = await _methodChannel.invokeListMethod<dynamic>(
-      'listScreenShareSources',
-    );
+    final raw = await _invokeList('listScreenShareSources');
     return [
-      for (final item in raw ?? const <dynamic>[])
+      for (final item in raw)
         if (item is Map)
           MediaScreenShareSource(
             id: item['id']?.toString() ?? '',
@@ -147,6 +154,29 @@ class _NativeArtcEngine implements ArtcEngine, ArtcDesktopScreenCapture {
   }
 
   @override
+  Future<List<MediaDevice>> listCameras() async {
+    final raw = await _invokeList('listCameras');
+    return [
+      for (final item in raw)
+        if (item is Map)
+          if ((item['id']?.toString() ?? '').isNotEmpty)
+            MediaDevice(
+              id: item['id']!.toString(),
+              label: (item['label']?.toString() ?? '').isEmpty
+                  ? item['id']!.toString()
+                  : item['label']!.toString(),
+              kind: MediaDeviceKind.camera,
+            ),
+    ];
+  }
+
+  @override
+  Future<void> selectCamera(MediaDevice device) => _invoke('selectCamera', {
+    'deviceId': device.id,
+    if (device.label.isNotEmpty) 'label': device.label,
+  });
+
+  @override
   Future<void> join(ArtcJoinInfo info, ArtcEngineEvents events) async {
     _handlers = events;
     _eventSubscription ??= _eventChannel.receiveBroadcastStream().listen(
@@ -165,7 +195,10 @@ class _NativeArtcEngine implements ArtcEngine, ArtcDesktopScreenCapture {
   }
 
   @override
-  Future<void> leave() => _invoke('leave');
+  Future<void> leave() async {
+    _selectedDesktopSource = null;
+    await _invoke('leave');
+  }
 
   @override
   Future<void> setMuted(bool muted) => _invoke('setMuted', {'muted': muted});
@@ -197,6 +230,7 @@ class _NativeArtcEngine implements ArtcEngine, ArtcDesktopScreenCapture {
 
   @override
   Future<void> dispose() async {
+    _selectedDesktopSource = null;
     await _eventSubscription?.cancel();
     _eventSubscription = null;
     await _invoke('dispose');
@@ -262,23 +296,43 @@ class _NativeArtcEngine implements ArtcEngine, ArtcDesktopScreenCapture {
     }
   }
 
+  Never _rethrowPlatformException(PlatformException error) {
+    throw RealtimeException(
+      code: switch (error.code) {
+        'permission_denied' => RealtimeErrorCode.permissionDenied,
+        'invalid_state' => RealtimeErrorCode.invalidState,
+        'unsupported_platform' => RealtimeErrorCode.unsupportedPlatform,
+        'unsupported_feature' => RealtimeErrorCode.unsupportedFeature,
+        'invalid_join_info' ||
+        'invalid_argument' => RealtimeErrorCode.invalidArgument,
+        _ => RealtimeErrorCode.providerError,
+      },
+      message: error.message ?? 'ARTC native call failed (${error.code}).',
+      details: error.details,
+      providerId: ArtcJoinInfo.providerIdValue,
+    );
+  }
+
+  Future<List<dynamic>> _invokeList(
+    String method, [
+    Map<String, Object?>? arguments,
+  ]) async {
+    try {
+      return await _methodChannel.invokeListMethod<dynamic>(
+            method,
+            arguments,
+          ) ??
+          const <dynamic>[];
+    } on PlatformException catch (error) {
+      _rethrowPlatformException(error);
+    }
+  }
+
   Future<void> _invoke(String method, [Map<String, Object?>? arguments]) async {
     try {
       await _methodChannel.invokeMethod<void>(method, arguments);
     } on PlatformException catch (error) {
-      throw RealtimeException(
-        code: switch (error.code) {
-          'permission_denied' => RealtimeErrorCode.permissionDenied,
-          'invalid_state' => RealtimeErrorCode.invalidState,
-          'unsupported_platform' => RealtimeErrorCode.unsupportedPlatform,
-          'unsupported_feature' => RealtimeErrorCode.unsupportedFeature,
-          'invalid_join_info' => RealtimeErrorCode.invalidArgument,
-          _ => RealtimeErrorCode.providerError,
-        },
-        message: error.message ?? 'ARTC native call failed (${error.code}).',
-        details: error.details,
-        providerId: ArtcJoinInfo.providerIdValue,
-      );
+      _rethrowPlatformException(error);
     }
   }
 }

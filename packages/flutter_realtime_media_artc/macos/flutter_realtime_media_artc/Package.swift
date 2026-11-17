@@ -18,7 +18,14 @@ let package = Package(
             ],
             path: "Sources/flutter_realtime_media_artc",
             publicHeadersPath: "include",
-            linkerSettings: [.linkedFramework("AVFoundation"), .linkedFramework("AppKit")]
+            linkerSettings: [
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("AppKit"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("CoreMedia"),
+                .linkedFramework("CoreVideo"),
+                .linkedFramework("ScreenCaptureKit")
+            ]
         )
     ],
     cxxLanguageStandard: .cxx17

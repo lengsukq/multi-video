@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.source           = { :path => '.' }
   s.source_files     = 'flutter_realtime_media_artc/Sources/flutter_realtime_media_artc/**/*'
   s.dependency 'FlutterMacOS'
-  s.frameworks       = 'AVFoundation', 'AppKit'
+  s.frameworks       = 'AVFoundation', 'AppKit', 'CoreGraphics', 'CoreMedia', 'CoreVideo', 'ScreenCaptureKit'
   s.platform         = :osx, '12.0'
   s.static_framework = true
 

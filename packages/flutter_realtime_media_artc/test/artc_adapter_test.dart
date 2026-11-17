@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'package:flutter/services.dart';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_realtime_media_artc/flutter_realtime_media_artc.dart';
 import 'package:flutter_realtime_media_artc/src/artc_engine.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
@@ -56,33 +56,174 @@ void main() {
     await (session as InteractiveMediaSession).setScreenShareEnabled(true);
     expect(engine.calls, contains('screen:true'));
   });
-  test('Windows ARTC exposes native screen share, not unimplemented camera switching', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final engine = _FakeArtcEngine();
-    final session = ArtcSessionFactory(engineFactory: () async => engine)
-        .createSession(joinInfo());
-    addTearDown(session.dispose);
-    await session.join(joinInfo());
-    expect(session.capabilities.canScreenShare, isTrue);
-    expect(session.capabilities.canSwitchCamera, isFalse);
-    final interactive = session as InteractiveMediaSession;
-    await interactive.setScreenShareEnabled(true);
-    expect(engine.calls, contains('screen:true'));
-    expect(session.snapshot.localScreenShareEnabled, isTrue);
-    await expectLater(
-      interactive.switchCamera(MediaCameraPosition.back),
-      throwsA(isA<RealtimeException>().having(
-        (error) => error.code,
-        'error code',
-        RealtimeErrorCode.unsupportedFeature,
-      )),
-    );
-    expect(engine.calls, isNot(contains('camera:back')));
-    await interactive.setScreenShareEnabled(false);
-    expect(engine.calls, contains('screen:false'));
-    expect(session.snapshot.localScreenShareEnabled, isFalse);
-  });
+
+  test(
+    'Windows ARTC exposes native screen share, camera enumeration, selection, and switching without video effects',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final engine = _FakeArtcEngine();
+      final session = ArtcSessionFactory(
+        engineFactory: () async => engine,
+      ).createSession(joinInfo());
+      addTearDown(session.dispose);
+      await session.join(joinInfo());
+      expect(session.capabilities.canScreenShare, isTrue);
+      expect(session.capabilities.canSwitchCamera, isTrue);
+      expect(session.capabilities.canEnumerateCameras, isTrue);
+      expect(session.capabilities.canSelectCamera, isTrue);
+      expect(session.capabilities.canBlurBackground, isFalse);
+
+      final devices = session as MediaDeviceController;
+      final cameras = await devices.listMediaDevices(
+        kinds: {MediaDeviceKind.camera},
+      );
+      expect(cameras.map((c) => c.id), ['desk-cam-1', 'desk-cam-2']);
+      await devices.selectMediaDevice(cameras.last);
+      expect(engine.calls, contains('selectCamera:desk-cam-2:External USB'));
+
+      final interactive = session as InteractiveMediaSession;
+      await interactive.setScreenShareEnabled(true);
+      expect(engine.calls, contains('screen:true'));
+      expect(session.snapshot.localScreenShareEnabled, isTrue);
+
+      await interactive.switchCamera(MediaCameraPosition.back);
+      expect(engine.calls, contains('camera:back'));
+
+      await interactive.setScreenShareEnabled(false);
+      expect(engine.calls, contains('screen:false'));
+      expect(session.snapshot.localScreenShareEnabled, isFalse);
+    },
+  );
+
+  test(
+    'Windows ARTC attaches processed video source when native probe succeeds and reconciles camera labels',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final commands = <MethodCall>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const artcMethods = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_artc/methods',
+      );
+      const sourceChannel = MethodChannel(
+        'flutter_realtime_processed_video/sources',
+      );
+      messenger.setMockMethodCallHandler(artcMethods, (call) async {
+        commands.add(call);
+        if (call.method == 'probeProcessedVideoInput') return true;
+        return null;
+      });
+      messenger.setMockMethodCallHandler(sourceChannel, (call) async {
+        commands.add(call);
+        if (call.method == 'listCameras') {
+          return [
+            {'id': 'mf-cam-1', 'label': 'Integrated Camera'},
+            {'id': 'mf-cam-2', 'label': 'External USB'},
+          ];
+        }
+        return null;
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(artcMethods, null);
+        messenger.setMockMethodCallHandler(sourceChannel, null);
+      });
+
+      final engine = _FakeArtcEngine();
+      final session = ArtcSessionFactory(
+        engineFactory: () async => engine,
+      ).createSession(joinInfo());
+      addTearDown(session.dispose);
+      await session.join(joinInfo());
+
+      expect(session.capabilities.canBlurBackground, isTrue);
+      expect(session.capabilities.canReplaceBackgroundImage, isTrue);
+      final sink = session as ProcessedVideoSink;
+      const source = ProcessedVideoSource(
+        id: 'win_effects_1',
+        platform: ProcessedVideoPlatform.windows,
+        kind: ProcessedVideoSourceKind.nativeFrameHub,
+        width: 1280,
+        height: 720,
+        frameRate: 24,
+      );
+      expect(sink.supportsProcessedVideoSource(source), isTrue);
+
+      // Select native camera before attaching processed video; attaching should
+      // reconcile onto the matching Media Foundation camera ID by label.
+      final devices = session as MediaDeviceController;
+      await devices.selectMediaDevice(
+        const MediaDevice(
+          id: 'desk-cam-2',
+          label: 'External USB (046d:0825)',
+          kind: MediaDeviceKind.camera,
+        ),
+      );
+      await sink.attachProcessedVideoSource(source);
+      expect(
+        commands
+            .where((c) => c.method == 'selectCamera')
+            .map((c) => (c.arguments as Map)['deviceId']),
+        ['mf-cam-2'],
+      );
+
+      final publisher = session as InteractiveMediaSession;
+      await publisher.setVideoEnabled(true);
+      await publisher.switchCamera(MediaCameraPosition.back);
+      expect(engine.calls, isNot(contains('camera:back')));
+
+      await session.leave();
+      expect(
+        commands.where((c) => c.method == 'detachProcessedVideoSource'),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'macOS ARTC enumerates screen share sources, reconciles system stop, and selects cameras without video effects',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final engine = _FakeArtcEngine();
+      final session = ArtcSessionFactory(
+        engineFactory: () async => engine,
+      ).createSession(joinInfo());
+      addTearDown(session.dispose);
+      await session.join(joinInfo());
+
+      expect(session.capabilities.canScreenShare, isTrue);
+      expect(session.capabilities.canSwitchCamera, isTrue);
+      expect(session.capabilities.canEnumerateCameras, isTrue);
+      expect(session.capabilities.canSelectCamera, isTrue);
+
+      final selector = session as MediaScreenShareSourceSelector;
+      final sources = await selector.listScreenShareSources();
+      expect(sources, hasLength(2));
+      await selector.selectScreenShareSource(sources.first);
+      expect(engine.selectedDesktopSource?.id, '1');
+
+      final interactive = session as InteractiveMediaSession;
+      await interactive.setScreenShareEnabled(true);
+      expect(session.snapshot.localScreenShareEnabled, isTrue);
+      expect(session.snapshot.contentShareTrack?.isScreenShare, isTrue);
+
+      // macOS ScreenCaptureKit unexpected stop reconciles snapshot immediately.
+      engine.events!.onLocalScreenShareChanged?.call(false);
+      expect(session.snapshot.localScreenShareEnabled, isFalse);
+      expect(session.snapshot.contentShareTrack, isNull);
+
+      final devices = session as MediaDeviceController;
+      final cameras = await devices.listMediaDevices(
+        kinds: {MediaDeviceKind.camera},
+      );
+      expect(cameras, hasLength(2));
+      await devices.selectMediaDevice(cameras.first);
+      expect(engine.calls, contains('selectCamera:desk-cam-1:Integrated Camera'));
+    },
+  );
+
   test('Windows ARTC pre-join blocks without a real native bridge', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -514,18 +655,22 @@ void main() {
       final session = ArtcSessionFactory(
         engineFactory: () async => engine,
       ).createSession(joinInfo());
+      addTearDown(session.dispose);
       final events = <MediaEvent>[];
       final subscription = session.events.listen(events.add);
+      addTearDown(subscription.cancel);
 
       await session.join(joinInfo());
       expect(session.state, MediaSessionState.connected);
       expect(engine.joined.single.userId, 'u-person1');
       expect(engine.joined.single.roomMode, ArtcRoomMode.communication);
       expect(session.snapshot.localParticipantId, 'u-person1');
-      expect(
-        session.capabilities.canScreenShare,
-        defaultTargetPlatform == TargetPlatform.android,
-      );
+      final supportsScreenShare =
+          defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows;
+      expect(session.capabilities.canScreenShare, supportsScreenShare);
       expect(session.capabilities.canEnumerateAudioDevices, isFalse);
       final interactive = session as InteractiveMediaSession;
       await expectLater(
@@ -541,15 +686,19 @@ void main() {
 
       await interactive.setMuted(false);
       await interactive.setVideoEnabled(true);
-      await interactive.switchCamera(MediaCameraPosition.back);
+      if (session.capabilities.canSwitchCamera) {
+        await interactive.switchCamera(MediaCameraPosition.back);
+      }
       expect(session.snapshot.localMuted, isFalse);
       expect(session.snapshot.localVideoEnabled, isTrue);
-      expect(
-        engine.calls,
-        containsAll(['mute:false', 'video:true', 'camera:back']),
-      );
+      expect(engine.calls, containsAll(['mute:false', 'video:true']));
+      if (session.capabilities.canSwitchCamera) {
+        expect(engine.calls, contains('camera:back'));
+      }
       expect(events.whereType<MediaTrackPublished>(), hasLength(1));
-      if (defaultTargetPlatform == TargetPlatform.android) {
+      if (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows) {
         await interactive.setScreenShareEnabled(true);
         expect(session.snapshot.localScreenShareEnabled, isTrue);
         await interactive.setScreenShareEnabled(false);
@@ -636,6 +785,9 @@ void main() {
       expect(session.capabilities.canPublishVideo, isFalse);
       expect(session.capabilities.canSendData, isFalse);
       expect(session.capabilities.canReceiveData, isTrue);
+      expect(session.capabilities.canSwitchCamera, isFalse);
+      expect(session.capabilities.canEnumerateCameras, isFalse);
+      expect(session.capabilities.canScreenShare, isFalse);
       await expectLater(
         (session as BroadcastViewerSession).sendMessage('not allowed'),
         throwsA(
@@ -662,6 +814,7 @@ void main() {
       final session = ArtcSessionFactory(
         engineFactory: () async => engine,
       ).createSession(joinInfo());
+      addTearDown(session.dispose);
       var refreshCalls = 0;
       (session as MediaCredentialRefreshable).setCredentialRefreshCallback((
         current,
@@ -682,8 +835,7 @@ void main() {
       });
       await session.join(joinInfo());
       engine.events!.onAuthWillExpire?.call();
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+      await pumpEventQueue();
       expect(refreshCalls, 1);
       expect(engine.joined, hasLength(2));
       expect(engine.joined.last.authInfo, 'renewed-auth-info');
@@ -694,6 +846,7 @@ void main() {
       final changedSession = ArtcSessionFactory(
         engineFactory: () async => changedEngine,
       ).createSession(joinInfo());
+      addTearDown(changedSession.dispose);
       (changedSession as MediaCredentialRefreshable)
           .setCredentialRefreshCallback((current) async {
             final original = current as ArtcJoinInfo;
@@ -711,8 +864,7 @@ void main() {
           });
       await changedSession.join(joinInfo());
       changedEngine.events!.onAuthWillExpire?.call();
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+      await pumpEventQueue();
       expect(changedSession.state, MediaSessionState.failed);
       expect(changedEngine.joined, hasLength(1));
       await changedSession.dispose();
@@ -740,17 +892,20 @@ void main() {
   });
 }
 
-class _FakeArtcEngine implements ArtcEngine, ArtcDesktopScreenCapture {
+class _FakeArtcEngine
+    implements ArtcEngine, ArtcDesktopScreenCapture, ArtcCameraDeviceControl {
   MediaScreenShareSource? selectedDesktopSource;
   @override
   Future<List<MediaScreenShareSource>> listDesktopScreenSources() async =>
       const [
         MediaScreenShareSource(
-          id: '1', name: 'Display',
+          id: '1',
+          name: 'Display',
           kind: MediaScreenShareSourceKind.display,
         ),
         MediaScreenShareSource(
-          id: '314', name: 'Editor',
+          id: '314',
+          name: 'Editor',
           kind: MediaScreenShareSourceKind.window,
         ),
       ];
@@ -759,6 +914,26 @@ class _FakeArtcEngine implements ArtcEngine, ArtcDesktopScreenCapture {
   Future<void> selectDesktopScreenSource(MediaScreenShareSource source) async {
     selectedDesktopSource = source;
   }
+
+  @override
+  Future<List<MediaDevice>> listCameras() async => const [
+    MediaDevice(
+      id: 'desk-cam-1',
+      label: 'Integrated Camera',
+      kind: MediaDeviceKind.camera,
+    ),
+    MediaDevice(
+      id: 'desk-cam-2',
+      label: 'External USB',
+      kind: MediaDeviceKind.camera,
+    ),
+  ];
+
+  @override
+  Future<void> selectCamera(MediaDevice device) async {
+    calls.add('selectCamera:${device.id}:${device.label}');
+  }
+
   Future<void>? pendingJoin;
   final List<ArtcJoinInfo> joined = [];
   final List<String> calls = [];

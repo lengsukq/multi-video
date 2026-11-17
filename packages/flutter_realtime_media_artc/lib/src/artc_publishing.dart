@@ -6,9 +6,11 @@ class _ArtcPublishing {
 
   Future<List<MediaScreenShareSource>> listScreenShareSources() {
     _session._requireActive();
+    _session._requireCapability(capabilities.canScreenShare, 'screen sharing');
     final engine = _session._engine;
     if (kIsWeb ||
-        defaultTargetPlatform != TargetPlatform.windows ||
+        (defaultTargetPlatform != TargetPlatform.windows &&
+            defaultTargetPlatform != TargetPlatform.macOS) ||
         engine is! ArtcDesktopScreenCapture) {
       throw const RealtimeException(
         code: RealtimeErrorCode.unsupportedFeature,
@@ -35,6 +37,7 @@ class _ArtcPublishing {
   ArtcMediaVideoTrack? _localScreenTrack;
   bool _screenShareEnabled = false;
   ProcessedVideoSource? _iosScreenCaptureSource;
+  MediaDevice? _selectedCameraDevice;
   static const _iosNativeChannel = MethodChannel(
     'com.oneplusdream.flutter_realtime_media_artc/methods',
   );
@@ -87,24 +90,27 @@ class _ArtcPublishing {
   }
 
   MediaCameraPosition _cameraPosition = MediaCameraPosition.front;
-  bool _macEffectsInputAvailable = false;
+  bool _desktopEffectsInputAvailable = false;
+  bool get _desktopCameraPlatform =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows);
   bool get _effectsPlatform =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
-          (defaultTargetPlatform == TargetPlatform.macOS &&
-              _macEffectsInputAvailable));
+          (_desktopCameraPlatform && _desktopEffectsInputAvailable));
   Future<void> _probeProcessedVideoInput() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS) return;
+    if (!_desktopCameraPlatform) return;
     try {
-      _macEffectsInputAvailable =
+      _desktopEffectsInputAvailable =
           await MethodChannel(
             _processedSink.channelName,
           ).invokeMethod<bool>('probeProcessedVideoInput') ??
           false;
     } on MissingPluginException {
-      _macEffectsInputAvailable = false;
+      _desktopEffectsInputAvailable = false;
     } on PlatformException {
-      _macEffectsInputAvailable = false;
+      _desktopEffectsInputAvailable = false;
     }
   }
 
@@ -114,14 +120,22 @@ class _ArtcPublishing {
     attachMethod: 'attachProcessedVideoSource',
     detachMethod: 'detachProcessedVideoSource',
   );
+
+  ProcessedVideoPlatform? get _expectedProcessedPlatform => kIsWeb
+      ? null
+      : switch (defaultTargetPlatform) {
+          TargetPlatform.android => ProcessedVideoPlatform.android,
+          TargetPlatform.macOS => ProcessedVideoPlatform.macos,
+          TargetPlatform.windows => ProcessedVideoPlatform.windows,
+          _ => null,
+        };
+
   bool supportsProcessedVideoSource(ProcessedVideoSource source) =>
       capabilities.canPublishVideo &&
       _effectsPlatform &&
       _processedSink.supports(source) &&
-      source.platform ==
-          (defaultTargetPlatform == TargetPlatform.android
-              ? ProcessedVideoPlatform.android
-              : ProcessedVideoPlatform.macos);
+      source.platform == _expectedProcessedPlatform;
+
   Future<void> attachProcessedVideoSource(ProcessedVideoSource source) async {
     _session._requireActive();
     if (!supportsProcessedVideoSource(source)) {
@@ -133,12 +147,35 @@ class _ArtcPublishing {
       );
     }
     await _processedSink.attach(source);
+    if (_selectedCameraDevice case final selected?) {
+      try {
+        final resolvedId = await _resolveProcessedCameraId(selected);
+        await _processedSink.selectCamera(resolvedId);
+      } on MissingPluginException {
+        // Ignore if processed camera list channel is absent in offline tests.
+      } on PlatformException {
+        // Keep attached source; source creation may have already chosen camera.
+      }
+    }
     _syncLocalProcessedTrack();
   }
 
   Future<void> detachProcessedVideoSource() async {
     await _processedSink.detach();
-    if (!_session._disposed) _syncLocalProcessedTrack();
+    if (!_session._disposed) {
+      if (_selectedCameraDevice case final selected?
+          when _desktopCameraPlatform &&
+              _session._engine is ArtcCameraDeviceControl) {
+        try {
+          await (_session._engine as ArtcCameraDeviceControl).selectCamera(
+            selected,
+          );
+        } on RealtimeException {
+          // Best-effort sync back onto native engine camera selection.
+        }
+      }
+      _syncLocalProcessedTrack();
+    }
   }
 
   void _syncLocalProcessedTrack() {
@@ -162,12 +199,58 @@ class _ArtcPublishing {
     );
   }
 
+  static String _normalizeCameraLabel(String label) {
+    var trimmed = label.trim();
+    final open = trimmed.lastIndexOf('(');
+    if (open > 0 && trimmed.endsWith(')')) {
+      trimmed = trimmed.substring(0, open).trim();
+    }
+    return trimmed.toLowerCase();
+  }
+
+  Future<String> _resolveProcessedCameraId(MediaDevice requested) async {
+    final available = await ProcessedVideoBridge().listCameras();
+    if (available.isEmpty) return requested.id;
+    for (final camera in available) {
+      if (camera.id == requested.id) return camera.id;
+    }
+    final targetLabel = _normalizeCameraLabel(requested.label);
+    final targetIdLabel = _normalizeCameraLabel(requested.id);
+    for (final camera in available) {
+      final candidate = _normalizeCameraLabel(camera.label);
+      if (camera.label == requested.label ||
+          (targetLabel.isNotEmpty && candidate == targetLabel) ||
+          (targetIdLabel.isNotEmpty && candidate == targetIdLabel)) {
+        return camera.id;
+      }
+    }
+    return requested.id;
+  }
+
   Future<List<MediaDevice>> listMediaDevices({
     Set<MediaDeviceKind>? kinds,
   }) async {
     _session._requireActive();
     if (!capabilities.canEnumerateCameras ||
         (kinds != null && !kinds.contains(MediaDeviceKind.camera))) {
+      return const [];
+    }
+    if (_processedSink.source == null &&
+        _desktopCameraPlatform &&
+        _session._engine is ArtcCameraDeviceControl) {
+      try {
+        final nativeCameras = await (_session._engine as ArtcCameraDeviceControl)
+            .listCameras();
+        if (nativeCameras.isNotEmpty) {
+          return List.unmodifiable(nativeCameras);
+        }
+      } on MissingPluginException {
+        // Fall back to ProcessedVideoBridge when running without native channel.
+      } on RealtimeException {
+        if (!_effectsPlatform) return const [];
+      }
+    }
+    if (!_effectsPlatform && _processedSink.source == null) {
       return const [];
     }
     return List.unmodifiable([
@@ -190,14 +273,23 @@ class _ArtcPublishing {
         message: 'This media device cannot be selected.',
       );
     }
-    if (_processedSink.source == null) {
-      throw RealtimeException(
-        code: RealtimeErrorCode.invalidState,
-        providerId: providerId,
-        message: 'Prepare the SDK video source before selecting a camera.',
-      );
+    if (_processedSink.source != null) {
+      final resolvedId = await _resolveProcessedCameraId(device);
+      await _processedSink.selectCamera(resolvedId);
+      _selectedCameraDevice = device;
+      return;
     }
-    await _processedSink.selectCamera(device.id);
+    if (_desktopCameraPlatform &&
+        _session._engine is ArtcCameraDeviceControl) {
+      await (_session._engine as ArtcCameraDeviceControl).selectCamera(device);
+      _selectedCameraDevice = device;
+      return;
+    }
+    throw RealtimeException(
+      code: RealtimeErrorCode.invalidState,
+      providerId: providerId,
+      message: 'Prepare the SDK video source before selecting a camera.',
+    );
   }
 
   Future<void> _setMuted(bool muted) async {

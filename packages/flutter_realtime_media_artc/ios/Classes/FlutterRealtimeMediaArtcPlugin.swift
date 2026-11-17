@@ -1,8 +1,27 @@
 import AVFoundation
 import Flutter
+#if !FRSDK_DISABLE_ARTC
 import AliVCSDK_ARTC
+#endif
 import UIKit
 
+#if FRSDK_DISABLE_ARTC
+public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin {
+    public static func register(with registrar: FlutterPluginRegistrar) {
+        let methods = FlutterMethodChannel(
+            name: "com.oneplusdream.flutter_realtime_media_artc/methods",
+            binaryMessenger: registrar.messenger()
+        )
+        methods.setMethodCallHandler { _, result in
+            result(FlutterError(
+                code: "unsupported_platform",
+                message: "Alibaba ARTC native iOS SDK was excluded at build time via FRSDK_IOS_DISABLE_ARTC=1 to isolate WebRTC binary symbols.",
+                details: nil
+            ))
+        }
+    }
+}
+#else
 public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private static let methodChannelName = "com.oneplusdream.flutter_realtime_media_artc/methods"
     private static let eventChannelName = "com.oneplusdream.flutter_realtime_media_artc/events"
@@ -428,3 +447,4 @@ private final class ArtcVideoPlatformViewFactory: NSObject, FlutterPlatformViewF
         )
     }
 }
+#endif
