@@ -10,6 +10,7 @@ Pod::Spec.new do |s|
   s.source_files     = 'flutter_realtime_media_aws_desktop/Sources/flutter_realtime_media_aws_desktop/**/*'
   s.dependency 'FlutterMacOS'
   s.frameworks       = 'WebKit', 'AVFoundation', 'AppKit'
+  s.weak_frameworks  = 'ScreenCaptureKit'
   s.platform         = :osx, '12.0'
   s.swift_version    = '5.0'
   s.static_framework = true

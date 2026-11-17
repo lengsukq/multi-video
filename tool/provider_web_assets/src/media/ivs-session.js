@@ -252,11 +252,21 @@ export function createIvsSession(session, context) {
           if (args.enabled && !session.screenTrack) {
             // IVS needs a second Stage token for a simultaneous screen and
             // camera video. In a single-token Demo, switch the video source.
-            const media = await navigator.mediaDevices.getDisplayMedia({
-              video: { width: { max: 1280 }, height: { max: 720 } },
-            });
-            const track = media.getVideoTracks()[0];
-            if (!track) throw new Error('Browser screen capture provided no video track.');
+            let track = null;
+            if (args.processedSourceId) {
+              track =
+                global.RealtimeScreenCaptureBridge?.getTrack?.(args.processedSourceId) ||
+                global.RealtimeProcessedVideoBridge?.getTrack?.(args.processedSourceId);
+              if (!track || track.readyState === 'ended') {
+                throw new Error('Native macOS screen capture track is unavailable.');
+              }
+            } else {
+              const media = await navigator.mediaDevices.getDisplayMedia({
+                video: { width: { max: 1280 }, height: { max: 720 } },
+              });
+              track = media.getVideoTracks()[0];
+              if (!track) throw new Error('Browser screen capture provided no video track.');
+            }
             let localStream;
             try { localStream = new sdk.LocalStageStream(track); }
             catch (error) { track.stop(); throw error; }

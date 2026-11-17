@@ -4,10 +4,17 @@ import ImageIO
 import ObjectiveC
 import WebKit
 
+protocol AwsFrameSource: AnyObject {
+  var sourceId: String { get }
+  var isFailed: Bool { get }
+  var errorMessage: String? { get }
+  func snapshot() -> (data: Data, timestampNs: Int64)?
+}
+
 /// The CocoaPods transport discovers the effects plugin supplied by SwiftPM.
 /// Pixel buffers stay native; WebKit receives only a local encoded input.
 @objc(FlutterRealtimeAwsProcessedFrameFeed)
-final class AwsProcessedFrameFeed: NSObject {
+final class AwsProcessedFrameFeed: NSObject, AwsFrameSource {
   static let sharedColorSpace = CGColorSpaceCreateDeviceRGB()
   static let sharedCIContext = CIContext(options: [
     .cacheIntermediates: false,
@@ -185,7 +192,7 @@ final class AwsProcessedFrameFeed: NSObject {
 /// Local scheme requests avoid Flutter channels and external HTTP servers.
 final class AwsProcessedFrameSchemeHandler: NSObject, WKURLSchemeHandler {
   private let lock = NSLock()
-  private var feeds: [String: AwsProcessedFrameFeed] = [:]
+  private var feeds: [String: AwsFrameSource] = [:]
   private static let probeImage: Data? = AwsProcessedFrameFeed.sharedCIContext.pngRepresentation(
     of: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 1, height: 1)),
     format: .RGBA8, colorSpace: AwsProcessedFrameFeed.sharedColorSpace
@@ -195,10 +202,10 @@ final class AwsProcessedFrameSchemeHandler: NSObject, WKURLSchemeHandler {
     colorSpace: AwsProcessedFrameFeed.sharedColorSpace, options: [:]
   )
 
-  func add(_ feed: AwsProcessedFrameFeed) {
+  func add(_ feed: AwsFrameSource) {
     lock.lock(); defer { lock.unlock() }; feeds[feed.sourceId.lowercased()] = feed
   }
-  func remove(_ feed: AwsProcessedFrameFeed) {
+  func remove(_ feed: AwsFrameSource) {
     lock.lock(); defer { lock.unlock() }
     let key = feed.sourceId.lowercased()
     if feeds[key] === feed { feeds.removeValue(forKey: key) }

@@ -164,6 +164,9 @@
     selectCamera: async function() { throw new Error('Select the camera through the native SDK bridge.'); }
   };
   global.RealtimeProcessedVideoBridge = global.RealtimeVideoEffectsBridge;
+  global.RealtimeScreenCaptureBridge = {
+    getTrack: function(sourceId) { return getProcessedSource(sourceId).track; },
+  };
 
   function post(value) {
     if (native) native.postMessage(value);
@@ -554,6 +557,26 @@
       if (source) failProcessedSource(source, message);
     },
     disposeProcessedVideo: disposeProcessedSource,
+    startScreenCaptureSource: async function(sourceId) {
+      const normalizedSourceId = String(sourceId || '');
+      if (!normalizedSourceId) throw new Error('Screen capture sourceId is required.');
+      if (!await global.AwsDesktopRuntime.canConsumeProcessedVideo()) {
+        throw new Error('WebKit does not support native screen capture transport.');
+      }
+      const existing = processedSources.get(processedSourceKey(normalizedSourceId));
+      if (existing) {
+        existing.references += 1;
+        return true;
+      }
+      const source = createProcessedSource(normalizedSourceId);
+      source.references += 1;
+      return true;
+    },
+    stopScreenCaptureSource: function(sourceId) {
+      const key = processedSourceKey(String(sourceId || ''));
+      if (key) releaseProcessedSourceReference(key);
+      return true;
+    },
     canConsumeProcessedVideo: async function() {
       const canvas = document.createElement('canvas');
       if (typeof canvas.captureStream !== 'function') return false;

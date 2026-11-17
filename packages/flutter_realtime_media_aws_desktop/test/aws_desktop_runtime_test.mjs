@@ -587,4 +587,13 @@ test('exposes RealtimeProcessedVideoBridge and non-cloning track for MediaProvid
   await context.AwsDesktopRuntime.detachProcessedVideo('chime', 'chime-session', 'blur-source', 2);
 });
 
+test('exposes RealtimeScreenCaptureBridge for native macOS screen capture lifecycle', async () => {
+  const { context } = createVideoRuntime();
+  await context.AwsDesktopRuntime.startScreenCaptureSource('aws-screen-chime-1');
+  const track = context.RealtimeScreenCaptureBridge.getTrack('aws-screen-chime-1');
+  assert.equal(track.readyState, 'live');
+  context.AwsDesktopRuntime.stopScreenCaptureSource('aws-screen-chime-1');
+  assert.equal(track.readyState, 'ended');
+});
+
 

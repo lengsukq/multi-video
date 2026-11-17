@@ -36,6 +36,11 @@ async function createChimeHarness(browserGlobals = {}) {
       assert.equal(value, contentObserver);
       calls.push('removeContentShareObserver');
     },
+    async startContentShare(stream) {
+      calls.push('startContentShare');
+      contentObserver?.contentShareDidStart?.();
+      return stream;
+    },
     async startContentShareFromScreenCapture() {
       calls.push('startContentShareFromScreenCapture');
       const track = {
@@ -453,6 +458,43 @@ test('Chime Web only shows active local screen after content share starts and ha
   assert.ok(calls.includes('removeContentShareObserver'));
 });
 
+test('Chime desktop sharing publishes a native RealtimeScreenCaptureBridge track when processedSourceId is supplied', async () => {
+  const nativeTrack = {
+    id: 'macos-sc-track-1',
+    kind: 'video',
+    readyState: 'live',
+    addEventListener() {},
+    stop() {},
+  };
+  const {bridge, calls, events} = await createChimeHarness({
+    MediaStream: class FakeMediaStream {
+      constructor(tracks) { this._tracks = tracks; }
+      getVideoTracks() { return this._tracks; }
+      getTracks() { return this._tracks; }
+    },
+    RealtimeScreenCaptureBridge: {
+      getTrack(sourceId) {
+        assert.equal(sourceId, 'aws-screen-chime-1');
+        return nativeTrack;
+      },
+    },
+  });
+  await bridge.create('chime', 'content-native', chimePayload);
+  await bridge.join('chime', 'content-native');
+  await bridge.command('chime', 'content-native', 'setScreenShareEnabled', {
+    enabled: true,
+    processedSourceId: 'aws-screen-chime-1',
+  });
+  assert.ok(calls.includes('startContentShare'));
+  assert.ok(!calls.includes('startContentShareFromScreenCapture'));
+  const snapshot = events.filter(({event}) => event.type === 'snapshot').at(-1).event;
+  assert.equal(
+    snapshot.tracks.some((track) => track.id === 'chime:screen:attendee-1' && track.isLocal && track.isScreenShare),
+    true,
+  );
+  await bridge.dispose('chime', 'content-native');
+});
+
 test('IVS Web awaits the Stage leave handshake before releasing local capture', async () => {
   const {bridge, calls, getStage} = await createIvsHarness();
   const payload = {participantId:'host',role:'host',
@@ -607,7 +649,7 @@ test('Chime bridge sends and receives normalized data messages', async () => {
   await bridge.dispose('chime', 'meeting-2');
 });
 
-async function createIvsHarness() {
+async function createIvsHarness(browserGlobals = {}) {
   const calls = [];
   const events = [];
   let stage;
@@ -735,6 +777,7 @@ async function createIvsHarness() {
       SubscribeType: { AUDIO_VIDEO: 'audio-video', NONE: 'none' },
       StreamType: { VIDEO: 'video', AUDIO: 'audio' },
     },
+    ...browserGlobals,
   });
   const source = (await build({ entryPoints: [new URL('./bridge.js', import.meta.url).pathname], bundle: true, write: false, format: 'iife', platform: 'browser' })).outputFiles[0].text;
   const effectsSource = await readFile(new URL('../../../packages/flutter_realtime_video_effects/web/video-effects-bridge.js', import.meta.url), 'utf8');
@@ -1026,6 +1069,37 @@ test('IVS leaving while sharing releases both screen and paused camera', async (
   await bridge.dispose('ivs', 'stage-share-dispose');
   assert.ok(calls.includes(`stop:${camera.id}`));
   assert.ok(calls.includes('stop:screen-1'));
+});
+
+test('IVS desktop sharing publishes a native RealtimeScreenCaptureBridge track when processedSourceId is supplied', async () => {
+  const {bridge, calls, events} = await createIvsHarness({
+    RealtimeScreenCaptureBridge: {
+      getTrack(sourceId) {
+        assert.equal(sourceId, 'aws-screen-ivs-1');
+        return {
+          id: 'macos-ivs-sc-1',
+          readyState: 'live',
+          addEventListener() {},
+          stop() { calls.push('stop:macos-ivs-sc-1'); },
+        };
+      },
+    },
+  });
+  await bridge.create('ivs', 'stage-native-screen', JSON.stringify({
+    participantId: 'host', role: 'host',
+    ivs: {token: 'publisher-token', capabilities: ['PUBLISH', 'SUBSCRIBE']},
+  }));
+  await bridge.join('ivs', 'stage-native-screen');
+  await bridge.command('ivs', 'stage-native-screen', 'setScreenShareEnabled', JSON.stringify({
+    enabled: true,
+    processedSourceId: 'aws-screen-ivs-1',
+  }));
+  assert.ok(!calls.includes('getDisplayMedia'));
+  assert.ok(events.some(({event}) =>
+    event.type === 'snapshot' && event.tracks?.some((t) => t.id === 'ivs:screen:macos-ivs-sc-1' && t.isScreenShare && t.isLocal)));
+  await bridge.command('ivs', 'stage-native-screen', 'setScreenShareEnabled', JSON.stringify({enabled: false}));
+  assert.ok(calls.includes('stop:macos-ivs-sc-1'));
+  await bridge.dispose('ivs', 'stage-native-screen');
 });
 
 async function createAgoraHarness() {

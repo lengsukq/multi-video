@@ -18,7 +18,7 @@ let package = Package(
             ],
             path: "Sources/flutter_realtime_media_aws_desktop",
             resources: [.process("Resources")],
-            linkerSettings: [.linkedFramework("WebKit"), .linkedFramework("AVFoundation"), .linkedFramework("AppKit")]
+            linkerSettings: [.linkedFramework("WebKit"), .linkedFramework("AVFoundation"), .linkedFramework("AppKit"), .linkedFramework("ScreenCaptureKit")]
         )
     ],
     cxxLanguageStandard: .cxx17

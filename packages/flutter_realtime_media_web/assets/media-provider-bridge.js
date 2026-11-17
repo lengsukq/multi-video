@@ -1154,11 +1154,19 @@
         }
         if (name === "setScreenShareEnabled") {
           if (args.enabled && !session.screenTrack) {
-            const media = await navigator.mediaDevices.getDisplayMedia({
-              video: { width: { max: 1280 }, height: { max: 720 } }
-            });
-            const track = media.getVideoTracks()[0];
-            if (!track) throw new Error("Browser screen capture provided no video track.");
+            let track = null;
+            if (args.processedSourceId) {
+              track = global.RealtimeScreenCaptureBridge?.getTrack?.(args.processedSourceId) || global.RealtimeProcessedVideoBridge?.getTrack?.(args.processedSourceId);
+              if (!track || track.readyState === "ended") {
+                throw new Error("Native macOS screen capture track is unavailable.");
+              }
+            } else {
+              const media = await navigator.mediaDevices.getDisplayMedia({
+                video: { width: { max: 1280 }, height: { max: 720 } }
+              });
+              track = media.getVideoTracks()[0];
+              if (!track) throw new Error("Browser screen capture provided no video track.");
+            }
             let localStream;
             try {
               localStream = new sdk.LocalStageStream(track);
@@ -1632,7 +1640,17 @@
         if (name === "setScreenShareEnabled") {
           if (args.enabled && !session.screenTrack) {
             const generation = contentShareGeneration;
-            const stream = await audioVideo.startContentShareFromScreenCapture();
+            let stream = null;
+            if (args.processedSourceId) {
+              const screenTrack = global.RealtimeScreenCaptureBridge?.getTrack?.(args.processedSourceId) || global.RealtimeProcessedVideoBridge?.getTrack?.(args.processedSourceId);
+              if (!screenTrack || screenTrack.readyState === "ended") {
+                throw new Error("Native macOS screen capture track is unavailable.");
+              }
+              stream = new global.MediaStream([screenTrack]);
+              await audioVideo.startContentShare(stream);
+            } else {
+              stream = await audioVideo.startContentShareFromScreenCapture();
+            }
             if (generation !== contentShareGeneration || session.disposed) {
               stream?.getTracks?.().forEach((track) => track.stop?.());
               throw new Error("Chime screen capture ended before content sharing started.");

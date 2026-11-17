@@ -329,7 +329,19 @@ export function createChimeSession(session, context) {
             // started content publication. Match the vendor observer's start
             // event with an actual screen MediaStreamTrack.
             const generation = contentShareGeneration;
-            const stream = await audioVideo.startContentShareFromScreenCapture();
+            let stream = null;
+            if (args.processedSourceId) {
+              const screenTrack =
+                global.RealtimeScreenCaptureBridge?.getTrack?.(args.processedSourceId) ||
+                global.RealtimeProcessedVideoBridge?.getTrack?.(args.processedSourceId);
+              if (!screenTrack || screenTrack.readyState === 'ended') {
+                throw new Error('Native macOS screen capture track is unavailable.');
+              }
+              stream = new global.MediaStream([screenTrack]);
+              await audioVideo.startContentShare(stream);
+            } else {
+              stream = await audioVideo.startContentShareFromScreenCapture();
+            }
             // A content-share rejection/stop can race with the capture
             // promise settling. Never resurrect a stopped recording.
             if (generation !== contentShareGeneration || session.disposed) {

@@ -190,6 +190,11 @@ private final class AwsDesktopRuntime: NSObject,
   private var processedFeedReferenceCounts: [String: Int] = [:]
   private var processedAttachGenerations: [AwsDesktopProvider: Int] = [:]
   private var reportedProcessedFailures: Set<String> = []
+  private var selectedScreenSourceIds: [AwsDesktopProvider: String] = [:]
+  private var screenCaptureSessions: [AwsDesktopProvider: AnyObject] = [:]
+  private var screenCaptureSourceIds: [AwsDesktopProvider: String] = [:]
+  private var pendingScreenFrames: [String: Int64] = [:]
+  private var notifyingScreenFrames: Set<String> = []
   private var nextTextureSequence: Int64 = 0
   private var textures: [String: AwsDesktopVideoTexture] = [:]
   private let views = NSMapTable<NSString, AwsDesktopVideoView>(
@@ -416,6 +421,30 @@ private final class AwsDesktopRuntime: NSObject,
       command(.chime, name: "sendMessage", args: arguments) { _, error in
         error == nil ? self.chimeSuccess(result) : self.chimeFailure(result, code: "native_error", message: error!)
       }
+    case "listScreenShareSources":
+      listDesktopScreenSources { sources, error in
+        if let error {
+          self.chimeFailure(result, code: error.code, message: error.message)
+        } else {
+          self.chimeSuccess(result, data: sources ?? [])
+        }
+      }
+    case "selectScreenShareSource":
+      guard let sourceId = nonEmptyString(arguments["id"]) else {
+        chimeFailure(result, code: "invalid_argument", message: "Screen share source id is required.")
+        return
+      }
+      selectDesktopScreenSource(provider: .chime, sourceId: sourceId)
+      chimeSuccess(result)
+    case "setScreenShareEnabled":
+      let enabled = (arguments["enabled"] as? Bool) ?? false
+      setDesktopScreenShareEnabled(provider: .chime, enabled: enabled) { error in
+        if let error {
+          self.chimeFailure(result, code: error.code, message: error.message)
+        } else {
+          self.chimeSuccess(result)
+        }
+      }
     default:
       chimeFailure(
         result,
@@ -501,6 +530,30 @@ private final class AwsDesktopRuntime: NSObject,
         message: "IVS macOS uses desktop camera selection instead of front/back switching.",
         details: nil
       ))
+    case "listScreenShareSources":
+      listDesktopScreenSources { sources, error in
+        if let error {
+          result(FlutterError(code: error.code, message: error.message, details: nil))
+        } else {
+          result(sources ?? [])
+        }
+      }
+    case "selectScreenShareSource":
+      guard let sourceId = nonEmptyString(arguments["id"]) else {
+        result(FlutterError(code: "invalid_argument", message: "Screen share source id is required.", details: nil))
+        return
+      }
+      selectDesktopScreenSource(provider: .ivs, sourceId: sourceId)
+      result(nil)
+    case "setScreenShareEnabled":
+      let enabled = (arguments["enabled"] as? Bool) ?? false
+      setDesktopScreenShareEnabled(provider: .ivs, enabled: enabled) { error in
+        if let error {
+          result(FlutterError(code: error.code, message: error.message, details: nil))
+        } else {
+          result(nil)
+        }
+      }
     case "requestStats":
       result(nil)
     case "dispose":
@@ -737,13 +790,195 @@ private final class AwsDesktopRuntime: NSObject,
     _ provider: AwsDesktopProvider,
     completion: @escaping (String?) -> Void
   ) {
+    stopDesktopScreenCapture(provider, notifyJsSession: false)
     detachProcessedVideo(provider) { _ in
       self.invoke(provider, operation: "leave", payload: [:]) { _, _ in
         self.invoke(provider, operation: "dispose", payload: [:]) { _, error in
           self.snapshots.removeValue(forKey: provider)
+          self.selectedScreenSourceIds.removeValue(forKey: provider)
           self.refreshViews(provider, snapshot: nil)
           completion(error)
         }
+      }
+    }
+  }
+
+  private func listDesktopScreenSources(
+    completion: @escaping ([[String: String]]?, (code: String, message: String)?) -> Void
+  ) {
+    guard #available(macOS 12.3, *) else {
+      completion(nil, ("unsupported_feature", AwsMacosScreenCaptureError.unsupportedMacOS.localizedDescription))
+      return
+    }
+    Task { @MainActor in
+      do {
+        let sources = try await AwsMacosScreenCaptureSession.listSources()
+        completion(sources, nil)
+      } catch let captureError as AwsMacosScreenCaptureError {
+        completion(nil, (captureError.code, captureError.localizedDescription))
+      } catch {
+        completion(nil, ("native_error", error.localizedDescription))
+      }
+    }
+  }
+
+  private func selectDesktopScreenSource(provider: AwsDesktopProvider, sourceId: String) {
+    selectedScreenSourceIds[provider] = sourceId
+  }
+
+  private func setDesktopScreenShareEnabled(
+    provider: AwsDesktopProvider,
+    enabled: Bool,
+    completion: @escaping ((code: String, message: String)?) -> Void
+  ) {
+    if !enabled {
+      command(provider, name: "setScreenShareEnabled", args: ["enabled": false]) { _, error in
+        self.stopDesktopScreenCapture(provider, notifyJsSession: false)
+        if let error {
+          completion(("native_error", error))
+        } else {
+          completion(nil)
+        }
+      }
+      return
+    }
+    if let existingSourceId = screenCaptureSourceIds[provider],
+       screenCaptureSessions[provider] != nil {
+      command(
+        provider,
+        name: "setScreenShareEnabled",
+        args: ["enabled": true, "processedSourceId": existingSourceId]
+      ) { _, error in
+        completion(error.map { ("native_error", $0) })
+      }
+      return
+    }
+    guard #available(macOS 12.3, *) else {
+      completion(("unsupported_feature", AwsMacosScreenCaptureError.unsupportedMacOS.localizedDescription))
+      return
+    }
+    guard let payload = payloads[provider], payload["role"] as? String != "viewer" else {
+      completion(("unsupported_feature", "Only joined publishers can share screen content."))
+      return
+    }
+    let sourceId = "aws-screen-" + provider.rawValue + "-" + UUID().uuidString.prefix(8).lowercased()
+    let session = AwsMacosScreenCaptureSession(sourceId: sourceId)
+    processedFrameHandler.add(session)
+    session.onFrameAvailable = { [weak self] timestampNs in
+      DispatchQueue.main.async {
+        self?.notifyScreenCaptureFrame(sourceId: sourceId, timestampNs: timestampNs)
+      }
+    }
+    session.onStopped = { [weak self] _ in
+      DispatchQueue.main.async {
+        self?.stopDesktopScreenCapture(provider, notifyJsSession: true)
+      }
+    }
+    screenCaptureSessions[provider] = session
+    screenCaptureSourceIds[provider] = sourceId
+    Task { @MainActor in
+      do {
+        try await session.start(selectedSourceId: self.selectedScreenSourceIds[provider])
+        self.ensureMediaProviderBridge(provider) { error in
+          if let error {
+            self.stopDesktopScreenCapture(provider, notifyJsSession: false)
+            completion(("native_error", error.localizedDescription))
+            return
+          }
+          guard let webView = self.webView else {
+            self.stopDesktopScreenCapture(provider, notifyJsSession: false)
+            completion(("native_error", "AWS desktop WebKit runtime is unavailable."))
+            return
+          }
+          Task { @MainActor in
+            do {
+              _ = try await webView.callAsyncJavaScript(
+                "return await AwsDesktopRuntime.startScreenCaptureSource(sourceId)",
+                arguments: ["sourceId": sourceId],
+                in: nil,
+                contentWorld: .page
+              )
+              self.command(
+                provider,
+                name: "setScreenShareEnabled",
+                args: ["enabled": true, "processedSourceId": sourceId]
+              ) { _, commandError in
+                if let commandError {
+                  self.stopDesktopScreenCapture(provider, notifyJsSession: false)
+                  completion(("native_error", commandError))
+                } else {
+                  completion(nil)
+                }
+              }
+            } catch {
+              self.stopDesktopScreenCapture(provider, notifyJsSession: false)
+              completion(("native_error", Self.jsError(error, operation: "start screen capture")))
+            }
+          }
+        }
+      } catch let captureError as AwsMacosScreenCaptureError {
+        self.stopDesktopScreenCapture(provider, notifyJsSession: false)
+        completion((captureError.code, captureError.localizedDescription))
+      } catch {
+        self.stopDesktopScreenCapture(provider, notifyJsSession: false)
+        completion(("native_error", error.localizedDescription))
+      }
+    }
+  }
+
+  private func notifyScreenCaptureFrame(sourceId: String, timestampNs: Int64) {
+    let key = sourceId.lowercased()
+    guard screenCaptureSourceIds.values.contains(where: { $0.lowercased() == key }),
+          bridgeReady,
+          let webView
+    else { return }
+    pendingScreenFrames[key] = timestampNs
+    guard notifyingScreenFrames.insert(key).inserted else { return }
+    Task { @MainActor in
+      while self.screenCaptureSourceIds.values.contains(where: { $0.lowercased() == key }),
+            let timestamp = self.pendingScreenFrames.removeValue(forKey: key) {
+        do {
+          _ = try await webView.callAsyncJavaScript(
+            "AwsDesktopRuntime.notifyProcessedFrame(sourceId, timestampNs)",
+            arguments: ["sourceId": sourceId, "timestampNs": String(timestamp)],
+            in: nil,
+            contentWorld: .page
+          )
+        } catch {
+          self.pendingScreenFrames.removeValue(forKey: key)
+          break
+        }
+      }
+      self.notifyingScreenFrames.remove(key)
+    }
+  }
+
+  private func stopDesktopScreenCapture(
+    _ provider: AwsDesktopProvider,
+    notifyJsSession: Bool
+  ) {
+    let sourceId = screenCaptureSourceIds.removeValue(forKey: provider)
+    let session = screenCaptureSessions.removeValue(forKey: provider)
+    if let sourceId {
+      let key = sourceId.lowercased()
+      pendingScreenFrames.removeValue(forKey: key)
+      notifyingScreenFrames.remove(key)
+    }
+    if #available(macOS 12.3, *), let captureSession = session as? AwsMacosScreenCaptureSession {
+      processedFrameHandler.remove(captureSession)
+      captureSession.stop()
+    }
+    if notifyJsSession {
+      command(provider, name: "setScreenShareEnabled", args: ["enabled": false]) { _, _ in }
+    }
+    if let sourceId, let webView, bridgeReady {
+      Task { @MainActor in
+        _ = try? await webView.callAsyncJavaScript(
+          "AwsDesktopRuntime.stopScreenCaptureSource(sourceId)",
+          arguments: ["sourceId": sourceId],
+          in: nil,
+          contentWorld: .page
+        )
       }
     }
   }
@@ -1561,6 +1796,9 @@ private final class AwsDesktopRuntime: NSObject,
 
   deinit {
     readyTimeout?.cancel()
+    for provider in [AwsDesktopProvider.chime, AwsDesktopProvider.ivs] {
+      stopDesktopScreenCapture(provider, notifyJsSession: false)
+    }
     processedFeedPool.values.forEach { $0.dispose() }
     textures.values.forEach { $0.dispose() }
     webView?.configuration.userContentController.removeScriptMessageHandler(forName: "awsDesktop")
@@ -1660,10 +1898,16 @@ private final class AwsDesktopRuntime: NSObject,
     refreshViews(.chime, snapshot: next)
   }
 
+  private func chimeTileId(for id: String) -> Int {
+    if let parsed = Int(id.split(separator: ":").last ?? "") {
+      return parsed
+    }
+    return Int(Int32(truncatingIfNeeded: abs(id.hashValue)) & 0x7fff_ffff)
+  }
+
   private func chimeTile(_ track: [String: Any], id: String) -> [String: Any] {
-    let tileId = Int(id.split(separator: ":").last ?? "0") ?? abs(id.hashValue)
-    return [
-      "tileId": tileId,
+    [
+      "tileId": chimeTileId(for: id),
       "attendeeId": track["participantId"] ?? "",
       "videoStreamContentWidth": track["width"] ?? 0,
       "videoStreamContentHeight": track["height"] ?? 0,
@@ -1798,13 +2042,27 @@ private final class AwsDesktopRuntime: NSObject,
     let trackId: String?
     switch provider {
     case .chime:
-      trackId = fixedTrackId
+      if let fixedTrackId,
+         tracks.contains(where: { ($0["id"] as? String) == fixedTrackId }) {
+        trackId = fixedTrackId
+      } else if let fixedTrackId, fixedTrackId.hasPrefix("chime:tile:"),
+                let requestedTileId = Int(fixedTrackId.dropFirst("chime:tile:".count)) {
+        trackId = tracks.first(where: {
+          guard let rawId = $0["id"] as? String else { return false }
+          return chimeTileId(for: rawId) == requestedTileId
+        })?["id"] as? String
+      } else {
+        trackId = fixedTrackId
+      }
     case .ivs:
-      trackId = tracks.first(where: {
+      trackId = (tracks.first(where: {
         ($0["participantId"] as? String) == participantId &&
           (($0["isLocal"] as? Bool) ?? false) == isLocal &&
           !(($0["isScreenShare"] as? Bool) ?? false)
-      })?["id"] as? String
+      }) ?? tracks.first(where: {
+        ($0["participantId"] as? String) == participantId &&
+          (($0["isLocal"] as? Bool) ?? false) == isLocal
+      }))?["id"] as? String
     }
     guard let trackId,
       tracks.contains(where: { ($0["id"] as? String) == trackId })
