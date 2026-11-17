@@ -6,6 +6,12 @@ ROOT = Path(__file__).resolve().parents[1]
 names = json.loads((ROOT/'scripts/sdk_packages.json').read_text())
 actual={p.name for p in (ROOT/'packages').iterdir() if (p/'pubspec.yaml').exists() and p.name != 'flutter_webrtc'}
 assert len(names) == len(set(names)) and set(names) == actual, 'Package inventory must include all owned packages exactly once'
+orphan_dirs = {
+    p.name
+    for p in (ROOT/'packages').iterdir()
+    if p.is_dir() and not p.name.startswith('.') and p.name != 'flutter_webrtc'
+} - set(names)
+assert not orphan_dirs, f'Unregistered or stale directories under packages/: {sorted(orphan_dirs)}'
 assert not (ROOT/'packages/flutter_realtime_sdk_runtime/assets/media-provider-bridge.js').exists(), 'Provider bridge belongs to the Web adapter'
 graph = {}
 for name in names:
@@ -82,6 +88,13 @@ def allows_private_import(owner: str, source_path: str, imported_path: str) -> b
     return imported_package == owner or (source_path, imported_path) in allowed_internal_imports
 
 
+def allows_ui_media_access(source_text: str) -> bool:
+    """UI packages must use RealtimeRoom controls rather than piercing .media.session."""
+    stripped = re.sub(r'//.*', '', source_text)
+    stripped = re.sub(r'/\*[\s\S]*?\*/', '', stripped)
+    return '.media.session' not in stripped
+
+
 for name in names:
     for source in (ROOT/'packages'/name/'lib').rglob('*.dart'):
         text=source.read_text()
@@ -91,4 +104,9 @@ for name in names:
             assert allows_private_import(name, source_path, imported_path), (
                 f'{source_path} must not import private SDK implementation {imported_path}'
             )
-print(f'{len(names)} packages: acyclic graph, lean SDK, UI/provider-free Runtime, Runtime-owned members, public boundaries passed')
+        if name.endswith('_ui'):
+            source_path = source.relative_to(ROOT/'packages').as_posix()
+            assert allows_ui_media_access(text), (
+                f'{source_path} must call unified RealtimeRoom controls instead of piercing .media.session'
+            )
+print(f'{len(names)} packages: acyclic graph, lean SDK, UI/provider-free Runtime, unified Room facade, public boundaries passed')

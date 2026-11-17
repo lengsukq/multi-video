@@ -126,5 +126,6 @@ node_modules/
 # Note: doc/OPTIMIZATION_VALIDATION.md was moved to doc-local/ and untracked
 # via `git rm --cached` (gitignore alone does not cover tracked files).
 /doc-local/
+/docs/history-session/
 doc/acceptance-record.*.local.json
 **/devtools_options.yaml

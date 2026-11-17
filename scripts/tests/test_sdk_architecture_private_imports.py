@@ -1,4 +1,4 @@
-"""Guard the narrowly scoped vendor-private imports used by the SDK."""
+"""Guard narrowly scoped vendor-private imports and unified RealtimeRoom UI boundaries."""
 
 import runpy
 import unittest
@@ -12,7 +12,9 @@ class PrivateImportBoundariesTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # The architecture assertions run as part of loading the checker.
-        cls.allows = staticmethod(runpy.run_path(str(CHECKER))['allows_private_import'])
+        ns = runpy.run_path(str(CHECKER))
+        cls.allows = staticmethod(ns['allows_private_import'])
+        cls.allows_ui_media = staticmethod(ns['allows_ui_media_access'])
 
     def test_only_the_specific_legacy_broadcast_manager_import_is_exempt(self):
         source = 'flutter_realtime_media_livekit/lib/src/livekit_media_session.dart'
@@ -35,6 +37,12 @@ class PrivateImportBoundariesTest(unittest.TestCase):
         self.assertTrue(self.allows('flutter_realtime_media_livekit',
                                     'flutter_realtime_media_livekit/lib/public.dart',
                                     'flutter_realtime_media_livekit/src/local.dart'))
+
+    def test_ui_packages_cannot_pierce_room_media_session(self):
+        self.assertTrue(self.allows_ui_media('await room.toggleMicrophone();'))
+        self.assertTrue(self.allows_ui_media('// Legacy note about room.media.session'))
+        self.assertFalse(self.allows_ui_media('final s = room.media.session;'))
+        self.assertFalse(self.allows_ui_media('widget.room.media.session.sendData("x");'))
 
 
 if __name__ == '__main__':

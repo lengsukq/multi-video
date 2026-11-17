@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "coreBundle": "flutter_realtime_sdk",
+  "allBundle": "flutter_realtime_sdk_all",
+  "bundles": {
+    "flutter_realtime_sdk": {
+      "kind": "core",
+      "description": "Provider-neutral Flutter realtime SDK facade, runtime, composable UI, presets, and shared native frame hub.",
+      "reExportCore": false,
+      "siblingDependencies": [],
+      "ownedModules": [
+        "flutter_realtime_foundation",
+        "flutter_realtime_media_core",
+        "flutter_realtime_chat_core",
+        "flutter_realtime_interaction_core",
+        "flutter_realtime_chat_rtc",
+        "flutter_realtime_processed_video",
+        "flutter_realtime_media_web",
+        "flutter_realtime_sdk_runtime",
+        "flutter_realtime_sdk",
+        "flutter_realtime_classroom_core",
+        "flutter_realtime_live_core",
+        "flutter_realtime_whiteboard_core",
+        "flutter_realtime_classroom_preset",
+        "flutter_realtime_live_preset",
+        "flutter_realtime_shared_content_preset",
+        "flutter_realtime_design_ui",
+        "flutter_realtime_media_ui",
+        "flutter_realtime_chat_ui",
+        "flutter_realtime_room_ui",
+        "flutter_realtime_classroom_ui",
+        "flutter_realtime_live_ui",
+        "flutter_realtime_whiteboard_ui",
+        "flutter_realtime_sdk_ui"
+      ],
+      "publicExports": [
+        "flutter_realtime_sdk_runtime",
+        "flutter_realtime_sdk_ui",
+        "flutter_realtime_classroom_preset",
+        "flutter_realtime_live_preset",
+        "flutter_realtime_shared_content_preset"
+      ],
+      "spiLibraries": {
+        "provider_spi.dart": [
+          "flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart",
+          "flutter_realtime_foundation/flutter_realtime_foundation.dart",
+          "flutter_realtime_media_core/flutter_realtime_media_core.dart",
+          "flutter_realtime_chat_core/flutter_realtime_chat_core.dart",
+          "flutter_realtime_processed_video/flutter_realtime_processed_video.dart",
+          "flutter_realtime_whiteboard_core/flutter_realtime_whiteboard_core.dart",
+          "flutter_realtime_shared_content_preset/flutter_realtime_shared_content_preset.dart"
+        ],
+        "media_web_spi.dart": [
+          "flutter_realtime_media_web/flutter_realtime_media_web.dart"
+        ],
+        "chat_web_spi.dart": [
+          "flutter_realtime_chat_core/flutter_realtime_chat_core_web.dart"
+        ]
+      },
+      "stripExports": [
+        "flutter_realtime_screen_annotation/flutter_realtime_screen_annotation.dart"
+      ],
+      "supportsSwiftPM": true
+    },
+    "flutter_realtime_sdk_livekit": {
+      "kind": "provider",
+      "description": "On-demand LiveKit RTC media provider bundle for flutter_realtime_sdk.",
+      "reExportCore": true,
+      "siblingDependencies": ["flutter_realtime_sdk"],
+      "ownedModules": [
+        "flutter_realtime_provider_livekit",
+        "flutter_realtime_media_livekit"
+      ],
+      "publicExports": [
+        "flutter_realtime_provider_livekit"
+      ],
+      "factorySymbol": "createLivekitProvider",
+      "supportsSwiftPM": true
+    },
+    "flutter_realtime_sdk_agora": {
+      "kind": "provider",
+      "description": "On-demand Agora RTC media provider bundle for flutter_realtime_sdk.",
+      "reExportCore": true,
+      "siblingDependencies": ["flutter_realtime_sdk"],
+      "ownedModules": [
+        "flutter_realtime_provider_agora",
+        "flutter_realtime_media_agora"
+      ],
+      "publicExports": [
+        "flutter_realtime_provider_agora"
+      ],
+      "factorySymbol": "createAgoraProvider",
+      "supportsSwiftPM": false
+    },
+    "flutter_realtime_sdk_trtc": {
+      "kind": "provider",
+      "description": "On-demand Tencent TRTC media provider bundle for flutter_realtime_sdk.",
+      "reExportCore": true,
+      "siblingDependencies": ["flutter_realtime_sdk"],
+      "ownedModules": [
+        "flutter_realtime_provider_trtc",
+        "flutter_realtime_media_trtc"
+      ],
+      "publicExports": [
+        "flutter_realtime_provider_trtc"
+      ],
+      "factorySymbol": "createTrtcProvider",
+      "supportsSwiftPM": false
+    },
+    "flutter_realtime_sdk_artc": {
+      "kind": "provider",
+      "description": "On-demand Alibaba Cloud ARTC media provider bundle for flutter_realtime_sdk.",
+      "reExportCore": true,
+      "siblingDependencies": ["flutter_realtime_sdk"],
+      "ownedModules": [
+        "flutter_realtime_provider_artc",
+        "flutter_realtime_media_artc"
+      ],
+      "publicExports": [
+        "flutter_realtime_provider_artc"
+      ],
+      "factorySymbol": "createArtcProvider",
+      "supportsSwiftPM": false
+    },
+    "flutter_realtime_sdk_aws": {
+      "kind": "provider",
+      "description": "On-demand AWS Chime (meeting) and Amazon IVS (live) media provider bundle for flutter_realtime_sdk.",
+      "reExportCore": true,
+      "siblingDependencies": ["flutter_realtime_sdk"],
+      "ownedModules": [
+        "flutter_realtime_provider_aws",
+        "flutter_realtime_media_chime",
+        "flutter_aws_chime",
+        "flutter_realtime_media_ivs",
+        "flutter_realtime_media_aws_desktop"
+      ],
+      "publicExports": [
+        "flutter_realtime_provider_aws"
+      ],
+      "factorySymbol": "createAwsProvider",
+      "supportsSwiftPM": false
+    },
+    "flutter_realtime_sdk_agora_chat": {
+      "kind": "chat_provider",
+      "description": "On-demand Agora Chat (IM) provider bundle for flutter_realtime_sdk.",
+      "reExportCore": true,
+      "siblingDependencies": ["flutter_realtime_sdk"],
+      "ownedModules": [
+        "flutter_realtime_provider_agora_chat",
+        "flutter_realtime_chat_agora"
+      ],
+      "publicExports": [
+        "flutter_realtime_provider_agora_chat"
+      ],
+      "factorySymbol": "createAgoraChatProvider",
+      "supportsSwiftPM": true
+    },
+    "flutter_realtime_sdk_tencent_chat": {
+      "kind": "chat_provider",
+      "description": "On-demand Tencent Cloud Chat (IM) provider bundle for flutter_realtime_sdk.",
+      "reExportCore": true,
+      "siblingDependencies": ["flutter_realtime_sdk"],
+      "ownedModules": [
+        "flutter_realtime_provider_tencent_chat",
+        "flutter_realtime_chat_tencent"
+      ],
+      "publicExports": [
+        "flutter_realtime_provider_tencent_chat"
+      ],
+      "factorySymbol": "createTencentChatProvider",
+      "supportsSwiftPM": false
+    },
+    "flutter_realtime_sdk_ivs_chat": {
+      "kind": "chat_provider",
+      "description": "On-demand Amazon IVS Chat messaging provider bundle for flutter_realtime_sdk.",
+      "reExportCore": true,
+      "siblingDependencies": ["flutter_realtime_sdk"],
+      "ownedModules": [
+        "flutter_realtime_provider_ivs_chat",
+        "flutter_realtime_chat_ivs"
+      ],
+      "publicExports": [
+        "flutter_realtime_provider_ivs_chat"
+      ],
+      "factorySymbol": "createIvsChatProvider",
+      "supportsSwiftPM": false
+    },
+    "flutter_realtime_sdk_effects": {
+      "kind": "feature",
+      "description": "Optional local virtual-background and video-effects engine for flutter_realtime_sdk.",
+      "reExportCore": true,
+      "siblingDependencies": ["flutter_realtime_sdk"],
+      "ownedModules": [
+        "flutter_realtime_video_effects"
+      ],
+      "publicShowExports": {
+        "flutter_realtime_video_effects": ["DefaultRealtimeVideoEffects"]
+      },
+      "supportsSwiftPM": true
+    },
+    "flutter_realtime_sdk_annotation": {
+      "kind": "feature",
+      "description": "Optional cross-application desktop/mobile screen-annotation overlay plugin for flutter_realtime_sdk.",
+      "reExportCore": true,
+      "siblingDependencies": ["flutter_realtime_sdk"],
+      "ownedModules": [
+        "flutter_realtime_screen_annotation"
+      ],
+      "publicExports": [
+        "flutter_realtime_screen_annotation"
+      ],
+      "supportsSwiftPM": true
+    }
+  }
+}
