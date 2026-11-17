@@ -170,6 +170,7 @@ async function createChimeHarness(browserGlobals = {}) {
   vm.runInContext(source, context, { filename: 'bridge.js' });
   return {
     bridge: context.MediaProviderBridge,
+    context,
     audioVideo,
     calls,
     events,
@@ -1991,5 +1992,40 @@ test('IVS bridge emits ended state when Stage disconnects after connecting', asy
 
   await bridge.dispose('ivs', 'ivs-remote-end');
 });
+
+test('Chime preserves shared non-cloned processed track across detach and leave', async () => {
+  const { bridge, context, calls } = await createChimeHarness();
+  let stopped = 0;
+  let enabledState = true;
+  const sharedTrack = {
+    kind: 'video',
+    id: 'desktop-capture-0',
+    clone() { return this; },
+    stop() { stopped += 1; },
+  };
+  context.MediaStream = class { constructor(tracks) { this.tracks = tracks; } };
+  context.RealtimeProcessedVideoBridge.register('mac-blur', {
+    track: sharedTrack,
+    async setEnabled(enabled) { enabledState = enabled; },
+    async setCameraDevice() {},
+  });
+  try {
+    await bridge.create('chime', 'chime-mac-blur', JSON.stringify(chimePayload));
+    await bridge.join('chime', 'chime-mac-blur');
+    await bridge.command('chime', 'chime-mac-blur', 'attachProcessedVideoSource', { sourceId: 'mac-blur' });
+    assert.ok(calls.some((entry) => entry.startsWith('startVideoInput:')), 'attaching processed source must feed Chime');
+    await bridge.command('chime', 'chime-mac-blur', 'setVideoEnabled', { enabled: true });
+    assert.equal(enabledState, true);
+    await bridge.command('chime', 'chime-mac-blur', 'detachProcessedVideoSource', {});
+    assert.equal(stopped, 0, 'non-cloned desktop track must stay owned by native runtime');
+    await bridge.command('chime', 'chime-mac-blur', 'attachProcessedVideoSource', { sourceId: 'mac-blur' });
+    await bridge.leave('chime', 'chime-mac-blur');
+    assert.equal(stopped, 0, 'leaving Chime must not stop a non-cloned desktop track');
+    await bridge.dispose('chime', 'chime-mac-blur');
+  } finally {
+    context.RealtimeProcessedVideoBridge.unregister('mac-blur');
+  }
+});
+
 
 

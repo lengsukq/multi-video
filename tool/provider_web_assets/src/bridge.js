@@ -253,8 +253,11 @@ import { createChimeSession } from './media/chime-session.js';
     if (!session.joined) return;
     stopStats(session);
     await session.driver.leave();
-    session.processedTrack?.stop?.();
+    if (session.processedTrack && session.processedTrack !== session.processedSourceTrack) {
+      session.processedTrack.stop?.();
+    }
     session.processedTrack = null;
+    session.processedSourceTrack = null;
     session.processedSourceId = null;
     session.joined = false;
     session.tracks.clear();
@@ -327,8 +330,11 @@ import { createChimeSession } from './media/chime-session.js';
       const track = sourceTrack.clone?.() || sourceTrack;
       try { await session.driver.attachProcessedTrack(track); }
       catch (error) { if (track !== sourceTrack) track.stop?.(); throw error; }
-      session.processedTrack?.stop?.();
+      if (session.processedTrack && session.processedTrack !== session.processedSourceTrack) {
+        session.processedTrack.stop?.();
+      }
       session.processedSourceId = sourceId;
+      session.processedSourceTrack = sourceTrack;
       session.processedTrack = track;
       publishSnapshot(session);
       return '';
@@ -336,8 +342,11 @@ import { createChimeSession } from './media/chime-session.js';
     if (name === 'detachProcessedVideoSource' && session.providerId !== 'agora') {
       await session.driver.command('setVideoEnabled', {enabled: false});
       await session.driver.detachProcessedTrack?.();
-      session.processedTrack?.stop?.();
+      if (session.processedTrack && session.processedTrack !== session.processedSourceTrack) {
+        session.processedTrack.stop?.();
+      }
       session.processedTrack = null;
+      session.processedSourceTrack = null;
       session.processedSourceId = null;
       publishSnapshot(session);
       return '';

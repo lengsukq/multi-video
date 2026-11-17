@@ -578,3 +578,13 @@ test('Windows WebView2 host binds both local and remote IVS participant tracks w
   });
 });
 
+test('exposes RealtimeProcessedVideoBridge and non-cloning track for MediaProviderBridge', async () => {
+  const { context } = createVideoRuntime();
+  assert.strictEqual(context.RealtimeProcessedVideoBridge, context.RealtimeVideoEffectsBridge);
+  await context.AwsDesktopRuntime.attachProcessedVideo('chime', 'chime-session', 'blur-source', 1);
+  const track = context.RealtimeProcessedVideoBridge.getTrack('blur-source');
+  assert.equal(track.clone(), track);
+  await context.AwsDesktopRuntime.detachProcessedVideo('chime', 'chime-session', 'blur-source', 2);
+});
+
+

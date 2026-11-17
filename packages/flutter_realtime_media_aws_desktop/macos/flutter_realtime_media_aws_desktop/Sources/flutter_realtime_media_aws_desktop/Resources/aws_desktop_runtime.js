@@ -86,6 +86,9 @@
       stream.getTracks().forEach(function(value) { value.stop(); });
       throw new Error('WebKit does not expose canvas video frame input.');
     }
+    // WebKit captureStream(0) track clones do not receive requestFrame() frames;
+    // return the shared track so MediaProviderBridge does not clone a dead track.
+    track.clone = function() { return track; };
     const source = { sourceId: sourceId, references: 0, canvas: canvas, context: context,
       stream: stream, track: track, enabled: true, closed: false, failed: false,
       timer: null, image: null, requestIndex: 0, pendingTimestamp: null, renderedTimestamp: null, loadFrame: null };
@@ -160,6 +163,7 @@
     setEffect: async function() { throw new Error('Configure the effect through the native SDK bridge.'); },
     selectCamera: async function() { throw new Error('Select the camera through the native SDK bridge.'); }
   };
+  global.RealtimeProcessedVideoBridge = global.RealtimeVideoEffectsBridge;
 
   function post(value) {
     if (native) native.postMessage(value);

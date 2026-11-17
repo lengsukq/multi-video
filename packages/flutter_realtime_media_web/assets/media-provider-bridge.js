@@ -1990,8 +1990,11 @@
       if (!session.joined) return;
       stopStats(session);
       await session.driver.leave();
-      session.processedTrack?.stop?.();
+      if (session.processedTrack && session.processedTrack !== session.processedSourceTrack) {
+        session.processedTrack.stop?.();
+      }
       session.processedTrack = null;
+      session.processedSourceTrack = null;
       session.processedSourceId = null;
       session.joined = false;
       session.tracks.clear();
@@ -2063,8 +2066,11 @@
           if (track !== sourceTrack) track.stop?.();
           throw error;
         }
-        session.processedTrack?.stop?.();
+        if (session.processedTrack && session.processedTrack !== session.processedSourceTrack) {
+          session.processedTrack.stop?.();
+        }
         session.processedSourceId = sourceId2;
+        session.processedSourceTrack = sourceTrack;
         session.processedTrack = track;
         publishSnapshot(session);
         return "";
@@ -2072,8 +2078,11 @@
       if (name === "detachProcessedVideoSource" && session.providerId !== "agora") {
         await session.driver.command("setVideoEnabled", { enabled: false });
         await session.driver.detachProcessedTrack?.();
-        session.processedTrack?.stop?.();
+        if (session.processedTrack && session.processedTrack !== session.processedSourceTrack) {
+          session.processedTrack.stop?.();
+        }
         session.processedTrack = null;
+        session.processedSourceTrack = null;
         session.processedSourceId = null;
         publishSnapshot(session);
         return "";
