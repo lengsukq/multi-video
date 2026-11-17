@@ -29,5 +29,5 @@ test('typed router inventory contains only provider-neutral room and recording A
   const baseline = [...expected].sort(([verbA, pathA], [verbB, pathB]) =>
     verbA.localeCompare(verbB) || pathA.localeCompare(pathB));
   assert.deepEqual(sorted, baseline);
-  assert.equal(sorted.length, 44);
+  assert.equal(sorted.length, 50);
 });

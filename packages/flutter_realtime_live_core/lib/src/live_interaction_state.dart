@@ -1,4 +1,5 @@
 import 'package:flutter_realtime_foundation/flutter_realtime_foundation.dart';
+import 'live_cohost.dart';
 import 'live_gift.dart';
 import 'live_gift_event.dart';
 import 'live_like_event.dart';
@@ -15,10 +16,16 @@ class LiveInteractionState {
     List<LiveLikeEvent> likeEvents = const [],
     this.totalLikes = 0,
     Map<String, int> totals = const {},
+    this.cohostSupported = false,
+    this.selfCohostStatus = LiveCohostStatus.none,
+    List<LiveCohostRequest> cohostRequests = const [],
+    List<LiveCohostMember> activeCohosts = const [],
   }) : catalog = List.unmodifiable(catalog),
        events = List.unmodifiable(events),
        likeEvents = List.unmodifiable(likeEvents),
-       totals = Map.unmodifiable(totals);
+       totals = Map.unmodifiable(totals),
+       cohostRequests = List.unmodifiable(cohostRequests),
+       activeCohosts = List.unmodifiable(activeCohosts);
   final String roomCode, selfUserId, recipientId;
   final int revision;
   final bool canSendGift;
@@ -27,6 +34,10 @@ class LiveInteractionState {
   final List<LiveLikeEvent> likeEvents;
   final int totalLikes;
   final Map<String, int> totals;
+  final bool cohostSupported;
+  final LiveCohostStatus selfCohostStatus;
+  final List<LiveCohostRequest> cohostRequests;
+  final List<LiveCohostMember> activeCohosts;
   factory LiveInteractionState.fromJson(Map<String, dynamic> value) =>
       JsonReader(
         value,
@@ -49,5 +60,22 @@ class LiveInteractionState {
         ).objects('likeEvents', LiveLikeEvent.fromJson, optional: true),
         totalLikes: (value['totalLikes'] as int?) ?? 0,
         totals: Map.unmodifiable((value['totals'] as Map).cast<String, int>()),
+        cohostSupported:
+            JsonReader(value).optional<bool>('cohostSupported') ?? false,
+        selfCohostStatus:
+            LiveCohostStatus.values
+                .where(
+                  (item) =>
+                      item.name ==
+                      JsonReader(value).optional<String>('selfCohostStatus'),
+                )
+                .firstOrNull ??
+            LiveCohostStatus.none,
+        cohostRequests: JsonReader(
+          value,
+        ).objects('cohostRequests', LiveCohostRequest.fromJson, optional: true),
+        activeCohosts: JsonReader(
+          value,
+        ).objects('activeCohosts', LiveCohostMember.fromJson, optional: true),
       );
 }

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { ClassroomStateDirectory } from '../classroom/classroom-state.ts';
+import { SharedContentDirectory } from '../classroom/shared-content-directory.ts';
 import { LiveInteractionDirectory } from '../live/live-interactions.ts';
-import type { RoomEntry } from '../types.ts';
+import { createIvsProvider } from '../providers/ivs.ts';
+import type { IvsRoomEntry, RoomEntry } from '../types.ts';
 const fixture = () => {
   const entry: RoomEntry = { provider: 'ivs', roomCode: 'live123', roomMode: 'broadcast',
     createdAt: new Date().toISOString(), lastHeartbeatMs: Date.now(), attendees: [
@@ -65,4 +68,77 @@ test('invalid, excessive and offline-host gifts fail without incrementing totals
   assert.equal(directory.snapshot(entry, alice).canSendGift, false);
   assert.throws(() => directory.send(entry, alice, { giftId: 'star', quantity: 1, eventId: 'gift-event-offline' }), /offline/);
   assert.throws(() => directory.snapshot({ ...entry, roomMode: 'meeting' }, alice), /broadcast/);
+});
+
+test('co-host requests promote viewer role to participant and revert on end', () => {
+  const { entry, directory } = fixture();
+  const host = entry.attendees[0]!;
+  const alice = entry.attendees[1]!;
+  const requested = directory.requestCohost(entry, alice);
+  assert.equal(requested.cohostSupported, true);
+  assert.equal(requested.selfCohostStatus, 'requested');
+  assert.equal(requested.cohostRequests.length, 1);
+
+  assert.throws(() => directory.respondCohost(entry, alice, 'alice', 'approve'), /Host/);
+  const approved = directory.respondCohost(entry, host, 'alice', 'approve');
+  assert.equal(alice.role, 'participant');
+  assert.equal(approved.activeCohosts.length, 1);
+  assert.equal(directory.snapshot(entry, alice).selfCohostStatus, 'active');
+
+  const ended = directory.respondCohost(entry, host, 'alice', 'end');
+  assert.equal(alice.role, 'viewer');
+  assert.equal(ended.activeCohosts.length, 0);
+  assert.equal(directory.snapshot(entry, alice).selfCohostStatus, 'none');
+});
+
+test('broadcast rooms support host whiteboard while blocking classroom actions', () => {
+  const { entry } = fixture();
+  const host = entry.attendees[0]!;
+  const alice = entry.attendees[1]!;
+  const content = new SharedContentDirectory(new ClassroomStateDirectory());
+  const initial = content.snapshot(entry, alice, false);
+  assert.equal(initial.content.canManage, false);
+  assert.throws(
+    () => content.act(entry, host, true, { action: 'hand.raise' }),
+    /content and whiteboard/,
+  );
+  const opened = content.act(entry, host, true, {
+    action: 'tool.content.mode',
+    payload: JSON.stringify({ mode: 'whiteboard', expectedRevision: initial.content.revision }),
+  });
+  assert.equal(opened.content.mode, 'whiteboard');
+  assert.equal(content.snapshot(entry, alice, false).content.whiteboard.canEdit, false);
+});
+
+test('IVS issues and revokes auxiliary #content screen-share tokens for publishers', async () => {
+  const disconnected: string[] = [];
+  const ivs = createIvsProvider({
+    contractVersion: 1,
+    normalizeDisplayName: (v) => String(v ?? '').trim(),
+    api: {
+      async createStage(name) { return { arn: `arn:aws:ivs:us-east-1:123:stage/${name}` }; },
+      async createParticipantToken({ userId, capabilities }) {
+        return { token: `tok:${userId}`, participantId: `pid:${userId}`, capabilities: capabilities ?? ['PUBLISH'] };
+      },
+      async deleteStage() {},
+      async disconnectParticipant(_arn, participantId) { disconnected.push(participantId); },
+    },
+  });
+  const created = await ivs.createRoom({ roomCode: 'ivsaux', role: 'host' });
+  const entry = created.entry as IvsRoomEntry;
+  await ivs.joinRoom({ entry, rawName: 'Host', role: 'host', userId: 'host-1' });
+  await ivs.joinRoom({ entry, rawName: 'Viewer', role: 'viewer', userId: 'viewer-1' });
+  await assert.rejects(
+    ivs.issueAuxiliaryMediaToken!({ entry, participantId: 'viewer-1', purpose: 'screen_share', action: 'acquire' }),
+    /Viewers cannot/,
+  );
+  const acquired = await ivs.issueAuxiliaryMediaToken!({
+    entry, participantId: 'host-1', purpose: 'screen_share', action: 'acquire',
+  }) as { ivs: { capabilities: string[]; token: string } };
+  assert.deepEqual(acquired.ivs.capabilities, ['PUBLISH']);
+  assert.equal(acquired.ivs.token, 'tok:host-1#content');
+  await ivs.issueAuxiliaryMediaToken!({
+    entry, participantId: 'host-1', purpose: 'screen_share', action: 'revoke',
+  });
+  assert.deepEqual(disconnected, ['pid:host-1#content']);
 });

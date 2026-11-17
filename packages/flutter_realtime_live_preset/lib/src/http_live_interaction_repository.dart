@@ -2,7 +2,8 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:flutter_realtime_live_core/flutter_realtime_live_core.dart';
 
-class HttpLiveInteractionRepository implements LiveInteractionRepository {
+class HttpLiveInteractionRepository
+    implements LiveInteractionRepository, LiveCohostRepository {
   HttpLiveInteractionRepository({
     required String backendUrl,
     required this.roomCode,
@@ -62,6 +63,13 @@ class HttpLiveInteractionRepository implements LiveInteractionRepository {
   @override
   Future<LiveInteractionState> sendLike({required String eventId}) =>
       _post('like', {'eventId': eventId});
+  @override
+  Future<LiveInteractionState> requestCohost() => _post('cohost/request', {});
+  @override
+  Future<LiveInteractionState> cancelCohost() => _post('cohost/cancel', {});
+  @override
+  Future<LiveInteractionState> respondCohost(String userId, String action) =>
+      _post('cohost/respond', {'userId': userId, 'action': action});
   @override
   void close() {
     _executor.close();

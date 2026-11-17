@@ -4,6 +4,7 @@ import 'shared_content_controller.dart';
 import 'room_annotation_coordinator.dart';
 import 'shared_content_repository.dart';
 import 'classroom_shared_content_repository.dart';
+import 'http_shared_content_repository.dart';
 
 class SharedContentRoomFeature {
   SharedContentRoomFeature(
@@ -13,6 +14,7 @@ class SharedContentRoomFeature {
     final classroom = context.feature(ClassroomPreset.featureKey);
     sharedContent = SharedContentController(
       media: context.media.session,
+      setScreenShare: context.media.setScreenShareEnabled,
       classroom: repository == null ? classroom : null,
       repository: repository,
     );
@@ -62,25 +64,36 @@ class SharedContentPreset
     final media = context.media;
     final url = context.backendUrl;
     final credential = media.participantCredential;
-    if (media.backendMetadata['roomMode'] != 'meeting' ||
+    final roomMode = media.backendMetadata['roomMode']?.toString();
+    if ((roomMode != 'meeting' && roomMode != 'broadcast') ||
         url == null ||
         credential == null) {
       return null;
     }
-    return SharedContentRoomFeature(
-      context,
-      repository: ClassroomSharedContentRepository(
-        HttpClassroomRepository(
-          backendUrl: url,
-          roomCode: media.roomCode,
-          participantId: media.participantId,
-          participantCredential: credential,
-          roomOwnerCredential: media.roomOwnerCredential,
-          tokenProvider: context.tokenProvider,
-          requestTimeout: context.requestTimeout ?? const Duration(seconds: 10),
-        ),
-      ),
-    );
+    final repository = roomMode == 'broadcast'
+        ? HttpSharedContentRepository(
+            backendUrl: url,
+            roomCode: media.roomCode,
+            participantId: media.participantId,
+            participantCredential: credential,
+            roomOwnerCredential: media.roomOwnerCredential,
+            tokenProvider: context.tokenProvider,
+            requestTimeout:
+                context.requestTimeout ?? const Duration(seconds: 10),
+          )
+        : ClassroomSharedContentRepository(
+            HttpClassroomRepository(
+              backendUrl: url,
+              roomCode: media.roomCode,
+              participantId: media.participantId,
+              participantCredential: credential,
+              roomOwnerCredential: media.roomOwnerCredential,
+              tokenProvider: context.tokenProvider,
+              requestTimeout:
+                  context.requestTimeout ?? const Duration(seconds: 10),
+            ),
+          );
+    return SharedContentRoomFeature(context, repository: repository);
   }
 
   @override

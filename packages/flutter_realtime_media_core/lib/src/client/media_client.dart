@@ -9,7 +9,9 @@ import '../model/media_meeting_mode.dart';
 import '../model/media_room_summary.dart';
 import '../session/media_join_info.dart';
 import '../session/media_credential_refresh.dart';
+import '../session/media_role_switch.dart';
 import '../session/media_room_session.dart';
+import '../session/media_session.dart';
 import '../session/media_session_factory.dart';
 import 'media_backend_client.dart';
 import 'media_backend_config.dart';
@@ -407,25 +409,13 @@ class MediaClient {
       await preparer.prepareSession(joinInfo);
     }
     final session = factory.createSession(joinInfo);
-    if (session case final MediaCredentialRefreshable refreshable) {
-      Future<MediaJoinInfo>? refreshInFlight;
-      refreshable.setCredentialRefreshCallback((currentJoinInfo) {
-        final current = refreshInFlight;
-        if (current != null) return current;
-        late final Future<MediaJoinInfo> future;
-        future =
-            _refreshCredentials(
-              factory: factory,
-              currentJoinInfo: currentJoinInfo,
-              participantCredential: participantCredential,
-              provisioner: credentialRefresher,
-            ).whenComplete(() {
-              if (identical(refreshInFlight, future)) refreshInFlight = null;
-            });
-        refreshInFlight = future;
-        return future;
-      });
-    }
+    _installSessionCallbacks(
+      session: session,
+      factory: factory,
+      initialJoinInfo: joinInfo,
+      participantCredential: participantCredential,
+      credentialRefresher: credentialRefresher,
+    );
     try {
       await session.join(joinInfo);
       if (backend == null) {
@@ -453,6 +443,13 @@ class MediaClient {
         ),
         backendMetadata: response.json,
         identity: identity,
+        onSessionReplaced: (next) => _installSessionCallbacks(
+          session: next,
+          factory: factory,
+          initialJoinInfo: joinInfo,
+          participantCredential: participantCredential,
+          credentialRefresher: credentialRefresher,
+        ),
         session: session,
         presence: backend,
         management: backend,
@@ -483,18 +480,72 @@ class MediaClient {
     }
   }
 
+  void _installSessionCallbacks({
+    required MediaSession session,
+    required MediaSessionFactory factory,
+    required MediaJoinInfo initialJoinInfo,
+    required String? participantCredential,
+    required MediaRoomProvisioner? credentialRefresher,
+  }) {
+    if (session case final MediaCredentialRefreshable refreshable) {
+      Future<MediaJoinInfo>? refreshInFlight;
+      refreshable.setCredentialRefreshCallback((currentJoinInfo) {
+        final current = refreshInFlight;
+        if (current != null) return current;
+        late final Future<MediaJoinInfo> future;
+        future =
+            _refreshCredentials(
+              factory: factory,
+              currentJoinInfo: currentJoinInfo,
+              participantCredential: participantCredential,
+              provisioner: credentialRefresher,
+            ).whenComplete(() {
+              if (identical(refreshInFlight, future)) refreshInFlight = null;
+            });
+        refreshInFlight = future;
+        return future;
+      });
+    }
+    if (session case final MediaRoleSwitchable roleSwitchable) {
+      roleSwitchable.setRoleChangeCallback(
+        (targetRole) => _refreshCredentials(
+          factory: factory,
+          currentJoinInfo: initialJoinInfo,
+          participantCredential: participantCredential,
+          provisioner: credentialRefresher,
+          targetRole: targetRole,
+        ),
+      );
+    }
+    if (session case final MediaAuxiliaryTokenConsumer auxConsumer) {
+      final activeBackend = backend;
+      if (activeBackend != null) {
+        auxConsumer.setAuxiliaryTokenCallback(
+          ({required String action}) => activeBackend.auxiliaryMediaToken(
+            roomCode: initialJoinInfo.roomCode,
+            participantId: initialJoinInfo.participantId,
+            action: action,
+            participantCredential: participantCredential,
+          ),
+        );
+      }
+    }
+  }
+
   Future<MediaJoinInfo> _refreshCredentials({
     required MediaSessionFactory factory,
     required MediaJoinInfo currentJoinInfo,
     String? participantCredential,
     MediaRoomProvisioner? provisioner,
+    MediaRole? targetRole,
   }) async {
+    final effectiveRole = targetRole ?? currentJoinInfo.role;
     try {
       final response = provisioner != null
           ? await provisioner.refresh(
               roomCode: currentJoinInfo.roomCode,
               participantId: currentJoinInfo.participantId,
-              role: currentJoinInfo.role,
+              role: effectiveRole,
               participantCredential: participantCredential,
             )
           : await _requireBackend(
@@ -502,7 +553,7 @@ class MediaClient {
             ).refreshCredentials(
               roomCode: currentJoinInfo.roomCode,
               participantId: currentJoinInfo.participantId,
-              role: currentJoinInfo.role,
+              role: effectiveRole,
               participantCredential: participantCredential,
             );
       final responseRole = response.json['role'];
@@ -521,7 +572,7 @@ class MediaClient {
       );
       if (response.providerId != currentJoinInfo.providerId ||
           response.roomCode != currentJoinInfo.roomCode ||
-          response.role != currentJoinInfo.role ||
+          response.role != effectiveRole ||
           refreshed.participantId != currentJoinInfo.participantId ||
           refreshed.providerId.trim().toLowerCase() !=
               currentJoinInfo.providerId) {

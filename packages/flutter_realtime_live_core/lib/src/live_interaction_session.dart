@@ -215,6 +215,59 @@ class LiveInteractionSession {
     }
   }
 
+  Future<void> _performCohost(
+    String operation,
+    Future<LiveInteractionState> Function(LiveCohostRepository repo) call,
+  ) async {
+    if (_disposed) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.invalidState,
+        message: 'Live interactions disposed',
+      );
+    }
+    final LiveCohostRepository? repo = repository is LiveCohostRepository
+        ? repository as LiveCohostRepository
+        : null;
+    if (repo == null) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        message: 'Co-host control is not supported by this repository.',
+        domain: 'live',
+      );
+    }
+    if (_state == null) await start();
+    try {
+      _setState(await call(repo));
+    } catch (error, stack) {
+      Error.throwWithStackTrace(
+        normalizeRealtimeException(
+          error,
+          domain: 'live',
+          operation: operation,
+          stackTrace: stack,
+        ),
+        stack,
+      );
+    }
+    if (_disposed) return;
+    try {
+      await revisionTransport?.publish(_state!.revision);
+    } catch (error) {
+      if (!_disposed) _errors.add(error);
+    }
+  }
+
+  Future<void> requestCohost() =>
+      _performCohost('requestCohost', (repo) => repo.requestCohost());
+
+  Future<void> cancelCohost() =>
+      _performCohost('cancelCohost', (repo) => repo.cancelCohost());
+
+  Future<void> respondCohost(String userId, String action) => _performCohost(
+    'respondCohost',
+    (repo) => repo.respondCohost(userId, action),
+  );
+
   Future<void> dispose() => _disposeFuture ??= _dispose();
 
   Future<void> _dispose() async {

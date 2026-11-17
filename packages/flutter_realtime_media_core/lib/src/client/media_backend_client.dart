@@ -332,6 +332,23 @@ class MediaBackendClient
     return _parseJoinResponse(data, role: role, fallbackRoomCode: code);
   }
 
+  /// Acquires or revokes an auxiliary publishing credential (e.g. `#content`).
+  Future<Map<String, dynamic>> auxiliaryMediaToken({
+    required String roomCode,
+    required String participantId,
+    required String action,
+    String? participantCredential,
+  }) async {
+    final code = _required(roomCode, 'roomCode');
+    return _post('/rooms/${Uri.encodeComponent(code)}/media/auxiliary-token', {
+      'participantId': _required(participantId, 'participantId'),
+      'action': action,
+      if (participantCredential != null &&
+          participantCredential.trim().isNotEmpty)
+        'participantCredential': participantCredential.trim(),
+    });
+  }
+
   @override
   Future<void> heartbeat(String roomCode, {String? participantId}) async {
     final code = _required(roomCode, 'roomCode');

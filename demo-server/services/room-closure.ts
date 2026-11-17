@@ -3,6 +3,7 @@ import type { ProviderRegistry } from '../providers/provider-registry.ts';
 import type { ChatProviderRegistry } from '../chat/chat-provider-registry.ts';
 import type { RoomDirectory } from '../providers/room-directory.ts';
 import type { ClassroomStateDirectory } from '../classroom/classroom-state.ts';
+import type { SharedContentDirectory } from '../classroom/shared-content-directory.ts';
 import type { LiveInteractionDirectory } from '../live/live-interactions.ts';
 
 export interface RoomClosureDependencies {
@@ -10,6 +11,7 @@ export interface RoomClosureDependencies {
   chatProviderRegistry: ChatProviderRegistry;
   roomDirectory: RoomDirectory;
   classroomDirectory: ClassroomStateDirectory;
+  sharedContentDirectory?: SharedContentDirectory;
   liveInteractionDirectory: LiveInteractionDirectory;
   /** Stop billable vendor capture before removing room lookup and credentials. */
   stopActiveRecording?(entry: RoomEntry): Promise<void>;
@@ -22,7 +24,7 @@ export interface RoomClosureDependencies {
  */
 export function createRoomClosure(deps: RoomClosureDependencies) {
   const { providerRegistry, chatProviderRegistry, roomDirectory,
-    classroomDirectory, liveInteractionDirectory, logEvent } = deps;
+    classroomDirectory, sharedContentDirectory, liveInteractionDirectory, logEvent } = deps;
 return async function closeRoomUnlocked(entry: RoomEntry, reason: string): Promise<void> {
   const provider = providerRegistry.require(entry.provider);
   // If the recorder fails to stop, preserve the room and its owner credential
@@ -57,6 +59,7 @@ return async function closeRoomUnlocked(entry: RoomEntry, reason: string): Promi
   }
   roomDirectory.remove(entry);
   classroomDirectory.forget(entry);
+  sharedContentDirectory?.forget(entry);
   liveInteractionDirectory.forget(entry);
   const suffix = entry.provider === 'chime' ? ' — billing for future joins stops' : '';
   logEvent('delete', `room ${entry.roomCode} closed (${reason})${suffix}`);

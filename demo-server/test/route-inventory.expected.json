@@ -117,6 +117,14 @@
   ],
   [
     "POST",
+    "/rooms/:code/content/action"
+  ],
+  [
+    "POST",
+    "/rooms/:code/content/snapshot"
+  ],
+  [
+    "POST",
     "/rooms/:code/credentials/refresh"
   ],
   [
@@ -133,6 +141,18 @@
   ],
   [
     "POST",
+    "/rooms/:code/live/cohost/cancel"
+  ],
+  [
+    "POST",
+    "/rooms/:code/live/cohost/request"
+  ],
+  [
+    "POST",
+    "/rooms/:code/live/cohost/respond"
+  ],
+  [
+    "POST",
     "/rooms/:code/live/gift"
   ],
   [
@@ -142,6 +162,10 @@
   [
     "POST",
     "/rooms/:code/live/snapshot"
+  ],
+  [
+    "POST",
+    "/rooms/:code/media/auxiliary-token"
   ],
   [
     "POST",

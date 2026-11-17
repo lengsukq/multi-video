@@ -36,10 +36,11 @@ bool screenShareOwnedByAnother(
 class SharedContentController {
   SharedContentController({
     required this.media,
+    Future<void> Function(bool enabled)? setScreenShare,
     this.classroom,
     SharedContentRepository? repository,
     Duration? pollInterval = const Duration(seconds: 2),
-  }) {
+  }) : _setScreenShare = setScreenShare {
     assert(classroom != null || repository != null);
     _contentSession = SharedContentSession(
       repository ??
@@ -80,7 +81,15 @@ class SharedContentController {
     });
   }
   final MediaSession media;
+  final Future<void> Function(bool enabled)? _setScreenShare;
   final ClassroomSession? classroom;
+
+  Future<void> _applyScreenShare(
+    InteractiveMediaSession interactive,
+    bool enabled,
+  ) => _setScreenShare != null
+      ? _setScreenShare(enabled)
+      : interactive.setScreenShareEnabled(enabled);
   late final SharedContentSession _contentSession;
   late final WhiteboardSession whiteboard;
   SystemAnnotationBridge _systemAnnotations =
@@ -410,7 +419,7 @@ class SharedContentController {
               message: 'Cannot stop screen capture',
             );
           }
-          await interactive.setScreenShareEnabled(false);
+          await _applyScreenShare(interactive, false);
           if (media.snapshot.localScreenShareEnabled) {
             throw RealtimeException(
               code: RealtimeErrorCode.invalidState,
@@ -477,7 +486,7 @@ class SharedContentController {
         }
         final started = !media.snapshot.localScreenShareEnabled;
         if (started) {
-          await interactive!.setScreenShareEnabled(true);
+          await _applyScreenShare(interactive!, true);
           if (!media.snapshot.localScreenShareEnabled) {
             throw RealtimeException(
               code: RealtimeErrorCode.invalidState,
@@ -492,7 +501,7 @@ class SharedContentController {
         } catch (commitError) {
           if (started) {
             try {
-              await interactive!.setScreenShareEnabled(false);
+              await _applyScreenShare(interactive!, false);
               if (media.snapshot.localScreenShareEnabled) {
                 throw RealtimeException(
                   code: RealtimeErrorCode.invalidState,

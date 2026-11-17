@@ -34,19 +34,24 @@ class _RoomParticipantProfiles {
         local.avatarUrl != null ||
         _profiles.isNotEmpty;
     if (!_enabled) return;
-    _profiles[participantId] = local;
     _snapshots = session.snapshots.listen(_onSnapshot);
+    _profiles[participantId] = local;
     _events = session.events.listen(_onEvent);
     _schedulePublish();
   }
 
   static const _topic = 'realtime.profile.v1';
-  final MediaSession session;
+  MediaSession session;
   final String participantId;
   final void Function(RealtimeException) reportError;
   final _ParticipantProfile local;
   final _profiles = <String, _ParticipantProfile>{};
-  final _updates = StreamController<MediaSnapshot>.broadcast();
+  late final StreamController<MediaSnapshot> _updates =
+      StreamController<MediaSnapshot>.broadcast(
+        sync: true,
+        onListen: _ensureSnapshotSubscription,
+        onCancel: _dropSnapshotSubscriptionWhenIdle,
+      );
   bool _enabled = false;
   bool _disposed = false;
   String _memberIds = '';
@@ -57,9 +62,39 @@ class _RoomParticipantProfiles {
   Future<void>? _publishFuture;
   Future<void>? _disposeFuture;
 
+  void _ensureSnapshotSubscription() {
+    if (_disposed || _snapshots != null) return;
+    _snapshots = session.snapshots.listen(_onSnapshot);
+  }
+
+  void _dropSnapshotSubscriptionWhenIdle() {
+    if (_enabled || _updates.hasListener) return;
+    unawaited(_snapshots?.cancel());
+    _snapshots = null;
+  }
+
   MediaSnapshot get snapshot => _decorate(session.snapshot);
-  Stream<MediaSnapshot> get snapshots =>
-      _enabled ? _updates.stream : session.snapshots;
+  Stream<MediaSnapshot> get snapshots => _updates.stream;
+
+  void rebindSession(MediaSession next) {
+    session = next;
+    final hadSnapshotSub = _snapshots != null || _updates.hasListener;
+    unawaited(_snapshots?.cancel());
+    _snapshots = null;
+    unawaited(_events?.cancel());
+    _events = null;
+    if (_disposed) return;
+    if (_enabled || hadSnapshotSub) {
+      _snapshots = next.snapshots.listen(_onSnapshot);
+    }
+    if (_enabled) {
+      _events = next.events.listen(_onEvent);
+      _schedulePublish();
+    }
+    if (_updates.hasListener) {
+      _updates.add(snapshot);
+    }
+  }
 
   MediaSnapshot _decorate(MediaSnapshot value) => !_enabled
       ? value

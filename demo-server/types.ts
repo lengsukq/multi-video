@@ -26,6 +26,7 @@ export interface ChatRoomEntry {
 export interface RoomAttendee {
   attendeeId: string;
   providerParticipantId?: string;
+  auxiliaryParticipantId?: string;
   participantCredentialHash?: string;
   externalUserId: string;
   userId?: string;
@@ -292,6 +293,12 @@ export interface ProviderAdapter {
     entry: RoomEntry, participantId: string, allowed: boolean,
   ): Promise<void>;
   refreshCredentials?(input: RefreshCredentialsInput): Promise<ProviderJoinResponse>;
+  issueAuxiliaryMediaToken?(input: {
+    entry: RoomEntry;
+    participantId: string;
+    purpose: 'screen_share';
+    action: 'acquire' | 'revoke';
+  }): Promise<Record<string, unknown>>;
   resolveExternalRoom?(
     ref: string,
     context: { allocateRoomCode: () => string },

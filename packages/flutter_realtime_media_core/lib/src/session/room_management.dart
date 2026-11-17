@@ -10,7 +10,7 @@ class _RoomManagement {
     required this.roomOwnerCredential,
     required this.backendMetadata,
   });
-  final MediaSession session;
+  MediaSession session;
   final MediaRoomManagement? management;
   final String roomCode;
   final String participantId;

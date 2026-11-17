@@ -32,6 +32,7 @@ export interface IvsRealtimeApi {
     displayName: string;
     role: MediaRole;
     durationMinutes: number;
+    capabilities?: ParticipantTokenCapabilityType[];
   }): Promise<IvsParticipantToken>;
   deleteStage(stageArn: string): Promise<void>;
   disconnectParticipant(
@@ -71,19 +72,22 @@ function createAwsApi(region: string): IvsRealtimeApi {
       displayName,
       role,
       durationMinutes,
+      capabilities,
     }) {
+      const requestedCapabilities = capabilities ?? capabilitiesForRole(role);
       const result = await client.send(
         new CreateParticipantTokenCommand({
           stageArn,
           userId,
           duration: durationMinutes,
-          capabilities: capabilitiesForRole(role),
+          capabilities: requestedCapabilities,
           attributes: {
             displayName,
             role,
             // Used by IVS featured-grid composition; this is a pinned host,
             // not an audio-active-speaker detector.
-            isFeatured: role === 'host' ? 'true' : 'false',
+            isFeatured:
+              role === 'host' && !userId.endsWith('#content') ? 'true' : 'false',
           },
         }),
       );
@@ -98,7 +102,7 @@ function createAwsApi(region: string): IvsRealtimeApi {
       return {
         token,
         participantId,
-        capabilities: issued?.capabilities ?? capabilitiesForRole(role),
+        capabilities: issued?.capabilities ?? requestedCapabilities,
         expiresAtMs: issued?.expirationTime?.getTime(),
       };
     },
@@ -155,6 +159,7 @@ export function createIvsProvider({
     userId: string,
     displayName: string,
     role: MediaRole,
+    capabilities?: ParticipantTokenCapabilityType[],
   ): Promise<IvsParticipantToken> {
     if (!api) {
       throw new ProviderOperationError(
@@ -170,6 +175,7 @@ export function createIvsProvider({
         displayName,
         role,
         durationMinutes: tokenDurationMinutes,
+        capabilities,
       });
     } catch (error) {
       providerFailure('CreateParticipantToken', error);
@@ -196,7 +202,7 @@ export function createIvsProvider({
       },
       screenShare: {
         support: 'conditional',
-        note: '当前 Web Bridge 支持；原生 Flutter adapter 暂未暴露。',
+        note: '支持 Android / iOS / Web / macOS / Windows；单 Token 替换摄像头，配辅助 #content Token 时可双流并发。',
       },
       rtcDataSend: 'unsupported',
       rtcDataReceive: 'unsupported',
@@ -296,6 +302,7 @@ export function createIvsProvider({
           capabilities: issued.capabilities,
           expiresAtMs: issued.expiresAtMs,
           region,
+          auxiliaryScreenToken: true,
         },
       };
     },
@@ -326,6 +333,74 @@ export function createIvsProvider({
         roomCode: room.roomCode,
         participantId,
         displayName: attendee.displayName ?? attendee.externalUserId,
+        ivs: {
+          stageArn: room.stageArn,
+          token: issued.token,
+          tokenParticipantId: issued.participantId,
+          capabilities: issued.capabilities,
+          expiresAtMs: issued.expiresAtMs,
+          region,
+          auxiliaryScreenToken: true,
+        },
+      };
+    },
+    async issueAuxiliaryMediaToken({ entry, participantId, action }) {
+      const room = entry as IvsRoomEntry;
+      const attendee = room.attendees.find(
+        (item) => item.attendeeId === participantId,
+      );
+      if (!attendee) {
+        throw new ProviderOperationError(
+          404,
+          'participant-not-found',
+          'The IVS participant is no longer registered in this room.',
+        );
+      }
+      if (attendee.role === 'viewer') {
+        throw new ProviderOperationError(
+          403,
+          'forbidden',
+          'Viewers cannot acquire a screen-share publishing token.',
+        );
+      }
+      if (!api) {
+        throw new ProviderOperationError(
+          503,
+          'provider-not-configured',
+          'Amazon IVS Real-Time is not configured.',
+        );
+      }
+      if (action === 'revoke') {
+        const previousId = attendee.auxiliaryParticipantId;
+        attendee.auxiliaryParticipantId = undefined;
+        if (previousId) {
+          try {
+            await api.disconnectParticipant(
+              room.stageArn,
+              previousId,
+              'Screen share ended',
+            );
+          } catch {
+            // An already-disconnected auxiliary Stage stream is idempotent.
+          }
+        }
+        return { contractVersion, provider: 'ivs', revoked: true };
+      }
+      const baseUserId = attendee.userId ?? participantId;
+      const baseName = attendee.displayName ?? attendee.externalUserId;
+      const issued = await issueToken(
+        room,
+        `${baseUserId}#content`,
+        `${baseName}#content`,
+        'participant',
+        [ParticipantTokenCapability.PUBLISH],
+      );
+      attendee.auxiliaryParticipantId = issued.participantId;
+      return {
+        contractVersion,
+        provider: 'ivs',
+        roomCode: room.roomCode,
+        participantId: `${participantId}#content`,
         ivs: {
           stageArn: room.stageArn,
           token: issued.token,

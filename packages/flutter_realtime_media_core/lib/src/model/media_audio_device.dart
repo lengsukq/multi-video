@@ -13,7 +13,7 @@ class MediaAudioDevice {
   final String label;
   final MediaAudioDeviceType type;
 
-  factory MediaAudioDevice.fromLabel(String label) {
+  factory MediaAudioDevice.fromLabel(String label, {String? id}) {
     final normalized = label.toLowerCase();
     final type = switch (normalized) {
       _ when normalized.contains('bluetooth') => MediaAudioDeviceType.bluetooth,
@@ -28,7 +28,7 @@ class MediaAudioDevice {
         MediaAudioDeviceType.earpiece,
       _ => MediaAudioDeviceType.other,
     };
-    return MediaAudioDevice(label: label, type: type);
+    return MediaAudioDevice(id: id, label: label, type: type);
   }
 
   @override

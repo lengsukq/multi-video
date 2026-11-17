@@ -16,6 +16,7 @@ dependencies:
     path: ../flutter_realtime_media_core
   flutter_realtime_whiteboard_core:
     path: ../flutter_realtime_whiteboard_core
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

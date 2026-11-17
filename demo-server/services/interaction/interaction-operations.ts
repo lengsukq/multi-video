@@ -1,6 +1,7 @@
 import type { RoomEntry } from '../../types.ts';
 import { ProviderOperationError, type ProviderRegistry } from '../../providers/provider-registry.ts';
 import type { ClassroomStateDirectory } from '../../classroom/classroom-state.ts';
+import type { SharedContentDirectory } from '../../classroom/shared-content-directory.ts';
 import type { LiveInteractionDirectory } from '../../live/live-interactions.ts';
 import { requireParticipantCredential } from '../../participant-credential.ts';
 import { matchesRoomOwnerCredential } from '../../room-owner-credential.ts';
@@ -13,6 +14,7 @@ export interface InteractionApplicationDependencies {
   isRoomPartiallyClosed(entry: RoomEntry): boolean;
   pruneStaleAttendees(entry: RoomEntry, now: number, insideOperation?: boolean): void;
   classroomDirectory: ClassroomStateDirectory;
+  sharedContentDirectory?: SharedContentDirectory;
   liveInteractionDirectory: LiveInteractionDirectory;
   providerRegistry: ProviderRegistry;
   logError?(message: string, error: unknown): void;
@@ -109,21 +111,91 @@ export async function postClassroomAction(
 async function liveInteraction(
   input: ApplicationInput,
   dependencies: InteractionApplicationDependencies,
-  operation: 'snapshot' | 'gift' | 'like',
+  operation:
+    | 'snapshot'
+    | 'gift'
+    | 'like'
+    | 'cohost.request'
+    | 'cohost.cancel'
+    | 'cohost.respond',
 ): Promise<ApplicationReply> {
   try {
-    const result = await withAuthenticatedRoom(input, dependencies, (entry, attendee) =>
-      operation === 'gift'
-        ? dependencies.liveInteractionDirectory.send(entry, attendee, input.body)
-        : operation === 'like'
-          ? dependencies.liveInteractionDirectory.sendLike(entry, attendee, input.body)
-          : dependencies.liveInteractionDirectory.snapshot(entry, attendee),
-    );
+    const result = await withAuthenticatedRoom(input, dependencies, (entry, attendee) => {
+      switch (operation) {
+        case 'gift':
+          return dependencies.liveInteractionDirectory.send(entry, attendee, input.body);
+        case 'like':
+          return dependencies.liveInteractionDirectory.sendLike(entry, attendee, input.body);
+        case 'cohost.request':
+          return dependencies.liveInteractionDirectory.requestCohost(entry, attendee);
+        case 'cohost.cancel':
+          return dependencies.liveInteractionDirectory.cancelCohost(entry, attendee);
+        case 'cohost.respond':
+          return dependencies.liveInteractionDirectory.respondCohost(
+            entry,
+            attendee,
+            String(input.body.userId ?? ''),
+            String(input.body.action ?? ''),
+          );
+        case 'snapshot':
+          return dependencies.liveInteractionDirectory.snapshot(entry, attendee);
+      }
+    });
     return reply(result);
   } catch (error) {
     if (error instanceof ProviderOperationError) throw error;
     dependencies.logError?.('live interaction failed', error);
     fail(502, 'live-interaction-failed', 'Unable to apply live interaction.');
+  }
+}
+
+export async function postContentSnapshot(
+  input: ApplicationInput,
+  dependencies: InteractionApplicationDependencies,
+): Promise<ApplicationReply> {
+  try {
+    const result = await withAuthenticatedRoom(input, dependencies, (entry, attendee) => {
+      const proof = String(input.body.roomOwnerCredential ?? '').trim();
+      if (proof && !matchesRoomOwnerCredential(entry, proof)) {
+        fail(403, 'forbidden', 'Invalid room owner credential.');
+      }
+      const isManager =
+        Boolean(proof) || (entry.roomMode === 'broadcast' && attendee.role === 'host');
+      if (!dependencies.sharedContentDirectory) {
+        fail(503, 'unsupported-feature', 'Shared content directory is unavailable.');
+      }
+      return dependencies.sharedContentDirectory.snapshot(entry, attendee, isManager);
+    });
+    return reply(result);
+  } catch (error) {
+    if (error instanceof ProviderOperationError) throw error;
+    dependencies.logError?.('shared content snapshot failed', error);
+    fail(502, 'classroom-control-failed', 'Unable to load shared content.');
+  }
+}
+
+export async function postContentAction(
+  input: ApplicationInput,
+  dependencies: InteractionApplicationDependencies,
+): Promise<ApplicationReply> {
+  try {
+    const result = await withAuthenticatedRoom(input, dependencies, (entry, attendee) => {
+      const proof = String(input.body.roomOwnerCredential ?? '').trim();
+      if (proof && !matchesRoomOwnerCredential(entry, proof)) {
+        fail(403, 'forbidden', 'Invalid room owner credential.');
+      }
+      const isManager =
+        Boolean(proof) || (entry.roomMode === 'broadcast' && attendee.role === 'host');
+      if (!dependencies.sharedContentDirectory) {
+        fail(503, 'unsupported-feature', 'Shared content directory is unavailable.');
+      }
+      return dependencies.sharedContentDirectory.act(entry, attendee, isManager, input.body);
+    });
+    return reply(result);
+  } catch (error) {
+    if (error instanceof ProviderOperationError) throw error;
+    dependencies.logError?.('shared content action failed', error);
+    fail(502, 'classroom-control-failed', 'Unable to apply shared content action.');
   }
 }
 
@@ -133,3 +205,9 @@ export const postLiveGift = (input: ApplicationInput, dependencies: InteractionA
   liveInteraction(input, dependencies, 'gift');
 export const postLiveLike = (input: ApplicationInput, dependencies: InteractionApplicationDependencies) =>
   liveInteraction(input, dependencies, 'like');
+export const postLiveCohostRequest = (input: ApplicationInput, dependencies: InteractionApplicationDependencies) =>
+  liveInteraction(input, dependencies, 'cohost.request');
+export const postLiveCohostCancel = (input: ApplicationInput, dependencies: InteractionApplicationDependencies) =>
+  liveInteraction(input, dependencies, 'cohost.cancel');
+export const postLiveCohostRespond = (input: ApplicationInput, dependencies: InteractionApplicationDependencies) =>
+  liveInteraction(input, dependencies, 'cohost.respond');

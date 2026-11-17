@@ -47,6 +47,7 @@ import { registerDashboardRoutes, type DashboardSelectionState } from './routes/
 import { requireRoomManager } from './room-access.ts';
 import { RoomOperationQueue } from './classroom/room-operation-queue.ts';
 import { ClassroomStateDirectory } from './classroom/classroom-state.ts';
+import { SharedContentDirectory } from './classroom/shared-content-directory.ts';
 import { FileClassroomStore } from './classroom/classroom-store.ts';
 import {
   createIvsChatProvider,
@@ -92,6 +93,7 @@ const classroomStateDir = env.CLASSROOM_STATE_DIR?.trim();
 const classroomDirectory = new ClassroomStateDirectory(
   classroomStateDir ? new FileClassroomStore(classroomStateDir) : undefined,
 );
+const sharedContentDirectory = new SharedContentDirectory(classroomDirectory);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROVIDER_STATE_PATH = env.MEDIA_PROVIDER_STATE_PATH ?? path.join(__dirname, '.provider-state.json');
@@ -272,7 +274,7 @@ const {
 
 const closeRoomUnlocked = createRoomClosure({
   providerRegistry, chatProviderRegistry, roomDirectory,
-  classroomDirectory, liveInteractionDirectory, logEvent,
+  classroomDirectory, sharedContentDirectory, liveInteractionDirectory, logEvent,
   stopActiveRecording: async (entry) => {
     if (entry.provider === 'agora') {
       await agoraCloudRecorder.stopIfActive(entry as NamedRoomEntry);
@@ -457,6 +459,7 @@ registerInteractionRoutes(app, {
   pruneStaleAttendees,
   sendProviderError,
   classroomDirectory,
+  sharedContentDirectory,
   liveInteractionDirectory,
   providerRegistry,
 });

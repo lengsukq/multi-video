@@ -47,6 +47,7 @@ export 'src/recording/recording_options.dart';
 export 'src/session/broadcast_sessions.dart';
 export 'src/session/media_background_effects_controller.dart';
 export 'src/session/media_credential_refresh.dart';
+export 'src/session/media_role_switch.dart';
 export 'src/session/interactive_media_session.dart';
 export 'src/session/media_device_controller.dart';
 export 'src/session/media_local_preview.dart';

@@ -12,3 +12,10 @@ abstract interface class LiveInteractionRepository {
   Future<LiveInteractionState> sendLike({required String eventId});
   void close();
 }
+
+/// Optional co-host request and host approval control-plane capability.
+abstract interface class LiveCohostRepository {
+  Future<LiveInteractionState> requestCohost();
+  Future<LiveInteractionState> cancelCohost();
+  Future<LiveInteractionState> respondCohost(String userId, String action);
+}

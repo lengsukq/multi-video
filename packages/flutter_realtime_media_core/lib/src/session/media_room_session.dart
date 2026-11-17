@@ -18,9 +18,11 @@ import '../model/media_state.dart';
 import '../recording/cloud_recording_blueprints.dart';
 import '../recording/cloud_recording_descriptor.dart';
 import '../recording/recording_options.dart';
+import 'interactive_media_session.dart';
 import 'media_session.dart';
 import '../model/media_meeting_mode.dart';
 import 'media_background_effects_controller.dart';
+import 'media_role_switch.dart';
 import 'media_room_extensions.dart';
 
 part 'room_presence.dart';
@@ -50,7 +52,7 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
     Duration.zero,
     roomCode: roomCode,
     participantId: participantId,
-    session: session,
+    initialSession: session,
     identity: identity,
     backendMetadata: Map.unmodifiable(backendMetadata),
   );
@@ -64,14 +66,15 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
     this.roomOwnerCredential,
     this.chatProvider,
     this.backendMetadata = const {},
-    required this.session,
+    required MediaSession initialSession,
     MediaIdentity? identity,
-  }) {
-    _stateSubscription = session.states.listen(_onStateChanged);
-    _eventSubscription = session.events.listen(_onSessionEvent);
+    void Function(MediaSession next)? onSessionReplaced,
+  }) : _session = initialSession {
+    _sessionReplacedCallback = onSessionReplaced;
+    _bindSessionSubscriptions(initialSession);
     _presenceOwner.start();
     _profiles = _RoomParticipantProfiles(
-      session,
+      initialSession,
       participantId,
       identity: identity,
       metadata: backendMetadata,
@@ -92,6 +95,7 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
     required MediaRoomPresence presence,
     required MediaRoomManagement management,
     required Duration heartbeatInterval,
+    void Function(MediaSession next)? onSessionReplaced,
   }) => MediaRoomSession._(
     presence,
     management,
@@ -102,8 +106,9 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
     roomOwnerCredential: roomOwnerCredential,
     chatProvider: chatProvider,
     backendMetadata: Map.unmodifiable(backendMetadata),
-    session: session,
+    initialSession: session,
     identity: identity,
+    onSessionReplaced: onSessionReplaced,
   );
 
   final String roomCode;
@@ -120,7 +125,9 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
   MediaMeetingMode? get meetingMode => backendMetadata['roomMode'] == 'meeting'
       ? MediaMeetingMode.fromMetadata(backendMetadata)
       : null;
-  final MediaSession session;
+  MediaSession _session;
+  MediaSession get session => _session;
+  void Function(MediaSession next)? _sessionReplacedCallback;
   late final _RoomParticipantProfiles _profiles;
   final MediaRoomPresence? _presence;
   final MediaRoomManagement? _management;
@@ -133,7 +140,7 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
   );
   final _recovery = _RoomRecovery();
   late final _roomManagement = _RoomManagement(
-    session: session,
+    session: _session,
     management: _management,
     roomCode: roomCode,
     participantId: participantId,
@@ -141,7 +148,83 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
     roomOwnerCredential: roomOwnerCredential,
     backendMetadata: backendMetadata,
   );
+
+  void _bindSessionSubscriptions(MediaSession target) {
+    unawaited(_stateSubscription?.cancel());
+    unawaited(_eventSubscription?.cancel());
+    _stateSubscription = target.states.listen(_onStateChanged);
+    _eventSubscription = target.events.listen(_onSessionEvent);
+  }
+
+  bool get canSwitchRole => _session is MediaRoleSwitchable;
+
+  Future<void> switchRole(MediaRole targetRole) async {
+    if (_disposed) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.invalidState,
+        message: 'MediaRoomSession is disposed.',
+        providerId: providerId,
+      );
+    }
+    final active = _session;
+    if (active is! MediaRoleSwitchable) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        message: 'The active provider does not support live role switching.',
+        providerId: providerId,
+      );
+    }
+    final next = await (active as MediaRoleSwitchable).switchRole(targetRole);
+    if (!identical(next, _session)) {
+      _session = next;
+      _roomManagement.session = next;
+      _sessionReplacedCallback?.call(next);
+      _bindSessionSubscriptions(next);
+      _profiles.rebindSession(next);
+    }
+  }
   final _cleanupErrors = StreamController<RealtimeException>.broadcast();
+  final _localScreenShareStarting = StreamController<bool>.broadcast();
+  Future<void> Function()? beforeLocalScreenShareStart;
+  bool _isLocalScreenShareStarting = false;
+  bool get isLocalScreenShareStarting => _isLocalScreenShareStarting;
+  Stream<bool> get localScreenShareStartingChanges =>
+      _localScreenShareStarting.stream;
+
+  Future<void> setScreenShareEnabled(bool enabled) async {
+    if (_disposed) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.invalidState,
+        message: 'MediaRoomSession is disposed.',
+        providerId: providerId,
+      );
+    }
+    final active = _session;
+    if (active is! InteractiveMediaSession) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        message: 'Screen sharing is unavailable for this role.',
+        providerId: providerId,
+      );
+    }
+    if (!enabled) {
+      await active.setScreenShareEnabled(false);
+      return;
+    }
+    _isLocalScreenShareStarting = true;
+    if (!_localScreenShareStarting.isClosed) {
+      _localScreenShareStarting.add(true);
+    }
+    try {
+      await beforeLocalScreenShareStart?.call();
+      await active.setScreenShareEnabled(true);
+    } finally {
+      _isLocalScreenShareStarting = false;
+      if (!_localScreenShareStarting.isClosed) {
+        _localScreenShareStarting.add(false);
+      }
+    }
+  }
   StreamSubscription<MediaSessionState>? _stateSubscription;
   StreamSubscription<MediaEvent>? _eventSubscription;
   bool _disposed = false;
@@ -355,6 +438,8 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
     await cleanup.run('backend.errors', _presenceOwner.dispose);
     await cleanup.run('recovery', _recovery.dispose);
     await cleanup.run('cleanup.errors', _cleanupErrors.close);
+    await cleanup.run('screenShareStarting', _localScreenShareStarting.close);
+    beforeLocalScreenShareStart = null;
     cleanup.finish(domain: 'media');
   }
 
