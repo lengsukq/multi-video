@@ -59,6 +59,8 @@ class ProviderWebProfile {
       providerId: 'agora',
       supportedRoles: {MediaRole.participant, MediaRole.host, MediaRole.viewer},
       supportsAudioOutputSelection: true,
+      canSendData: true,
+      canReceiveData: true,
       canBlurBackground: true,
       canReplaceBackgroundImage: true,
     ),

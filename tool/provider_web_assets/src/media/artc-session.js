@@ -99,15 +99,28 @@ export function createArtcSession(session, context) {
         }
         if (name === 'switchCamera') {
           const cameras = await AliRtcEngine.getCameraList();
-          const current = engine.getCurrentCameraDeviceId?.();
+          const current = engine.getCurrentCameraDeviceId?.() || session.cameraId;
           const index = cameras.findIndex((device) => device.deviceId === current);
           const next = cameras[(index + 1) % cameras.length];
-          if (next) await engine.switchCamera(next.deviceId);
+          if (next) {
+            session.cameraId = next.deviceId;
+            engine.setCameraCapturerConfiguration?.({ deviceId: next.deviceId });
+            if (session.localVideoEnabled && !session.processedTrack) {
+              await engine.switchCamera(next.deviceId);
+            }
+          }
           return;
         }
         if (name === 'selectDevice') {
           const selected = args.device || args;
-          if (selected.kind === 'camera') { engine.setCameraCapturerConfiguration({ deviceId: selected.id }); await engine.switchCamera(selected.id); }
+          if (selected.kind === 'camera') {
+            if (!selected.id) throw new Error('ARTC camera device id is required.');
+            session.cameraId = selected.id;
+            engine.setCameraCapturerConfiguration?.({ deviceId: selected.id });
+            if (session.localVideoEnabled && !session.processedTrack) {
+              await engine.switchCamera(selected.id);
+            }
+          }
           if (selected.kind === 'microphone') engine.setMicrophoneDeviceId?.(selected.id);
           return;
         }
@@ -139,13 +152,26 @@ export function createArtcSession(session, context) {
         const video = makeVideoElement(container);
         if (track.isLocal) await engine.setLocalViewConfig(video, track.isScreenShare ? screenTrack : cameraTrack);
         else engine.setRemoteViewConfig(video, track.participantId, track.isScreenShare ? screenTrack : cameraTrack);
-        video.style.objectFit = 'contain';
+        video.style.objectFit = container?.dataset?.videoFit === 'cover' ? 'cover' : 'contain';
       },
       detachVideo(track) {
         if (track.isLocal) engine.setLocalViewConfig(null, track.isScreenShare ? screenTrack : cameraTrack);
         else engine.setRemoteViewConfig(null, track.participantId, track.isScreenShare ? screenTrack : cameraTrack);
       },
-      async leave() { await engine.leaveChannel(); },
+      async leave() {
+        try {
+          if (session.screenTrack) {
+            try {
+              await engine.publishLocalScreenShareStream?.(false);
+            } finally {
+              await engine.stopPreviewScreen?.();
+            }
+          }
+        } finally {
+          session.screenTrack = null;
+          await engine.leaveChannel();
+        }
+      },
       async dispose() { await engine.destroy(); },
       async getStats() { return session.lastArtcStats || null; },
     };

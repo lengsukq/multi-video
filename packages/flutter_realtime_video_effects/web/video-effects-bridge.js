@@ -58,6 +58,12 @@
     return 18;
   }
 
+  function fallbackBlurScale(strength) {
+    if (strength === 'low') return 0.1;
+    if (strength === 'high') return 0.04;
+    return 0.0625;
+  }
+
   async function createProcessedVideo({
     effect = { type: 'none', blurStrength: 'medium' },
     deviceId = null,
@@ -82,6 +88,9 @@
     const outputCanvas = document.createElement('canvas');
     const foregroundCanvas = document.createElement('canvas');
     const maskCanvas = document.createElement('canvas');
+    const blurCanvas = document.createElement('canvas');
+    let downsampleCanvas = null;
+    let downsampleContext = null;
     const outputContext = outputCanvas.getContext('2d', {
       alpha: false,
       desynchronized: true,
@@ -94,9 +103,14 @@
       alpha: true,
       willReadFrequently: true,
     });
-    if (!outputContext || !foregroundContext || !maskContext) {
+    const blurContext = blurCanvas.getContext('2d', {
+      alpha: false,
+      desynchronized: true,
+    });
+    if (!outputContext || !foregroundContext || !maskContext || !blurContext) {
       throw new Error('Canvas 2D rendering is unavailable.');
     }
+    const supportsCanvasFilter = 'filter' in blurContext;
 
     let sourceTrack = null;
     let sourceStream = null;
@@ -109,6 +123,7 @@
     let segmenterPromise = null;
     let faceDetector = null;
     let faceBoxes = [];
+    let faceDetectCounter = 0;
     let outputSuspended = false;
     let lastFailure = null;
     let cancelReadyWait = null;
@@ -117,7 +132,7 @@
     let frameHandle = null;
     let lastSegmentationAt = 0;
     let nextFrameAt = 0;
-    let lastVideoFrame = -1;
+    let lastVideoFrame = null;
     let maskPixels = null;
     let maskImageData = null;
     const frameInterval = 1000 / frameRate;
@@ -156,8 +171,9 @@
       sourceStream = nextStream;
       latestMask = null;
       faceBoxes = [];
+      faceDetectCounter = 0;
       nextFrameAt = 0;
-      lastVideoFrame = -1;
+      lastVideoFrame = null;
       previousTrack?.stop?.();
       previousStream?.getTracks?.().forEach((track) => {
         if (track !== previousTrack) track.stop?.();
@@ -210,7 +226,7 @@
 
     function blankOutput() {
       outputContext.save();
-      outputContext.filter = 'none';
+      if (supportsCanvasFilter) outputContext.filter = 'none';
       outputContext.fillStyle = '#000';
       outputContext.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
       outputContext.restore();
@@ -277,37 +293,88 @@
       // edges by at most one matte pixel and remap their confidence so hair
       // and shoulders stay in the sharp foreground. Feathering is confined
       // to the outer edge rather than blending blur through the whole person.
-      for (let i = 0; i < maskWidth * maskHeight; i += 1) {
-        const x = i % maskWidth;
-        const y = Math.floor(i / maskWidth);
-        let confidence = Math.max(0, Math.min(1, Number(values[i] || 0)));
-        for (let dy = -1; dy <= 1; dy += 1) for (let dx = -1; dx <= 1; dx += 1) {
-          const nx = x + dx; const ny = y + dy;
-          if (nx >= 0 && ny >= 0 && nx < maskWidth && ny < maskHeight) {
-            const weight = (dx && dy) ? 0.55 : 0.7;
-            confidence = Math.max(confidence, Number(values[ny * maskWidth + nx] || 0) * weight);
+      for (let y = 0; y < maskHeight; y += 1) {
+        const rowOffset = y * maskWidth;
+        const yMin = y > 0 ? y - 1 : 0;
+        const yMax = y + 1 < maskHeight ? y + 1 : maskHeight - 1;
+        for (let x = 0; x < maskWidth; x += 1) {
+          const idx = rowOffset + x;
+          let confidence = Number(values[idx] || 0);
+          if (confidence < 0) confidence = 0;
+          else if (confidence > 1) confidence = 1;
+          const xMin = x > 0 ? x - 1 : 0;
+          const xMax = x + 1 < maskWidth ? x + 1 : maskWidth - 1;
+          for (let ny = yMin; ny <= yMax; ny += 1) {
+            const nRow = ny * maskWidth;
+            const dy = ny - y;
+            for (let nx = xMin; nx <= xMax; nx += 1) {
+              const dx = nx - x;
+              if (dx === 0 && dy === 0) continue;
+              const weight = dx !== 0 && dy !== 0 ? 0.55 : 0.7;
+              const neighbor = Number(values[nRow + nx] || 0) * weight;
+              if (neighbor > confidence) confidence = neighbor;
+            }
           }
+          if (confidence > 1) confidence = 1;
+          let alpha = 0;
+          if (confidence > 0.1) {
+            const t = confidence >= 0.55 ? 1 : (confidence - 0.1) / 0.45;
+            alpha = Math.round(t * t * (3 - 2 * t) * 255);
+          }
+          const offset = idx * 4;
+          pixels[offset] = 255;
+          pixels[offset + 1] = 255;
+          pixels[offset + 2] = 255;
+          pixels[offset + 3] = alpha;
         }
-        const t = Math.max(0, Math.min(1, (confidence - 0.1) / 0.45));
-        let opacity = t * t * (3 - 2 * t);
-        // Independent face detection protects cheeks and temples when the
-        // coarse person model misses a side-lit face. Keep the protected
-        // ellipse inside the detected face and feather its outer band.
+      }
+
+      // Independent face detection protects cheeks and temples when the
+      // coarse person model misses a side-lit face. Evaluate only inside each
+      // face bounding ellipse instead of running hypot across the full frame.
+      if (faceBoxes.length > 0 && video.videoWidth > 0 && video.videoHeight > 0) {
+        const scaleX = video.videoWidth / maskWidth;
+        const scaleY = video.videoHeight / maskHeight;
         for (const box of faceBoxes) {
-          const px = (x + 0.5) * video.videoWidth / maskWidth;
-          const py = (y + 0.5) * video.videoHeight / maskHeight;
           const cx = box.originX + box.width * 0.5;
           const cy = box.originY + box.height * 0.5;
-          const distance = Math.hypot((px - cx) / (box.width * 0.51), (py - cy) / (box.height * 0.53));
-          const faceAlpha = Math.max(0, Math.min(1, (1.04 - distance) / 0.18));
-          opacity = Math.max(opacity, faceAlpha * faceAlpha * (3 - 2 * faceAlpha));
+          const rx = box.width * 0.51;
+          const ry = box.height * 0.53;
+          if (rx <= 0 || ry <= 0) continue;
+          const xStart = Math.max(0, Math.floor((cx - rx * 1.04) / scaleX - 0.5));
+          const xEnd = Math.min(maskWidth - 1, Math.ceil((cx + rx * 1.04) / scaleX - 0.5));
+          const yStart = Math.max(0, Math.floor((cy - ry * 1.04) / scaleY - 0.5));
+          const yEnd = Math.min(maskHeight - 1, Math.ceil((cy + ry * 1.04) / scaleY - 0.5));
+          for (let y = yStart; y <= yEnd; y += 1) {
+            const py = (y + 0.5) * scaleY;
+            const dy = (py - cy) / ry;
+            const dySq = dy * dy;
+            if (dySq >= 1.0816) continue;
+            const rowOffset = y * maskWidth;
+            for (let x = xStart; x <= xEnd; x += 1) {
+              const alphaIndex = (rowOffset + x) * 4 + 3;
+              if (pixels[alphaIndex] === 255) continue;
+              const px = (x + 0.5) * scaleX;
+              const dx = (px - cx) / rx;
+              const distSq = dx * dx + dySq;
+              if (distSq >= 1.0816) continue;
+              if (distSq <= 0.7396) {
+                pixels[alphaIndex] = 255;
+                continue;
+              }
+              const distance = Math.sqrt(distSq);
+              const faceAlpha = (1.04 - distance) / 0.18;
+              const feathered = Math.round(
+                faceAlpha * faceAlpha * (3 - 2 * faceAlpha) * 255,
+              );
+              if (feathered > pixels[alphaIndex]) {
+                pixels[alphaIndex] = feathered;
+              }
+            }
+          }
         }
-        const offset = i * 4;
-        pixels[offset] = 255;
-        pixels[offset + 1] = 255;
-        pixels[offset + 2] = 255;
-        pixels[offset + 3] = Math.round(opacity * 255);
       }
+
       maskContext.putImageData(
         maskImageData,
         0,
@@ -325,9 +392,12 @@
       // timestamp even when browser callback timestamps have limited precision.
       const timestamp = Math.max(now, lastSegmentationAt + 1);
       lastSegmentationAt = timestamp;
-      const faces = faceDetector.detectForVideo(video, timestamp);
-      faceBoxes = (faces?.detections || []).map((face) => face.boundingBox)
-        .filter((box) => box && box.width > 0 && box.height > 0).slice(0, 4);
+      if (faceDetectCounter === 0) {
+        const faces = faceDetector.detectForVideo(video, timestamp);
+        faceBoxes = (faces?.detections || []).map((face) => face.boundingBox)
+          .filter((box) => box && box.width > 0 && box.height > 0).slice(0, 4);
+      }
+      faceDetectCounter = (faceDetectCounter + 1) % 5;
       const result = segmenter.segmentForVideo(video, timestamp);
       try {
         const masks = result?.confidenceMasks;
@@ -335,6 +405,50 @@
       } finally {
         result?.close?.();
       }
+    }
+
+    function drawBlurredBackground(outputWidth, outputHeight) {
+      const blurWidth = Math.max(1, Math.round(outputWidth * 0.25));
+      const blurHeight = Math.max(1, Math.round(outputHeight * 0.25));
+      if (blurCanvas.width !== blurWidth) blurCanvas.width = blurWidth;
+      if (blurCanvas.height !== blurHeight) blurCanvas.height = blurHeight;
+
+      if (supportsCanvasFilter) {
+        const scaledRadius = Math.max(
+          2,
+          Math.round(blurRadius(currentEffect.blurStrength) * 0.25),
+        );
+        blurContext.filter = `blur(${scaledRadius}px)`;
+        blurContext.drawImage(video, 0, 0, blurWidth, blurHeight);
+        blurContext.filter = 'none';
+        outputContext.imageSmoothingEnabled = true;
+        outputContext.drawImage(blurCanvas, 0, 0, outputWidth, outputHeight);
+        return;
+      }
+
+      // Fallback for browsers without CanvasRenderingContext2D.filter support:
+      // two-stage bilinear downscale/upscale avoids leaking a sharp background.
+      blurContext.imageSmoothingEnabled = true;
+      blurContext.drawImage(video, 0, 0, blurWidth, blurHeight);
+      if (!downsampleCanvas) {
+        downsampleCanvas = document.createElement('canvas');
+        downsampleContext = downsampleCanvas.getContext('2d', {
+          alpha: false,
+          desynchronized: true,
+        });
+      }
+      if (downsampleContext) {
+        const scale = fallbackBlurScale(currentEffect.blurStrength);
+        const dsWidth = Math.max(1, Math.round(outputWidth * scale));
+        const dsHeight = Math.max(1, Math.round(outputHeight * scale));
+        if (downsampleCanvas.width !== dsWidth) downsampleCanvas.width = dsWidth;
+        if (downsampleCanvas.height !== dsHeight) downsampleCanvas.height = dsHeight;
+        downsampleContext.imageSmoothingEnabled = true;
+        downsampleContext.drawImage(blurCanvas, 0, 0, dsWidth, dsHeight);
+        blurContext.drawImage(downsampleCanvas, 0, 0, blurWidth, blurHeight);
+      }
+      outputContext.imageSmoothingEnabled = true;
+      outputContext.drawImage(blurCanvas, 0, 0, outputWidth, outputHeight);
     }
 
     function drawFrame() {
@@ -345,7 +459,7 @@
       outputContext.save();
       outputContext.clearRect(0, 0, outputWidth, outputHeight);
       if (currentEffect.type === 'none') {
-        outputContext.filter = 'none';
+        if (supportsCanvasFilter) outputContext.filter = 'none';
         outputContext.drawImage(video, 0, 0, outputWidth, outputHeight);
         outputContext.restore();
         outputTrack?.requestFrame?.();
@@ -355,15 +469,14 @@
       // Privacy first: before segmentation produces a usable person mask,
       // publish a fully blurred frame rather than leaking the raw background.
       if (currentEffect.type === 'replaceImage') {
-        outputContext.filter = 'none';
+        if (supportsCanvasFilter) outputContext.filter = 'none';
         const scale = Math.max(outputWidth / backgroundImage.width, outputHeight / backgroundImage.height);
         const w = backgroundImage.width * scale;
         const h = backgroundImage.height * scale;
         outputContext.drawImage(backgroundImage, (outputWidth - w) / 2, (outputHeight - h) / 2, w, h);
       } else {
-        outputContext.filter = `blur(${blurRadius(currentEffect.blurStrength)}px)`;
-        outputContext.drawImage(video, 0, 0, outputWidth, outputHeight);
-        outputContext.filter = 'none';
+        if (supportsCanvasFilter) outputContext.filter = 'none';
+        drawBlurredBackground(outputWidth, outputHeight);
       }
 
       if (latestMask) {
@@ -399,17 +512,38 @@
       return video.currentTime;
     }
 
+    function frameSignature(metadata) {
+      if (metadata && typeof metadata === 'object') {
+        // Safari/WebKit reports mediaTime = 0 on every live MediaStream frame
+        // while incrementing presentedFrames. Include presentedFrames when
+        // present so live camera streams never freeze after frame 1.
+        if (Number.isFinite(metadata.presentedFrames) && metadata.presentedFrames > 0) {
+          return `p:${metadata.presentedFrames}:${metadata.mediaTime ?? 0}`;
+        }
+        if (Number.isFinite(metadata.mediaTime)) {
+          return metadata.mediaTime;
+        }
+      }
+      return currentVideoFrame();
+    }
+
+    function validFrameToken(frame) {
+      return typeof frame === 'string'
+        ? frame.length > 0
+        : Number.isFinite(frame);
+    }
+
     function acceptFrame(now, frame) {
       if (!enabled || outputSuspended || !videoIsReady()) return false;
       // requestAnimationFrame follows display refresh, which may be much faster
       // than the camera. Do not redraw or infer the same decoded frame twice.
-      if (Number.isFinite(frame) && frame === lastVideoFrame) return false;
+      if (validFrameToken(frame) && frame === lastVideoFrame) return false;
       if (nextFrameAt && now + 1 < nextFrameAt) return false;
       // Preserve the deadline instead of resetting it to each capture time:
       // otherwise a 30 fps camera limited to 24 fps falls to about 15 fps.
       nextFrameAt = !nextFrameAt || now - nextFrameAt > frameInterval
         ? now + frameInterval : nextFrameAt + frameInterval;
-      if (Number.isFinite(frame)) lastVideoFrame = frame;
+      if (validFrameToken(frame)) lastVideoFrame = frame;
       return true;
     }
 
@@ -428,7 +562,7 @@
       };
       if (typeof video.requestVideoFrameCallback === 'function') {
         frameHandle = video.requestVideoFrameCallback(
-          (now, metadata) => render(now, metadata?.mediaTime),
+          (now, metadata) => render(now, frameSignature(metadata)),
         );
       } else {
         frameHandle = global.requestAnimationFrame(render);
@@ -457,8 +591,9 @@
         const previous = backgroundImage;
         backgroundImage = nextImage;
         latestMask = null;
+        faceDetectCounter = 0;
         nextFrameAt = 0;
-        lastVideoFrame = -1;
+        lastVideoFrame = null;
         currentEffect = { type, blurStrength: nextEffect?.blurStrength || 'medium' };
         previous?.close?.();
         outputSuspended = false;
@@ -540,6 +675,7 @@
         faceDetector?.close?.();
         segmenter = null; faceDetector = null; faceBoxes = [];
         maskPixels = null; maskImageData = null;
+        downsampleCanvas = null; downsampleContext = null;
         video.srcObject = null;
       },
     };

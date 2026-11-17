@@ -2,7 +2,15 @@ export function createTrtcSession(session, context) {
   const { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession } = context;
     const info = providerBlock(session, 'trtc');
     const sdk = global.TRTC;
-    const trtc = sdk.create({ assetsPath: (globalThis.__realtimeTrtcAssetsPath || new URL('assets/packages/flutter_realtime_sdk/assets/provider_web_runtime/vendors/trtc-assets/', document.baseURI).toString()) });
+    const trtc = sdk.create({
+      assetsPath: (
+        globalThis.__realtimeTrtcAssetsPath ||
+        new URL(
+          'assets/packages/flutter_realtime_provider_trtc/assets/trtc-assets/',
+          document.baseURI,
+        ).toString()
+      ),
+    });
     let audioStarted = false;
     let selectedMicrophoneId = null;
     const localVideoId = `trtc:video:${session.localParticipantId}`;
@@ -90,7 +98,11 @@ export function createTrtcSession(session, context) {
               publish: true,
               option: {
                 fillMode: 'contain',
-                ...(session.processedTrack ? {videoTrack: session.processedTrack} : {}),
+                ...(session.processedTrack
+                  ? { videoTrack: session.processedTrack }
+                  : session.cameraId
+                  ? { cameraId: session.cameraId }
+                  : {}),
               },
             });
           } else if (!args.enabled) {
@@ -124,7 +136,12 @@ export function createTrtcSession(session, context) {
           const current = cameras.find((device) => device.deviceId === session.cameraId);
           const index = current ? cameras.indexOf(current) : -1;
           const next = cameras[(index + 1) % cameras.length];
-          if (next) { session.cameraId = next.deviceId; await trtc.updateLocalVideo({ option: { cameraId: next.deviceId } }); }
+          if (next) {
+            session.cameraId = next.deviceId;
+            if (session.localVideoEnabled && !session.processedTrack) {
+              await trtc.updateLocalVideo({ option: { cameraId: next.deviceId } });
+            }
+          }
           return;
         }
         if (name === 'selectDevice') {
@@ -134,22 +151,32 @@ export function createTrtcSession(session, context) {
             if (audioStarted) await trtc.updateLocalAudio({ option: { microphoneId: selected.id } });
             selectedMicrophoneId = selected.id;
           }
-          if (selected.kind === 'camera') { session.cameraId = selected.id; await trtc.updateLocalVideo({ option: { cameraId: selected.id } }); }
+          if (selected.kind === 'camera') {
+            if (!selected.id) throw new Error('TRTC camera device id is required.');
+            session.cameraId = selected.id;
+            if (session.localVideoEnabled && !session.processedTrack) {
+              await trtc.updateLocalVideo({ option: { cameraId: selected.id } });
+            }
+          }
           return;
         }
         if (name === 'listDevices') return listDevices(session);
         throw new Error(`TRTC does not support ${name}.`);
       },
       async attachProcessedTrack(track) {
-        if (session.localVideoEnabled) await trtc.updateLocalVideo({option: {videoTrack: track}});
+        if (session.localVideoEnabled) {
+          await trtc.updateLocalVideo({option: {videoTrack: track}});
+          refreshLocalTrack();
+        }
       },
       async detachProcessedTrack() { await trtc.stopLocalVideo(); },
       async attachVideo(track, container) {
         const native = track.native;
+        const fillMode = container?.dataset?.videoFit === 'cover' ? 'cover' : 'contain';
         if (native?.userId) {
           // Flutter's platform-view element is often not assigned an HTML id.
           // TRTC accepts the actual HTMLElement as well as an id string.
-          await trtc.startRemoteVideo({ userId: native.userId, streamType: native.streamType, view: container, option: { fillMode: 'contain' } });
+          await trtc.startRemoteVideo({ userId: native.userId, streamType: native.streamType, view: container, option: { fillMode } });
         } else {
           const mediaTrack = native?.mediaStreamTrack || native;
           if (mediaTrack && mediaTrack.kind === 'video') attachStreamTrack(mediaTrack, container);

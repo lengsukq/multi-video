@@ -3,6 +3,7 @@ function parsePayload(value) {
 }
 
 function emit(root, session, type, payload = {}) {
+  if (session.disposed) return;
   const callback = root.__flutterAgoraChatOnEvent;
   if (typeof callback === 'function') {
     callback(session.id, type, JSON.stringify(payload));
@@ -59,6 +60,7 @@ export function createAgoraChatBridge(AC, root = globalThis) {
   }
 
   async function refreshToken(session) {
+    if (session.disposed) return;
     if (session.refreshPromise) return session.refreshPromise;
     session.refreshPromise = (async () => {
       const callback = root.__flutterAgoraChatRequestToken;
@@ -69,6 +71,7 @@ export function createAgoraChatBridge(AC, root = globalThis) {
       if (!refreshed?.token) {
         throw new Error('Agora Chat token refresh returned no token.');
       }
+      if (session.disposed) return;
       await session.connection.renewToken(refreshed.token);
       session.token = refreshed.token;
     })().catch((error) => {
@@ -84,6 +87,7 @@ export function createAgoraChatBridge(AC, root = globalThis) {
   }
 
   function emitMessages(session, input) {
+    if (session.disposed) return;
     const messages = Array.isArray(input) ? input : [input];
     for (const message of messages) {
       if (message?.type !== 'txt' || message?.chatType !== 'chatRoom') continue;
@@ -117,36 +121,40 @@ export function createAgoraChatBridge(AC, root = globalThis) {
         providerUserId: chat.providerUserId,
         token: chat.token,
         joined: false,
+        disposed: false,
         refreshPromise: null,
         handlerId: `flutter-agora-chat-${id}`,
       };
       session.handler = {
         onConnected() {
-          if (session.joined) emit(root, session, 'connected');
+          if (!session.disposed && session.joined) emit(root, session, 'connected');
         },
         onReconnecting() {
-          emit(root, session, 'connecting', { reconnecting: true });
+          if (!session.disposed) emit(root, session, 'connecting', { reconnecting: true });
         },
         onDisconnected(error) {
+          if (session.disposed) return;
           const reason = error?.message || error?.type || 'connectionClosed';
           emit(root, session, 'disconnected', { reason: String(reason) });
         },
         onError(error) {
+          if (session.disposed) return;
           emit(root, session, 'error', {
             code: Number(error?.type || -1),
             message: String(error?.message || 'Agora Chat reported an error.'),
           });
         },
         onTokenWillExpire() {
-          void refreshToken(session).catch(() => {});
+          if (!session.disposed) void refreshToken(session).catch(() => {});
         },
         onTokenExpired() {
-          void refreshToken(session).catch(() => {});
+          if (!session.disposed) void refreshToken(session).catch(() => {});
         },
         onMessage(message) {
           emitMessages(session, message);
         },
         onChatroomEvent(event) {
+          if (session.disposed) return;
           if (String(event?.id || '') !== session.chatRoomId) return;
           if (event.operation === 'destroy') {
             session.joined = false;
@@ -172,7 +180,19 @@ export function createAgoraChatBridge(AC, root = globalThis) {
         user: session.providerUserId,
         accessToken: session.token,
       });
-      await session.connection.joinChatRoom({ roomId: session.chatRoomId });
+      try {
+        if (session.disposed) {
+          throw new Error('Agora Chat session was disposed during connect.');
+        }
+        await session.connection.joinChatRoom({ roomId: session.chatRoomId });
+      } catch (error) {
+        try {
+          session.connection.close();
+        } catch (_) {
+          // Preserve the original joinChatRoom error.
+        }
+        throw error;
+      }
       session.joined = true;
       emit(root, session, 'connected');
     },
@@ -221,6 +241,8 @@ export function createAgoraChatBridge(AC, root = globalThis) {
     async dispose(id) {
       const session = sessions.get(id);
       if (!session) return;
+      session.disposed = true;
+      session.joined = false;
       try {
         session.connection.close();
       } finally {

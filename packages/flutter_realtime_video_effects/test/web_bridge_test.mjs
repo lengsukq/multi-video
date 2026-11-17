@@ -36,7 +36,7 @@ function harness({videoSize = [640, 360], model, mask = null, faces = [], imageS
       };},captureStream(){return {getVideoTracks:()=>[output]};}};return canvas;
     }},
     async createImageBitmap(){const image={width:imageSize[0],height:imageSize[1],close(){calls.push('image.close');}}; images.push(image);return image;},
-    SdkVideoEffectsVision:{FaceDetector:{async createFromOptions(){return {detectForVideo(){return {detections:faces};},close(){calls.push('faces.close');}};}},FilesetResolver:{async forVisionTasks(){return {}; }},
+    SdkVideoEffectsVision:{FaceDetector:{async createFromOptions(){return {detectForVideo(){calls.push('faces.detect');return {detections:faces};},close(){calls.push('faces.close');}};}},FilesetResolver:{async forVisionTasks(){return {}; }},
       ImageSegmenter:{async createFromOptions(){calls.push('model.create');
         if(model)return model();
         return {segmentForVideo(){return {confidenceMasks:mask?[mask]:[],close(){}};},close(){calls.push('model.close');}};
@@ -142,6 +142,28 @@ test('camera callbacks do not render the same decoded frame twice', async () => 
   await h.videos[0].callback(40,{mediaTime:0});
   await h.videos[0].callback(80,{mediaTime:1/30});
   assert.equal(h.calls.filter(call=>call==='raw.draw').length,2);
+  h.bridge.disposeSource('one');
+});
+
+test('Safari live camera callbacks advance on presentedFrames when mediaTime stays zero', async () => {
+  const h=harness(); await h.bridge.createSource('one',{frameRate:30});
+  h.calls.length=0;
+  await h.videos[0].callback(0,{mediaTime:0,presentedFrames:1});
+  await h.videos[0].callback(40,{mediaTime:0,presentedFrames:1});
+  await h.videos[0].callback(80,{mediaTime:0,presentedFrames:2});
+  await h.videos[0].callback(120,{mediaTime:0,presentedFrames:3});
+  assert.equal(h.calls.filter(call=>call==='raw.draw').length,3);
+  h.bridge.disposeSource('one');
+});
+
+test('face detection runs on first frame and throttles intermediate frames', async () => {
+  const mask={width:8,height:8,getAsFloat32Array:()=>new Float32Array(64).fill(1)};
+  const h=harness({mask});
+  await h.bridge.createSource('one',{effect:{type:'blur'},frameRate:30});
+  // Initial renderReadyFrame already ran face detection once (counter -> 1).
+  assert.equal(h.calls.filter(c=>c==='faces.detect').length,1);
+  for(let i=1;i<=5;i++) await h.videos[0].callback(i*40,{mediaTime:i/30,presentedFrames:i});
+  assert.equal(h.calls.filter(c=>c==='faces.detect').length,2);
   h.bridge.disposeSource('one');
 });
 

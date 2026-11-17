@@ -49,6 +49,52 @@
     const info = providerBlock(session, "agora");
     const live = session.role !== "participant";
     const client = AgoraRTC.createClient({ mode: live ? "live" : "rtc", codec: "vp8" });
+    const screenShareTopic = "_flutter_realtime.screen_share.v1";
+    let screenShareSignalTimer = null;
+    function encodeUtf8(text) {
+      if (typeof global.TextEncoder === "function") {
+        return new global.TextEncoder().encode(text);
+      }
+      if (typeof TextEncoder === "function") {
+        return new TextEncoder().encode(text);
+      }
+      const escaped = unescape(encodeURIComponent(text));
+      const bytes = new Uint8Array(escaped.length);
+      for (let i = 0; i < escaped.length; i += 1) {
+        bytes[i] = escaped.charCodeAt(i);
+      }
+      return bytes;
+    }
+    const stopScreenShareSignalTimer = () => {
+      if (screenShareSignalTimer !== null) {
+        global.clearInterval?.(screenShareSignalTimer);
+        screenShareSignalTimer = null;
+      }
+    };
+    const sendStreamEnvelope = async (topic, message) => {
+      if (typeof client.sendStreamMessage !== "function") return;
+      const wire = JSON.stringify({
+        version: 1,
+        topic,
+        message,
+        timestampMs: Date.now()
+      });
+      await client.sendStreamMessage(encodeUtf8(wire), false);
+    };
+    const sendScreenShareSignal = (state) => {
+      Promise.resolve(sendStreamEnvelope(screenShareTopic, state)).catch(() => {
+      });
+    };
+    const startScreenShareSignalTimer = () => {
+      stopScreenShareSignalTimer();
+      sendScreenShareSignal("started");
+      if (typeof global.setInterval === "function") {
+        screenShareSignalTimer = global.setInterval(() => {
+          if (localTracks.screen) sendScreenShareSignal("started");
+          else stopScreenShareSignalTimer();
+        }, 2e3);
+      }
+    };
     const localTracks = {
       audio: null,
       video: null,
@@ -158,7 +204,10 @@
           native: remote
         });
         const attachment = getTrackAttachment(session, trackId);
-        if (attachment) user.videoTrack.play(attachment.container, { fit: "contain" });
+        if (attachment) {
+          const fit = attachment.container?.dataset?.videoFit === "cover" ? "cover" : "contain";
+          user.videoTrack.play(attachment.container, { fit });
+        }
       }
       participant.isMuted = !user.audioTrack;
       publishSnapshot(session);
@@ -166,6 +215,7 @@
     client.on("user-joined", (user) => {
       addParticipant(session, user.uid);
       publishSnapshot(session);
+      if (localTracks.screen) sendScreenShareSignal("started");
     });
     client.on("user-left", (user) => {
       remoteScreenUids.delete(String(user.uid));
@@ -174,14 +224,28 @@
     client.on("stream-message", (uid, payload) => {
       try {
         const message = JSON.parse(new TextDecoder().decode(payload));
-        if (message.topic !== "_flutter_realtime.screen_share.v1" || !["started", "stopped"].includes(message.message)) return;
-        const key = String(uid);
-        if (message.message === "started") remoteScreenUids.add(key);
-        else remoteScreenUids.delete(key);
-        const remote = client.remoteUsers?.find((user) => String(user.uid) === key);
-        if (remote?.videoTrack) updateRemote(remote, "video").catch(
-          (error) => reportError(session, error)
-        );
+        if (message?.topic === screenShareTopic) {
+          if (!["started", "stopped"].includes(message.message)) return;
+          const key = String(uid);
+          if (message.message === "started") remoteScreenUids.add(key);
+          else remoteScreenUids.delete(key);
+          const remote = client.remoteUsers?.find((user) => String(user.uid) === key);
+          if (remote?.videoTrack) updateRemote(remote, "video").catch(
+            (error) => reportError(session, error)
+          );
+          return;
+        }
+        if (typeof message?.message === "string" && typeof message?.topic === "string" && message.topic.trim().length > 0) {
+          const key = String(uid);
+          const participant = session.participants.get(key);
+          emitMessage(session, {
+            participantId: key,
+            displayName: participant?.displayName || key,
+            message: message.message,
+            topic: message.topic.trim(),
+            timestampMs: Number(message.timestampMs || Date.now())
+          });
+        }
       } catch (_) {
       }
     });
@@ -333,15 +397,28 @@
               throw error;
             }
             addVideoTrack(session, { id: "agora:screen:local", participantId: session.localParticipantId, isLocal: true, isScreenShare: true, native: { track: localTracks.screen } });
+            startScreenShareSignalTimer();
             localTracks.screen.on("track-ended", () => this.command("setScreenShareEnabled", { enabled: false }).catch(() => {
             }));
           } else if (!args.enabled && localTracks.screen) {
+            stopScreenShareSignalTimer();
+            sendScreenShareSignal("stopped");
             await client.unpublish(localTracks.screen);
             localTracks.screen.close();
             localTracks.screen = null;
             removeVideoTrack(session, "agora:screen:local");
             await publishCameraIfNeeded();
           }
+          return;
+        }
+        if (name === "sendMessage") {
+          const topic = String(args.topic || "chat").trim() || "chat";
+          const message = String(args.message || "");
+          if (!message) throw new Error("Agora data message requires a non-empty message.");
+          if (typeof client.sendStreamMessage !== "function") {
+            throw new Error("Agora Web client does not support stream messages in this session.");
+          }
+          await sendStreamEnvelope(topic, message);
           return;
         }
         if (name === "selectDevice" || name === "selectAudioOutput") {
@@ -388,7 +465,8 @@
       },
       async attachVideo(track, container) {
         const native = track.native?.track || remoteUsers.get(track.id)?.track;
-        if (native?.play) native.play(container, { fit: "contain" });
+        const fit = container?.dataset?.videoFit === "cover" ? "cover" : "contain";
+        if (native?.play) native.play(container, { fit });
       },
       detachVideo(track, container) {
         const native = track.native?.track || remoteUsers.get(track.id)?.track;
@@ -396,9 +474,14 @@
         container.replaceChildren();
       },
       async leave() {
+        stopScreenShareSignalTimer();
+        if (localTracks.screen) sendScreenShareSignal("stopped");
         for (const track of [localTracks.screen, localTracks.video, localTracks.audio]) {
           if (track?.close) track.close();
         }
+        localTracks.screen = null;
+        localTracks.video = null;
+        localTracks.audio = null;
         providerInputTrack?.stop?.();
         providerInputTrack = null;
         localTracks.pipeline?.stop();
@@ -408,6 +491,7 @@
         await client.leave();
       },
       async dispose() {
+        stopScreenShareSignalTimer();
         client.removeAllListeners?.();
       },
       async getStats() {
@@ -423,7 +507,12 @@
     const { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession } = context;
     const info = providerBlock(session, "trtc");
     const sdk = global.TRTC;
-    const trtc = sdk.create({ assetsPath: globalThis.__realtimeTrtcAssetsPath || new URL("assets/packages/flutter_realtime_sdk/assets/provider_web_runtime/vendors/trtc-assets/", document.baseURI).toString() });
+    const trtc = sdk.create({
+      assetsPath: globalThis.__realtimeTrtcAssetsPath || new URL(
+        "assets/packages/flutter_realtime_provider_trtc/assets/trtc-assets/",
+        document.baseURI
+      ).toString()
+    });
     let audioStarted = false;
     let selectedMicrophoneId = null;
     const localVideoId = `trtc:video:${session.localParticipantId}`;
@@ -511,7 +600,7 @@
               publish: true,
               option: {
                 fillMode: "contain",
-                ...session.processedTrack ? { videoTrack: session.processedTrack } : {}
+                ...session.processedTrack ? { videoTrack: session.processedTrack } : session.cameraId ? { cameraId: session.cameraId } : {}
               }
             });
           } else if (!args.enabled) {
@@ -546,7 +635,9 @@
           const next = cameras[(index + 1) % cameras.length];
           if (next) {
             session.cameraId = next.deviceId;
-            await trtc.updateLocalVideo({ option: { cameraId: next.deviceId } });
+            if (session.localVideoEnabled && !session.processedTrack) {
+              await trtc.updateLocalVideo({ option: { cameraId: next.deviceId } });
+            }
           }
           return;
         }
@@ -558,8 +649,11 @@
             selectedMicrophoneId = selected.id;
           }
           if (selected.kind === "camera") {
+            if (!selected.id) throw new Error("TRTC camera device id is required.");
             session.cameraId = selected.id;
-            await trtc.updateLocalVideo({ option: { cameraId: selected.id } });
+            if (session.localVideoEnabled && !session.processedTrack) {
+              await trtc.updateLocalVideo({ option: { cameraId: selected.id } });
+            }
           }
           return;
         }
@@ -567,15 +661,19 @@
         throw new Error(`TRTC does not support ${name}.`);
       },
       async attachProcessedTrack(track) {
-        if (session.localVideoEnabled) await trtc.updateLocalVideo({ option: { videoTrack: track } });
+        if (session.localVideoEnabled) {
+          await trtc.updateLocalVideo({ option: { videoTrack: track } });
+          refreshLocalTrack();
+        }
       },
       async detachProcessedTrack() {
         await trtc.stopLocalVideo();
       },
       async attachVideo(track, container) {
         const native = track.native;
+        const fillMode = container?.dataset?.videoFit === "cover" ? "cover" : "contain";
         if (native?.userId) {
-          await trtc.startRemoteVideo({ userId: native.userId, streamType: native.streamType, view: container, option: { fillMode: "contain" } });
+          await trtc.startRemoteVideo({ userId: native.userId, streamType: native.streamType, view: container, option: { fillMode } });
         } else {
           const mediaTrack = native?.mediaStreamTrack || native;
           if (mediaTrack && mediaTrack.kind === "video") attachStreamTrack(mediaTrack, container);
@@ -716,17 +814,27 @@
         }
         if (name === "switchCamera") {
           const cameras = await AliRtcEngine.getCameraList();
-          const current = engine.getCurrentCameraDeviceId?.();
+          const current = engine.getCurrentCameraDeviceId?.() || session.cameraId;
           const index = cameras.findIndex((device) => device.deviceId === current);
           const next = cameras[(index + 1) % cameras.length];
-          if (next) await engine.switchCamera(next.deviceId);
+          if (next) {
+            session.cameraId = next.deviceId;
+            engine.setCameraCapturerConfiguration?.({ deviceId: next.deviceId });
+            if (session.localVideoEnabled && !session.processedTrack) {
+              await engine.switchCamera(next.deviceId);
+            }
+          }
           return;
         }
         if (name === "selectDevice") {
           const selected = args.device || args;
           if (selected.kind === "camera") {
-            engine.setCameraCapturerConfiguration({ deviceId: selected.id });
-            await engine.switchCamera(selected.id);
+            if (!selected.id) throw new Error("ARTC camera device id is required.");
+            session.cameraId = selected.id;
+            engine.setCameraCapturerConfiguration?.({ deviceId: selected.id });
+            if (session.localVideoEnabled && !session.processedTrack) {
+              await engine.switchCamera(selected.id);
+            }
           }
           if (selected.kind === "microphone") engine.setMicrophoneDeviceId?.(selected.id);
           return;
@@ -756,14 +864,25 @@
         const video = makeVideoElement(container);
         if (track.isLocal) await engine.setLocalViewConfig(video, track.isScreenShare ? screenTrack : cameraTrack);
         else engine.setRemoteViewConfig(video, track.participantId, track.isScreenShare ? screenTrack : cameraTrack);
-        video.style.objectFit = "contain";
+        video.style.objectFit = container?.dataset?.videoFit === "cover" ? "cover" : "contain";
       },
       detachVideo(track) {
         if (track.isLocal) engine.setLocalViewConfig(null, track.isScreenShare ? screenTrack : cameraTrack);
         else engine.setRemoteViewConfig(null, track.participantId, track.isScreenShare ? screenTrack : cameraTrack);
       },
       async leave() {
-        await engine.leaveChannel();
+        try {
+          if (session.screenTrack) {
+            try {
+              await engine.publishLocalScreenShareStream?.(false);
+            } finally {
+              await engine.stopPreviewScreen?.();
+            }
+          }
+        } finally {
+          session.screenTrack = null;
+          await engine.leaveChannel();
+        }
       },
       async dispose() {
         await engine.destroy();
@@ -784,7 +903,7 @@
 
   // src/media/ivs-session.js
   function createIvsSession(session, context) {
-    const { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession } = context;
+    const { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, reportRecoverableWarning, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession } = context;
     const info = providerBlock(session, "ivs");
     const sdk = global.IVSBroadcastClient;
     if (!sdk?.Stage || !sdk?.LocalStageStream) {
@@ -793,17 +912,48 @@
     const canPublish = session.role !== "viewer" && info.capabilities?.includes("PUBLISH");
     const localStreams = [];
     const remoteStreams = /* @__PURE__ */ new Map();
-    let selectedMicrophoneId = null;
-    let selectedCameraId = null;
-    const createLocalStream = async (kind, deviceId) => {
+    let selectedMicrophone = null;
+    let selectedCamera = null;
+    const resolveIvsDeviceId = async (kind, selected) => {
+      if (!selected) return null;
+      const requested = typeof selected === "object" ? selected : { id: String(selected), label: "" };
+      if (!requested.id && !requested.label) return null;
+      const targetKind = kind === "audio" ? "audioinput" : "videoinput";
+      if (typeof navigator.mediaDevices?.enumerateDevices === "function") {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const scoped = devices.filter((item) => item.kind === targetKind);
+          const byId = requested.id && scoped.find((item) => item.deviceId === requested.id);
+          if (byId) return byId.deviceId;
+          const byLabel = requested.label && scoped.find((item) => item.label && item.label === requested.label);
+          if (byLabel) return byLabel.deviceId;
+        } catch (_) {
+        }
+      }
+      return requested.id || null;
+    };
+    const createLocalStream = async (kind, selectedDevice) => {
       if (!canPublish) throw new Error("IVS credentials do not permit publishing media.");
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("This browser cannot access camera or microphone media devices.");
       }
+      const deviceId = await resolveIvsDeviceId(kind, selectedDevice);
       const option = deviceId ? { deviceId: { exact: deviceId } } : true;
-      const media = await navigator.mediaDevices.getUserMedia(
-        kind === "audio" ? { audio: option, video: false } : { audio: false, video: option }
-      );
+      let media;
+      try {
+        media = await navigator.mediaDevices.getUserMedia(
+          kind === "audio" ? { audio: option, video: false } : { audio: false, video: option }
+        );
+      } catch (error) {
+        const errorName = String(error?.name || "");
+        if (deviceId && (errorName === "OverconstrainedError" || errorName === "NotFoundError")) {
+          media = await navigator.mediaDevices.getUserMedia(
+            kind === "audio" ? { audio: true, video: false } : { audio: false, video: true }
+          );
+        } else {
+          throw error;
+        }
+      }
       const tracks = media.getTracks();
       const track = tracks.find((item) => item.kind === kind);
       for (const extra of tracks) if (extra !== track) extra.stop();
@@ -833,7 +983,8 @@
     const remoteAudioStreams = /* @__PURE__ */ new Set();
     const releaseRemoteAudio = (stream) => {
       if (stream.__audioRetry) {
-        global.document.removeEventListener("pointerdown", stream.__audioRetry);
+        global.document.removeEventListener?.("pointerdown", stream.__audioRetry);
+        global.document.removeEventListener?.("keydown", stream.__audioRetry);
         stream.__audioRetry = null;
       }
       const audio = stream.__audioElement;
@@ -845,15 +996,32 @@
       }
       remoteAudioStreams.delete(stream);
     };
+    let hasConnected = false;
+    let leavingStage = false;
     const stage = new sdk.Stage(info.token, {
       stageStreamsToPublish: () => localStreams,
       shouldPublishParticipant: () => Boolean(canPublish),
       shouldSubscribeToParticipant: (participant) => participant.capabilities?.has("subscribe") ? sdk.SubscribeType.AUDIO_VIDEO : sdk.SubscribeType.NONE
     });
     stage.on(StageEvents.CONNECTION, (state) => {
-      if (state === sdk.StageConnectionState.CONNECTED) emitState(session, "connected");
-      else if (state === sdk.StageConnectionState.CONNECTING) emitState(session, "connecting");
-      else if (state === sdk.StageConnectionState.DISCONNECTED) emitState(session, "disconnected");
+      if (state === sdk.StageConnectionState.CONNECTED) {
+        hasConnected = true;
+        emitState(session, "connected");
+      } else if (state === sdk.StageConnectionState.CONNECTING) {
+        emitState(session, hasConnected ? "reconnecting" : "connecting");
+      } else if (state === sdk.StageConnectionState.DISCONNECTED) {
+        if (hasConnected && session.joined && !leavingStage && !session.disposed) {
+          session.joined = false;
+          stopStats(session);
+          session.tracks.clear();
+          session.participants.clear();
+          session.localParticipantId = "";
+          emitState(session, "ended", "stage-disconnected");
+          publishSnapshot(session);
+        } else {
+          emitState(session, "disconnected");
+        }
+      }
     });
     stage.on(StageEvents.JOINED, (participant) => {
       addParticipant(session, participant.userId || participant.id, participant.userInfo?.displayName, participant.isLocal);
@@ -891,13 +1059,23 @@
           remoteAudioStreams.add(stream);
           audio.play().catch((error) => {
             if (stream.__audioElement !== audio) return;
-            reportError(session, new Error(`IVS remote audio playback blocked: ${error.message}. Tap the page to allow sound.`));
+            const warn = reportRecoverableWarning || ((target, _code, err) => reportError(target, err));
+            warn(
+              session,
+              "audio-autoplay-blocked",
+              new Error(`IVS remote audio playback blocked: ${error.message}. Tap the page to allow sound.`)
+            );
             const retry = () => {
-              stream.__audioRetry = null;
-              audio.play().catch((retryError) => reportError(session, retryError));
+              if (stream.__audioRetry) {
+                global.document.removeEventListener?.("pointerdown", stream.__audioRetry);
+                global.document.removeEventListener?.("keydown", stream.__audioRetry);
+                stream.__audioRetry = null;
+              }
+              audio.play().catch((retryError) => warn(session, "audio-autoplay-blocked", retryError));
             };
             stream.__audioRetry = retry;
-            global.document.addEventListener("pointerdown", retry, { once: true });
+            global.document.addEventListener?.("pointerdown", retry, { once: true });
+            global.document.addEventListener?.("keydown", retry, { once: true });
           });
         }
       }
@@ -936,7 +1114,7 @@
         if (name === "setMuted") {
           const muted = Boolean(args.muted);
           if (!muted && !session.localAudioStream) {
-            const replacement = await createLocalStream("audio", selectedMicrophoneId);
+            const replacement = await createLocalStream("audio", selectedMicrophone);
             try {
               replacement.setMuted(false);
               replacePublishedStream(null, replacement);
@@ -954,7 +1132,7 @@
         if (name === "setVideoEnabled") {
           const enabled = Boolean(args.enabled);
           if (enabled && !session.localVideoStream) {
-            const replacement = await createLocalStream("video", selectedCameraId);
+            const replacement = await createLocalStream("video", selectedCamera);
             try {
               replacement.setMuted(false);
               if (session.screenTrack) {
@@ -1049,11 +1227,12 @@
           const selected = args.device || args;
           if (selected.kind !== "camera" && selected.kind !== "microphone") return;
           if (!selected.id) throw new Error("IVS media device id is required.");
+          const nextDevice = { id: selected.id, label: selected.label || "" };
           const old = selected.kind === "camera" ? session.localVideoStream : session.localAudioStream;
-          if (selected.kind === "microphone") selectedMicrophoneId = selected.id;
-          else selectedCameraId = selected.id;
+          if (selected.kind === "microphone") selectedMicrophone = nextDevice;
+          else selectedCamera = nextDevice;
           if (!old) return;
-          const replacement = await createLocalStream(selected.kind === "camera" ? "video" : "audio", selected.id);
+          const replacement = await createLocalStream(selected.kind === "camera" ? "video" : "audio", nextDevice);
           try {
             replacement.setMuted(selected.kind === "camera" ? !session.localVideoEnabled : session.localMuted);
             if (selected.kind === "camera" && session.screenTrack) {
@@ -1118,6 +1297,7 @@
         container.replaceChildren();
       },
       async leave() {
+        leavingStage = true;
         try {
           await stage.leave();
         } finally {
@@ -1149,7 +1329,7 @@
 
   // src/media/chime-session.js
   function createChimeSession(session, context) {
-    const { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession } = context;
+    const { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, reportRecoverableWarning, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession } = context;
     const info = session.payload;
     const meeting = info.meeting || info.Meeting;
     const attendee = info.attendee || info.Attendee;
@@ -1161,8 +1341,17 @@
     const audioVideo = meetingSession.audioVideo;
     let remoteAudioElement = null;
     let microphones = [];
-    let selectedMicrophoneId = null;
-    let selectedCameraId = null;
+    let selectedMicrophone = null;
+    let selectedCamera = null;
+    const resolveChimeDeviceId = (available, selected) => {
+      if (!Array.isArray(available) || !available.length) return selected?.id || null;
+      if (!selected) return available[0].deviceId;
+      const byId = selected.id && available.find((item) => item.deviceId === selected.id);
+      if (byId) return byId.deviceId;
+      const byLabel = selected.label && available.find((item) => item.label && item.label === selected.label);
+      if (byLabel) return byLabel.deviceId;
+      return selected.id || available[0].deviceId;
+    };
     let contentShareStream = null;
     let contentShareStarted = false;
     let contentShareGeneration = 0;
@@ -1209,17 +1398,29 @@
     };
     audioVideo.addContentShareObserver(contentObserver);
     let pendingAudioUnlock = null;
+    const clearPendingAudioUnlock = () => {
+      if (!pendingAudioUnlock) return;
+      global.document.removeEventListener?.("pointerdown", pendingAudioUnlock);
+      global.document.removeEventListener?.("keydown", pendingAudioUnlock);
+      pendingAudioUnlock = null;
+    };
     const playRemoteAudio = () => {
       const audio = remoteAudioElement;
       if (!audio) return;
       audio.play().catch((error) => {
-        reportError(session, new Error(`Chime remote audio playback blocked: ${error.message}. Tap the page to allow sound.`));
+        const warn = reportRecoverableWarning || ((target, _code, err) => reportError(target, err));
+        warn(
+          session,
+          "audio-autoplay-blocked",
+          new Error(`Chime remote audio playback blocked: ${error.message}. Tap the page to allow sound.`)
+        );
         if (!pendingAudioUnlock) {
           pendingAudioUnlock = () => {
-            pendingAudioUnlock = null;
+            clearPendingAudioUnlock();
             playRemoteAudio();
           };
-          global.document.addEventListener("pointerdown", pendingAudioUnlock, { once: true });
+          global.document.addEventListener?.("pointerdown", pendingAudioUnlock, { once: true });
+          global.document.addEventListener?.("keydown", pendingAudioUnlock, { once: true });
         }
       });
     };
@@ -1239,7 +1440,19 @@
         if (settleStart) {
           settleStart(new Error(`Chime connection stopped before joining (status ${code ?? "unknown"}).`));
         } else if (session.joined && code !== ChimeSDK.MeetingSessionStatusCode.Left) {
-          reportError(session, new Error(`Chime meeting disconnected (status ${code ?? "unknown"}).`));
+          session.joined = false;
+          stopStats(session);
+          session.tracks.clear();
+          session.participants.clear();
+          session.localParticipantId = "";
+          const meetingEndedCode = ChimeSDK.MeetingSessionStatusCode?.MeetingEnded ?? 6;
+          const attendeeRemovedCode = ChimeSDK.MeetingSessionStatusCode?.AudioDisconnectAudio ?? 12;
+          const kickedOrEnded = code === meetingEndedCode || code === attendeeRemovedCode || code === "MeetingEnded" || code === "AudioDisconnectAudio";
+          emitState(session, "ended", kickedOrEnded ? "meeting-ended" : `stopped:${code ?? "unknown"}`);
+          publishSnapshot(session);
+          if (!kickedOrEnded) {
+            reportError(session, new Error(`Chime meeting disconnected (status ${code ?? "unknown"}).`));
+          }
         }
       },
       videoTileDidUpdate(tile) {
@@ -1378,7 +1591,7 @@
             if (!microphones.length) {
               const available = await audioVideo.listAudioInputDevices();
               if (!available.length) throw new Error("No Chime microphone is available.");
-              const selected = selectedMicrophoneId || available[0].deviceId;
+              const selected = resolveChimeDeviceId(available, selectedMicrophone);
               await audioVideo.startAudioInput(selected);
               microphones = available;
             }
@@ -1393,7 +1606,7 @@
             if (session.processedTrack) await audioVideo.startVideoInput(new MediaStream([session.processedTrack]));
             else {
               const cameras = await audioVideo.listVideoInputDevices();
-              const cameraId = selectedCameraId || cameras[0]?.deviceId;
+              const cameraId = resolveChimeDeviceId(cameras, selectedCamera);
               if (!cameraId) throw new Error("No Chime camera is available.");
               await audioVideo.startVideoInput(cameraId);
             }
@@ -1425,18 +1638,31 @@
           const selected = args.device || args;
           if (selected.kind === "microphone") {
             if (!selected.id) throw new Error("Chime microphone device id is required.");
-            if (!session.localMuted) await audioVideo.startAudioInput(selected.id);
-            selectedMicrophoneId = selected.id;
+            const nextMic = { id: selected.id, label: selected.label || "" };
+            if (!session.localMuted) {
+              const available = microphones.length ? microphones : await audioVideo.listAudioInputDevices();
+              microphones = available;
+              await audioVideo.startAudioInput(resolveChimeDeviceId(available, nextMic));
+            }
+            selectedMicrophone = nextMic;
           }
           if (selected.kind === "camera") {
             if (!selected.id) throw new Error("Chime camera device id is required.");
+            const nextCamera = { id: selected.id, label: selected.label || "" };
             if (session.localVideoEnabled && !session.processedTrack) {
-              await audioVideo.startVideoInput(selected.id);
+              const cameras = await audioVideo.listVideoInputDevices();
+              await audioVideo.startVideoInput(resolveChimeDeviceId(cameras, nextCamera));
             }
-            selectedCameraId = selected.id;
+            selectedCamera = nextCamera;
           }
           if (selected.kind === "audioOutput") {
-            await audioVideo.chooseAudioOutput(selected.id);
+            try {
+              await audioVideo.chooseAudioOutput(selected.id);
+            } catch (error) {
+              if (!String(error?.message || error).includes("setSinkId")) {
+                throw error;
+              }
+            }
             playRemoteAudio();
           }
           return;
@@ -1457,6 +1683,9 @@
       },
       async attachProcessedTrack(track) {
         await audioVideo.startVideoInput(new MediaStream([track]));
+        if (session.localVideoEnabled) {
+          audioVideo.startLocalVideoTile();
+        }
       },
       async detachProcessedTrack() {
         audioVideo.stopLocalVideoTile();
@@ -1483,10 +1712,7 @@
         if (contentShareStream || contentShareStarted) audioVideo.stopContentShare();
         releaseLocalContentShare();
         audioVideo.stop();
-        if (pendingAudioUnlock) {
-          global.document.removeEventListener("pointerdown", pendingAudioUnlock);
-          pendingAudioUnlock = null;
-        }
+        clearPendingAudioUnlock();
         remoteAudioElement?.removeEventListener?.("loadedmetadata", onAudioStreamLoaded);
         audioVideo.unbindAudioElement?.();
         remoteAudioElement?.remove();
@@ -1520,6 +1746,7 @@
       ERROR: "stageError"
     };
     let nextPreviewSource = 0;
+    let nextAttachmentKey = 1;
     async function createSdkProcessedVideo({ effect = { type: "none" }, deviceId = null } = {}) {
       const bridge2 = global.RealtimeVideoEffectsBridge;
       if (!bridge2) return createRawPreview({ effect, deviceId });
@@ -1617,13 +1844,15 @@
       }
       publishSnapshot(session);
     }
-    function addVideoTrack(session, { id, participantId, isLocal = false, isScreenShare = false, native }) {
+    function addVideoTrack(session, { id, participantId, isLocal = false, isScreenShare = false, width, height, native }) {
       if (!id || !participantId) return null;
       const track = {
         id: String(id),
         participantId: String(participantId),
         isLocal: Boolean(isLocal),
         isScreenShare: Boolean(isScreenShare),
+        ...width !== void 0 ? { width: Number(width || 0) } : {},
+        ...height !== void 0 ? { height: Number(height || 0) } : {},
         native
       };
       session.tracks.set(track.id, track);
@@ -1678,8 +1907,24 @@
         message: error && error.message ? error.message : String(error)
       });
     }
+    function reportRecoverableWarning(session, code, error) {
+      emit(session, {
+        type: "warning",
+        code: String(code || "provider-warning"),
+        recoverable: true,
+        message: error && error.message ? error.message : String(error)
+      });
+    }
+    function attachmentKeyForContainer(container) {
+      if (!container) return "";
+      if (container.id) return String(container.id);
+      if (!container.__realtimeAttachmentKey) {
+        container.__realtimeAttachmentKey = `__rt_attach_${nextAttachmentKey++}`;
+      }
+      return container.__realtimeAttachmentKey;
+    }
     function createSession(providerId, id, payload) {
-      const context = { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession };
+      const context = { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, reportRecoverableWarning, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession };
       const role = String(payload.role || "participant").toLowerCase();
       const session = {
         id,
@@ -1751,6 +1996,7 @@
       session.joined = false;
       session.tracks.clear();
       session.participants.clear();
+      session.attachments.clear();
       session.localParticipantId = "";
       emitState(session, "ended");
       publishSnapshot(session);
@@ -1888,7 +2134,11 @@
       return video;
     }
     function getTrackAttachment(session, trackId) {
-      return session.attachments.get(String(trackId));
+      const bucket = session.attachments.get(String(trackId));
+      if (!bucket || bucket.size === 0) return void 0;
+      let latest = void 0;
+      for (const entry of bucket.values()) latest = entry;
+      return latest;
     }
     const bridge = {
       // Version of the Dart/JS contract, independent of the pub release number.
@@ -2034,7 +2284,15 @@
         const session = requireSession(providerId, sessionId);
         const track = session.tracks.get(String(trackId));
         if (!track || !container) return;
-        session.attachments.set(track.id, { elementId: container.id, container });
+        const key = attachmentKeyForContainer(container);
+        let bucket = session.attachments.get(track.id);
+        if (!bucket) {
+          bucket = /* @__PURE__ */ new Map();
+          session.attachments.set(track.id, bucket);
+        } else {
+          bucket.delete(key);
+        }
+        bucket.set(key, { key, elementId: container.id || key, container });
         await session.driver.attachVideo(track, container);
         const video = container.querySelector?.("video");
         if (video && container.dataset?.videoFit) {
@@ -2044,12 +2302,40 @@
       detachVideo(providerId, sessionId, trackId, elementId) {
         const session = sessions.get(sessionId);
         if (!session || session.providerId !== providerId) return;
-        const track = session.tracks.get(String(trackId));
-        const attachment = session.attachments.get(String(trackId));
-        if (track && attachment && attachment.elementId === elementId && session.driver.detachVideo) {
-          session.driver.detachVideo(track, attachment.container);
+        const id = String(trackId);
+        const bucket = session.attachments.get(id);
+        if (!bucket || bucket.size === 0) return;
+        const key = String(elementId || "");
+        let detached = bucket.get(key);
+        if (!detached) {
+          for (const entry of bucket.values()) {
+            if (entry.elementId === key || entry.container?.id === key) {
+              detached = entry;
+              break;
+            }
+          }
         }
-        session.attachments.delete(String(trackId));
+        if (!detached) return;
+        bucket.delete(detached.key);
+        const track = session.tracks.get(id);
+        if (bucket.size > 0) {
+          detached.container?.replaceChildren?.();
+          const active = getTrackAttachment(session, id);
+          if (track && active && session.driver.attachVideo) {
+            Promise.resolve(session.driver.attachVideo(track, active.container)).then(() => {
+              const video = active.container?.querySelector?.("video");
+              if (video && active.container?.dataset?.videoFit) {
+                video.style.objectFit = active.container.dataset.videoFit === "cover" ? "cover" : "contain";
+              }
+            }).catch(() => {
+            });
+          }
+          return;
+        }
+        session.attachments.delete(id);
+        if (track && session.driver.detachVideo) {
+          session.driver.detachVideo(track, detached.container);
+        }
       }
     };
     function requireSession(providerId, sessionId) {

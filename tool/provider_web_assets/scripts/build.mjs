@@ -17,6 +17,10 @@ const agoraChatMacOSAssetsDir = resolve(
   repoRoot,
   'packages/flutter_realtime_chat_agora/macos/Resources',
 );
+const agoraChatMacOSSwiftPMDir = resolve(
+  repoRoot,
+  'packages/flutter_realtime_chat_agora/macos/flutter_realtime_chat_agora/Sources/flutter_realtime_chat_agora/Resources',
+);
 const videoEffectsModelSource = join(
   rootDir,
   'assets/video-effects/models/selfie_segmenter_landscape.tflite',
@@ -132,6 +136,7 @@ await build({
 });
 
 await mkdir(agoraChatMacOSAssetsDir, { recursive: true });
+await mkdir(agoraChatMacOSSwiftPMDir, { recursive: true });
 const agoraChatMacOSBridgePath = join(
   agoraChatMacOSAssetsDir,
   'agora_chat_macos.js',
@@ -147,11 +152,15 @@ await build({
   minify: true,
   legalComments: 'eof',
 });
+await cp(
+  agoraChatMacOSBridgePath,
+  join(agoraChatMacOSSwiftPMDir, 'agora_chat_macos.js'),
+);
 
 await build({ absWorkingDir: rootDir, entryPoints: ['src/bridge.js'], outfile: join(distDir, 'media-provider-bridge.js'), bundle: true, platform: 'browser', format: 'iife', target: ['es2020'], legalComments: 'eof' });
 
 const licensesDir = join(distDir, 'licenses');
-await mkdir(licensesDir, { recursive: true });
+await mkdir(licensesDir, 'recursive' ? { recursive: true } : undefined);
 for (const [packageName, licensePrefix] of [
   ['@mediapipe/tasks-vision', 'mediapipe-tasks-vision'],
   ['@tencentcloud/chat', 'tencent-cloud-chat'],

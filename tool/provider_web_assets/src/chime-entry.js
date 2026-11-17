@@ -11,10 +11,35 @@ import MeetingSessionStatusCode from 'amazon-chime-sdk-js/build/meetingsession/M
 // than those wrapper objects (`new ChimeSDK.ConsoleLogger` otherwise fails).
 const unwrapDefault = (value) => value?.default ?? value;
 
+const ResolvedDeviceController = unwrapDefault(DefaultDeviceController);
+
+// DefaultDeviceController.getAudioContext() unguardedly accesses
+// navigator.mediaDevices.getSupportedConstraints(), which throws in embedded
+// WebViews if mediaDevices is restricted and prevents Chime from synthesizing
+// its silent initial audio stream required for attendee presence handshake.
+if (ResolvedDeviceController && typeof ResolvedDeviceController.getAudioContext === 'function') {
+  const originalGetAudioContext = ResolvedDeviceController.getAudioContext.bind(ResolvedDeviceController);
+  ResolvedDeviceController.getAudioContext = function patchedGetAudioContext() {
+    if (ResolvedDeviceController.audioContext) {
+      return ResolvedDeviceController.audioContext;
+    }
+    const nav = globalThis.navigator;
+    if (nav && nav.mediaDevices && typeof nav.mediaDevices.getSupportedConstraints === 'function') {
+      return originalGetAudioContext();
+    }
+    const ContextCtor = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (!ContextCtor) {
+      return originalGetAudioContext();
+    }
+    ResolvedDeviceController.audioContext = new ContextCtor();
+    return ResolvedDeviceController.audioContext;
+  };
+}
+
 globalThis.ChimeSDK = {
   DefaultMeetingSession: unwrapDefault(DefaultMeetingSession),
   MeetingSessionConfiguration: unwrapDefault(MeetingSessionConfiguration),
-  DefaultDeviceController: unwrapDefault(DefaultDeviceController),
+  DefaultDeviceController: ResolvedDeviceController,
   ConsoleLogger: unwrapDefault(ConsoleLogger),
   LogLevel: unwrapDefault(LogLevel),
   MeetingSessionStatusCode: unwrapDefault(MeetingSessionStatusCode),

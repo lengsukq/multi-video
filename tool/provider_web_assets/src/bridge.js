@@ -19,6 +19,8 @@ import { createChimeSession } from './media/chime-session.js';
   };
 
   let nextPreviewSource = 0;
+  let nextAttachmentKey = 1;
+
   async function createSdkProcessedVideo({effect = {type: 'none'}, deviceId = null} = {}) {
     const bridge = global.RealtimeVideoEffectsBridge;
     if (!bridge) return createRawPreview({effect, deviceId});
@@ -101,13 +103,15 @@ import { createChimeSession } from './media/chime-session.js';
     publishSnapshot(session);
   }
 
-  function addVideoTrack(session, { id, participantId, isLocal = false, isScreenShare = false, native }) {
+  function addVideoTrack(session, { id, participantId, isLocal = false, isScreenShare = false, width, height, native }) {
     if (!id || !participantId) return null;
     const track = {
       id: String(id),
       participantId: String(participantId),
       isLocal: Boolean(isLocal),
       isScreenShare: Boolean(isScreenShare),
+      ...(width !== undefined ? { width: Number(width || 0) } : {}),
+      ...(height !== undefined ? { height: Number(height || 0) } : {}),
       native,
     };
     session.tracks.set(track.id, track);
@@ -167,8 +171,26 @@ import { createChimeSession } from './media/chime-session.js';
     });
   }
 
+  function reportRecoverableWarning(session, code, error) {
+    emit(session, {
+      type: 'warning',
+      code: String(code || 'provider-warning'),
+      recoverable: true,
+      message: error && error.message ? error.message : String(error),
+    });
+  }
+
+  function attachmentKeyForContainer(container) {
+    if (!container) return '';
+    if (container.id) return String(container.id);
+    if (!container.__realtimeAttachmentKey) {
+      container.__realtimeAttachmentKey = `__rt_attach_${nextAttachmentKey++}`;
+    }
+    return container.__realtimeAttachmentKey;
+  }
+
   function createSession(providerId, id, payload) {
-    const context = { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession };
+    const context = { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, reportRecoverableWarning, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession };
     const role = String(payload.role || 'participant').toLowerCase();
     const session = {
       id,
@@ -237,6 +259,7 @@ import { createChimeSession } from './media/chime-session.js';
     session.joined = false;
     session.tracks.clear();
     session.participants.clear();
+    session.attachments.clear();
     session.localParticipantId = '';
     emitState(session, 'ended');
     publishSnapshot(session);
@@ -375,7 +398,11 @@ import { createChimeSession } from './media/chime-session.js';
   }
 
   function getTrackAttachment(session, trackId) {
-    return session.attachments.get(String(trackId));
+    const bucket = session.attachments.get(String(trackId));
+    if (!bucket || bucket.size === 0) return undefined;
+    let latest = undefined;
+    for (const entry of bucket.values()) latest = entry;
+    return latest;
   }
 
   const bridge = {
@@ -525,7 +552,15 @@ import { createChimeSession } from './media/chime-session.js';
       const session = requireSession(providerId, sessionId);
       const track = session.tracks.get(String(trackId));
       if (!track || !container) return;
-      session.attachments.set(track.id, { elementId: container.id, container });
+      const key = attachmentKeyForContainer(container);
+      let bucket = session.attachments.get(track.id);
+      if (!bucket) {
+        bucket = new Map();
+        session.attachments.set(track.id, bucket);
+      } else {
+        bucket.delete(key);
+      }
+      bucket.set(key, { key, elementId: container.id || key, container });
       await session.driver.attachVideo(track, container);
       const video = container.querySelector?.('video');
       if (video && container.dataset?.videoFit) {
@@ -536,12 +571,42 @@ import { createChimeSession } from './media/chime-session.js';
     detachVideo(providerId, sessionId, trackId, elementId) {
       const session = sessions.get(sessionId);
       if (!session || session.providerId !== providerId) return;
-      const track = session.tracks.get(String(trackId));
-      const attachment = session.attachments.get(String(trackId));
-      if (track && attachment && attachment.elementId === elementId && session.driver.detachVideo) {
-        session.driver.detachVideo(track, attachment.container);
+      const id = String(trackId);
+      const bucket = session.attachments.get(id);
+      if (!bucket || bucket.size === 0) return;
+      const key = String(elementId || '');
+      let detached = bucket.get(key);
+      if (!detached) {
+        for (const entry of bucket.values()) {
+          if (entry.elementId === key || entry.container?.id === key) {
+            detached = entry;
+            break;
+          }
+        }
       }
-      session.attachments.delete(String(trackId));
+      if (!detached) return;
+      bucket.delete(detached.key);
+      const track = session.tracks.get(id);
+      if (bucket.size > 0) {
+        detached.container?.replaceChildren?.();
+        const active = getTrackAttachment(session, id);
+        if (track && active && session.driver.attachVideo) {
+          Promise.resolve(session.driver.attachVideo(track, active.container))
+            .then(() => {
+              const video = active.container?.querySelector?.('video');
+              if (video && active.container?.dataset?.videoFit) {
+                video.style.objectFit =
+                  active.container.dataset.videoFit === 'cover' ? 'cover' : 'contain';
+              }
+            })
+            .catch(() => {});
+        }
+        return;
+      }
+      session.attachments.delete(id);
+      if (track && session.driver.detachVideo) {
+        session.driver.detachVideo(track, detached.container);
+      }
     },
   };
 

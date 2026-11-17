@@ -124,7 +124,7 @@ class ProviderWebLocalPreviewSession
       providerId,
       previewId,
       'setBackgroundEffect',
-      {'type': effect.type.name, 'blurStrength': effect.blurStrength?.name},
+      {...effect.toJson()},
     );
     _settings = _settings.copyWith(backgroundEffect: effect);
   }

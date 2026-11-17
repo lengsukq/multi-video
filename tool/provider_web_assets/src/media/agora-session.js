@@ -3,6 +3,57 @@ export function createAgoraSession(session, context) {
     const info = providerBlock(session, 'agora');
     const live = session.role !== 'participant';
     const client = AgoraRTC.createClient({ mode: live ? 'live' : 'rtc', codec: 'vp8' });
+    const screenShareTopic = '_flutter_realtime.screen_share.v1';
+    let screenShareSignalTimer = null;
+
+    function encodeUtf8(text) {
+      if (typeof global.TextEncoder === 'function') {
+        return new global.TextEncoder().encode(text);
+      }
+      if (typeof TextEncoder === 'function') {
+        return new TextEncoder().encode(text);
+      }
+      const escaped = unescape(encodeURIComponent(text));
+      const bytes = new Uint8Array(escaped.length);
+      for (let i = 0; i < escaped.length; i += 1) {
+        bytes[i] = escaped.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    const stopScreenShareSignalTimer = () => {
+      if (screenShareSignalTimer !== null) {
+        global.clearInterval?.(screenShareSignalTimer);
+        screenShareSignalTimer = null;
+      }
+    };
+
+    const sendStreamEnvelope = async (topic, message) => {
+      if (typeof client.sendStreamMessage !== 'function') return;
+      const wire = JSON.stringify({
+        version: 1,
+        topic,
+        message,
+        timestampMs: Date.now(),
+      });
+      await client.sendStreamMessage(encodeUtf8(wire), false);
+    };
+
+    const sendScreenShareSignal = (state) => {
+      Promise.resolve(sendStreamEnvelope(screenShareTopic, state)).catch(() => {});
+    };
+
+    const startScreenShareSignalTimer = () => {
+      stopScreenShareSignalTimer();
+      sendScreenShareSignal('started');
+      if (typeof global.setInterval === 'function') {
+        screenShareSignalTimer = global.setInterval(() => {
+          if (localTracks.screen) sendScreenShareSignal('started');
+          else stopScreenShareSignalTimer();
+        }, 2000);
+      }
+    };
+
     const localTracks = {
       audio: null,
       video: null,
@@ -110,7 +161,10 @@ export function createAgoraSession(session, context) {
           isScreenShare: screenShare, native: remote,
         });
         const attachment = getTrackAttachment(session, trackId);
-        if (attachment) user.videoTrack.play(attachment.container, { fit: 'contain' });
+        if (attachment) {
+          const fit = attachment.container?.dataset?.videoFit === 'cover' ? 'cover' : 'contain';
+          user.videoTrack.play(attachment.container, { fit });
+        }
       }
       participant.isMuted = !user.audioTrack;
       publishSnapshot(session);
@@ -118,6 +172,7 @@ export function createAgoraSession(session, context) {
     client.on('user-joined', (user) => {
       addParticipant(session, user.uid);
       publishSnapshot(session);
+      if (localTracks.screen) sendScreenShareSignal('started');
     });
     client.on('user-left', (user) => {
       remoteScreenUids.delete(String(user.uid));
@@ -126,15 +181,32 @@ export function createAgoraSession(session, context) {
     client.on('stream-message', (uid, payload) => {
       try {
         const message = JSON.parse(new TextDecoder().decode(payload));
-        if (message.topic !== '_flutter_realtime.screen_share.v1' ||
-            !['started', 'stopped'].includes(message.message)) return;
-        const key = String(uid);
-        if (message.message === 'started') remoteScreenUids.add(key);
-        else remoteScreenUids.delete(key);
-        const remote = client.remoteUsers?.find(user => String(user.uid) === key);
-        if (remote?.videoTrack) updateRemote(remote, 'video').catch(
-          (error) => reportError(session, error),
-        );
+        if (message?.topic === screenShareTopic) {
+          if (!['started', 'stopped'].includes(message.message)) return;
+          const key = String(uid);
+          if (message.message === 'started') remoteScreenUids.add(key);
+          else remoteScreenUids.delete(key);
+          const remote = client.remoteUsers?.find(user => String(user.uid) === key);
+          if (remote?.videoTrack) updateRemote(remote, 'video').catch(
+            (error) => reportError(session, error),
+          );
+          return;
+        }
+        if (
+          typeof message?.message === 'string' &&
+          typeof message?.topic === 'string' &&
+          message.topic.trim().length > 0
+        ) {
+          const key = String(uid);
+          const participant = session.participants.get(key);
+          emitMessage(session, {
+            participantId: key,
+            displayName: participant?.displayName || key,
+            message: message.message,
+            topic: message.topic.trim(),
+            timestampMs: Number(message.timestampMs || Date.now()),
+          });
+        }
       } catch (_) {
         // Another SDK's unrelated data stream must not break media.
       }
@@ -287,14 +359,27 @@ export function createAgoraSession(session, context) {
               throw error;
             }
             addVideoTrack(session, { id: 'agora:screen:local', participantId: session.localParticipantId, isLocal: true, isScreenShare: true, native: { track: localTracks.screen } });
+            startScreenShareSignalTimer();
             localTracks.screen.on('track-ended', () => this.command('setScreenShareEnabled', { enabled: false }).catch(() => {}));
           } else if (!args.enabled && localTracks.screen) {
+            stopScreenShareSignalTimer();
+            sendScreenShareSignal('stopped');
             await client.unpublish(localTracks.screen);
             localTracks.screen.close();
             localTracks.screen = null;
             removeVideoTrack(session, 'agora:screen:local');
             await publishCameraIfNeeded();
           }
+          return;
+        }
+        if (name === 'sendMessage') {
+          const topic = String(args.topic || 'chat').trim() || 'chat';
+          const message = String(args.message || '');
+          if (!message) throw new Error('Agora data message requires a non-empty message.');
+          if (typeof client.sendStreamMessage !== 'function') {
+            throw new Error('Agora Web client does not support stream messages in this session.');
+          }
+          await sendStreamEnvelope(topic, message);
           return;
         }
         if (name === 'selectDevice' || name === 'selectAudioOutput') {
@@ -341,7 +426,8 @@ export function createAgoraSession(session, context) {
       },
       async attachVideo(track, container) {
         const native = track.native?.track || remoteUsers.get(track.id)?.track;
-        if (native?.play) native.play(container, { fit: 'contain' });
+        const fit = container?.dataset?.videoFit === 'cover' ? 'cover' : 'contain';
+        if (native?.play) native.play(container, { fit });
       },
       detachVideo(track, container) {
         const native = track.native?.track || remoteUsers.get(track.id)?.track;
@@ -349,9 +435,14 @@ export function createAgoraSession(session, context) {
         container.replaceChildren();
       },
       async leave() {
+        stopScreenShareSignalTimer();
+        if (localTracks.screen) sendScreenShareSignal('stopped');
         for (const track of [localTracks.screen, localTracks.video, localTracks.audio]) {
           if (track?.close) track.close();
         }
+        localTracks.screen = null;
+        localTracks.video = null;
+        localTracks.audio = null;
         providerInputTrack?.stop?.(); providerInputTrack = null;
         localTracks.pipeline?.stop();
         localTracks.pipeline = null;
@@ -359,7 +450,10 @@ export function createAgoraSession(session, context) {
         localTracks.videoPublished = false;
         await client.leave();
       },
-      async dispose() { client.removeAllListeners?.(); },
+      async dispose() {
+        stopScreenShareSignalTimer();
+        client.removeAllListeners?.();
+      },
       async getStats() {
         const stats = client.getRTCStats?.();
         return stats ? { rttMs: Math.round(stats.RTT || 0), uploadKbps: Math.round((stats.SendBitrate || 0) / 1000), downloadKbps: Math.round((stats.RecvBitrate || 0) / 1000) } : null;

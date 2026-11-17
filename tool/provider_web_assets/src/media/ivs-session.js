@@ -1,5 +1,5 @@
 export function createIvsSession(session, context) {
-  const { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession } = context;
+  const { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, reportRecoverableWarning, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession } = context;
     const info = providerBlock(session, 'ivs');
     const sdk = global.IVSBroadcastClient;
     if (!sdk?.Stage || !sdk?.LocalStageStream) {
@@ -8,17 +8,49 @@ export function createIvsSession(session, context) {
     const canPublish = session.role !== 'viewer' && info.capabilities?.includes('PUBLISH');
     const localStreams = [];
     const remoteStreams = new Map();
-    let selectedMicrophoneId = null;
-    let selectedCameraId = null;
-    const createLocalStream = async (kind, deviceId) => {
+    let selectedMicrophone = null;
+    let selectedCamera = null;
+    const resolveIvsDeviceId = async (kind, selected) => {
+      if (!selected) return null;
+      const requested = typeof selected === 'object' ? selected : { id: String(selected), label: '' };
+      if (!requested.id && !requested.label) return null;
+      const targetKind = kind === 'audio' ? 'audioinput' : 'videoinput';
+      if (typeof navigator.mediaDevices?.enumerateDevices === 'function') {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const scoped = devices.filter((item) => item.kind === targetKind);
+          const byId = requested.id && scoped.find((item) => item.deviceId === requested.id);
+          if (byId) return byId.deviceId;
+          const byLabel = requested.label && scoped.find((item) => item.label && item.label === requested.label);
+          if (byLabel) return byLabel.deviceId;
+        } catch (_) {
+          // Fall back to requested id below.
+        }
+      }
+      return requested.id || null;
+    };
+    const createLocalStream = async (kind, selectedDevice) => {
       if (!canPublish) throw new Error('IVS credentials do not permit publishing media.');
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error('This browser cannot access camera or microphone media devices.');
       }
+      const deviceId = await resolveIvsDeviceId(kind, selectedDevice);
       const option = deviceId ? { deviceId: { exact: deviceId } } : true;
-      const media = await navigator.mediaDevices.getUserMedia(
-        kind === 'audio' ? { audio: option, video: false } : { audio: false, video: option },
-      );
+      let media;
+      try {
+        media = await navigator.mediaDevices.getUserMedia(
+          kind === 'audio' ? { audio: option, video: false } : { audio: false, video: option },
+        );
+      } catch (error) {
+        const errorName = String(error?.name || '');
+        if (deviceId && (errorName === 'OverconstrainedError' || errorName === 'NotFoundError')) {
+          media = await navigator.mediaDevices.getUserMedia(
+            kind === 'audio' ? { audio: true, video: false } : { audio: false, video: true },
+          );
+        } else {
+          throw error;
+        }
+      }
       const tracks = media.getTracks();
       const track = tracks.find(item => item.kind === kind);
       for (const extra of tracks) if (extra !== track) extra.stop();
@@ -43,7 +75,8 @@ export function createIvsSession(session, context) {
     const remoteAudioStreams = new Set();
     const releaseRemoteAudio = (stream) => {
       if (stream.__audioRetry) {
-        global.document.removeEventListener('pointerdown', stream.__audioRetry);
+        global.document.removeEventListener?.('pointerdown', stream.__audioRetry);
+        global.document.removeEventListener?.('keydown', stream.__audioRetry);
         stream.__audioRetry = null;
       }
       const audio = stream.__audioElement;
@@ -55,15 +88,32 @@ export function createIvsSession(session, context) {
       }
       remoteAudioStreams.delete(stream);
     };
+    let hasConnected = false;
+    let leavingStage = false;
     const stage = new sdk.Stage(info.token, {
       stageStreamsToPublish: () => localStreams,
       shouldPublishParticipant: () => Boolean(canPublish),
       shouldSubscribeToParticipant: (participant) => participant.capabilities?.has('subscribe') ? sdk.SubscribeType.AUDIO_VIDEO : sdk.SubscribeType.NONE,
     });
     stage.on(StageEvents.CONNECTION, (state) => {
-      if (state === sdk.StageConnectionState.CONNECTED) emitState(session, 'connected');
-      else if (state === sdk.StageConnectionState.CONNECTING) emitState(session, 'connecting');
-      else if (state === sdk.StageConnectionState.DISCONNECTED) emitState(session, 'disconnected');
+      if (state === sdk.StageConnectionState.CONNECTED) {
+        hasConnected = true;
+        emitState(session, 'connected');
+      } else if (state === sdk.StageConnectionState.CONNECTING) {
+        emitState(session, hasConnected ? 'reconnecting' : 'connecting');
+      } else if (state === sdk.StageConnectionState.DISCONNECTED) {
+        if (hasConnected && session.joined && !leavingStage && !session.disposed) {
+          session.joined = false;
+          stopStats(session);
+          session.tracks.clear();
+          session.participants.clear();
+          session.localParticipantId = '';
+          emitState(session, 'ended', 'stage-disconnected');
+          publishSnapshot(session);
+        } else {
+          emitState(session, 'disconnected');
+        }
+      }
     });
     stage.on(StageEvents.JOINED, (participant) => { addParticipant(session, participant.userId || participant.id, participant.userInfo?.displayName, participant.isLocal); publishSnapshot(session); });
     stage.on(StageEvents.LEFT, (participant) => {
@@ -101,14 +151,25 @@ export function createIvsSession(session, context) {
           audio.play().catch((error) => {
             if (stream.__audioElement !== audio) return;
             // Browser autoplay permission is separate from a successfully
-            // subscribed remote IVS audio track. Do not silently lose sound.
-            reportError(session, new Error(`IVS remote audio playback blocked: ${error.message}. Tap the page to allow sound.`));
+            // subscribed remote IVS audio track. Report a recoverable warning
+            // instead of poisoning the room connection state as failed.
+            const warn = reportRecoverableWarning || ((target, _code, err) => reportError(target, err));
+            warn(
+              session,
+              'audio-autoplay-blocked',
+              new Error(`IVS remote audio playback blocked: ${error.message}. Tap the page to allow sound.`),
+            );
             const retry = () => {
-              stream.__audioRetry = null;
-              audio.play().catch((retryError) => reportError(session, retryError));
+              if (stream.__audioRetry) {
+                global.document.removeEventListener?.('pointerdown', stream.__audioRetry);
+                global.document.removeEventListener?.('keydown', stream.__audioRetry);
+                stream.__audioRetry = null;
+              }
+              audio.play().catch((retryError) => warn(session, 'audio-autoplay-blocked', retryError));
             };
             stream.__audioRetry = retry;
-            global.document.addEventListener('pointerdown', retry, { once: true });
+            global.document.addEventListener?.('pointerdown', retry, { once: true });
+            global.document.addEventListener?.('keydown', retry, { once: true });
           });
         }
       }
@@ -149,7 +210,7 @@ export function createIvsSession(session, context) {
         if (name === 'setMuted') {
           const muted = Boolean(args.muted);
           if (!muted && !session.localAudioStream) {
-            const replacement = await createLocalStream('audio', selectedMicrophoneId);
+            const replacement = await createLocalStream('audio', selectedMicrophone);
             try {
               replacement.setMuted(false);
               replacePublishedStream(null, replacement);
@@ -167,7 +228,7 @@ export function createIvsSession(session, context) {
         if (name === 'setVideoEnabled') {
           const enabled = Boolean(args.enabled);
           if (enabled && !session.localVideoStream) {
-            const replacement = await createLocalStream('video', selectedCameraId);
+            const replacement = await createLocalStream('video', selectedCamera);
             try {
               replacement.setMuted(false);
               if (session.screenTrack) {
@@ -256,12 +317,13 @@ export function createIvsSession(session, context) {
           const selected = args.device || args;
           if (selected.kind !== 'camera' && selected.kind !== 'microphone') return;
           if (!selected.id) throw new Error('IVS media device id is required.');
+          const nextDevice = { id: selected.id, label: selected.label || '' };
           const old = selected.kind === 'camera' ? session.localVideoStream : session.localAudioStream;
-          if (selected.kind === 'microphone') selectedMicrophoneId = selected.id;
-          else selectedCameraId = selected.id;
+          if (selected.kind === 'microphone') selectedMicrophone = nextDevice;
+          else selectedCamera = nextDevice;
           // Choosing a device in Pre-Join must not activate its permission.
           if (!old) return;
-          const replacement = await createLocalStream(selected.kind === 'camera' ? 'video' : 'audio', selected.id);
+          const replacement = await createLocalStream(selected.kind === 'camera' ? 'video' : 'audio', nextDevice);
           try {
             replacement.setMuted(selected.kind === 'camera' ? !session.localVideoEnabled : session.localMuted);
             if (selected.kind === 'camera' && session.screenTrack) {
@@ -324,6 +386,7 @@ export function createIvsSession(session, context) {
       async attachVideo(track, container) { attachStreamTrack(track.native.mediaStreamTrack, container); },
       detachVideo(_track, container) { container.replaceChildren(); },
       async leave() {
+        leavingStage = true;
         // Some browser SDK versions do not emit per-stream removal callbacks
         // after a local Stage.leave(); release HTMLAudioElements explicitly.
         // Stage.leave() is asynchronous. Do not stop tracks while its network

@@ -447,6 +447,21 @@ abstract class ProviderWebSessionBase
         );
         _emit(MediaMessageReceived(message));
         break;
+      case 'warning':
+        final warningCode = event['code']?.toString() ?? 'warning';
+        final warning = RealtimeException(
+          code: RealtimeErrorCode.providerError,
+          message: event['message']?.toString() ?? 'provider warning',
+          providerId: providerId,
+          domain: 'media.web',
+          operation: warningCode,
+          recoverable: true,
+          suggestedAction: warningCode == 'audio-autoplay-blocked'
+              ? 'interact-to-unmute-audio'
+              : 'retry',
+        );
+        _emit(MediaFailureEvent(warning));
+        break;
       case 'error':
         final supplied = event['error'];
         final error = supplied is RealtimeException

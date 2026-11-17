@@ -146,6 +146,25 @@ class RoomVideoEffectsController
   Future<void> _prepareVideoEffects(MediaLocalPreviewSettings settings) async {
     final active = media.session;
     final publisher = active is InteractiveMediaSession ? active : null;
+    if (!settings.backgroundEffect.enabled && _processedVideoSource != null) {
+      final wasPublishingCamera =
+          !_disposed && publisher != null && active.snapshot.localVideoEnabled;
+      final shouldResumeCamera =
+          wasPublishingCamera ||
+          (!_disposed && publisher != null && settings.cameraEnabled);
+      // Explicitly transition provider localVideoEnabled to false BEFORE
+      // detaching and disposing the processed source so adapters that guard
+      // duplicate setVideoEnabled(true) calls (such as native TRTC) and USB
+      // webcams that forbid overlapping capture cleanly reopen raw camera.
+      if (wasPublishingCamera) {
+        await publisher.setVideoEnabled(false);
+      }
+      await _disposeProcessedVideoSource();
+      if (shouldResumeCamera && !_disposed) {
+        await publisher.setVideoEnabled(true);
+      }
+      return;
+    }
     final protectPublishing =
         !_disposed &&
         settings.backgroundEffect.enabled &&
@@ -314,8 +333,10 @@ class RoomVideoEffectsController
         );
       } on PlatformException catch (error) {
         assert(() {
-          debugPrint('[videoEffects/$operation] native error '
-              'code=${error.code} message=${error.message}');
+          debugPrint(
+            '[videoEffects/$operation] native error '
+            'code=${error.code} message=${error.message}',
+          );
           return true;
         }());
         final code = error.code.toLowerCase();
@@ -392,11 +413,10 @@ class RoomVideoEffectsController
   }
 
   @override
-  Future<void> release() =>
-      _serializeVideoOperation(
-        _disposeProcessedVideoSource,
-        operation: 'releaseSource',
-      );
+  Future<void> release() => _serializeVideoOperation(
+    _disposeProcessedVideoSource,
+    operation: 'releaseSource',
+  );
 
   /// Invalidate in-flight creation synchronously when the owning room starts
   /// disposal. Room cleanup may first await recording/annotation resources,

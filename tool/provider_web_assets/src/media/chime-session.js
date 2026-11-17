@@ -1,5 +1,5 @@
 export function createChimeSession(session, context) {
-  const { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession } = context;
+  const { global, StageEvents, createSdkProcessedVideo, parsePayload, providerBlock, emit, emitState, addParticipant, removeParticipant, addVideoTrack, removeVideoTrack, emitMessage, publishSnapshot, reportError, reportRecoverableWarning, createSession, join, leave, dispose, startStats, stopStats, effectsTrack, command, listDevices, makeVideoElement, attachStreamTrack, getTrackAttachment, requireSession } = context;
     const info = session.payload;
     const meeting = info.meeting || info.Meeting;
     const attendee = info.attendee || info.Attendee;
@@ -11,8 +11,17 @@ export function createChimeSession(session, context) {
     const audioVideo = meetingSession.audioVideo;
     let remoteAudioElement = null;
     let microphones = [];
-    let selectedMicrophoneId = null;
-    let selectedCameraId = null;
+    let selectedMicrophone = null;
+    let selectedCamera = null;
+    const resolveChimeDeviceId = (available, selected) => {
+      if (!Array.isArray(available) || !available.length) return selected?.id || null;
+      if (!selected) return available[0].deviceId;
+      const byId = selected.id && available.find((item) => item.deviceId === selected.id);
+      if (byId) return byId.deviceId;
+      const byLabel = selected.label && available.find((item) => item.label && item.label === selected.label);
+      if (byLabel) return byLabel.deviceId;
+      return selected.id || available[0].deviceId;
+    };
     let contentShareStream = null;
     let contentShareStarted = false;
     let contentShareGeneration = 0;
@@ -59,17 +68,29 @@ export function createChimeSession(session, context) {
     };
     audioVideo.addContentShareObserver(contentObserver);
     let pendingAudioUnlock = null;
+    const clearPendingAudioUnlock = () => {
+      if (!pendingAudioUnlock) return;
+      global.document.removeEventListener?.('pointerdown', pendingAudioUnlock);
+      global.document.removeEventListener?.('keydown', pendingAudioUnlock);
+      pendingAudioUnlock = null;
+    };
     const playRemoteAudio = () => {
       const audio = remoteAudioElement;
       if (!audio) return;
       audio.play().catch((error) => {
-        reportError(session, new Error(`Chime remote audio playback blocked: ${error.message}. Tap the page to allow sound.`));
+        const warn = reportRecoverableWarning || ((target, _code, err) => reportError(target, err));
+        warn(
+          session,
+          'audio-autoplay-blocked',
+          new Error(`Chime remote audio playback blocked: ${error.message}. Tap the page to allow sound.`),
+        );
         if (!pendingAudioUnlock) {
           pendingAudioUnlock = () => {
-            pendingAudioUnlock = null;
+            clearPendingAudioUnlock();
             playRemoteAudio();
           };
-          global.document.addEventListener('pointerdown', pendingAudioUnlock, { once: true });
+          global.document.addEventListener?.('pointerdown', pendingAudioUnlock, { once: true });
+          global.document.addEventListener?.('keydown', pendingAudioUnlock, { once: true });
         }
       });
     };
@@ -90,7 +111,23 @@ export function createChimeSession(session, context) {
         if (settleStart) {
           settleStart(new Error(`Chime connection stopped before joining (status ${code ?? 'unknown'}).`));
         } else if (session.joined && code !== ChimeSDK.MeetingSessionStatusCode.Left) {
-          reportError(session, new Error(`Chime meeting disconnected (status ${code ?? 'unknown'}).`));
+          session.joined = false;
+          stopStats(session);
+          session.tracks.clear();
+          session.participants.clear();
+          session.localParticipantId = '';
+          const meetingEndedCode = ChimeSDK.MeetingSessionStatusCode?.MeetingEnded ?? 6;
+          const attendeeRemovedCode = ChimeSDK.MeetingSessionStatusCode?.AudioDisconnectAudio ?? 12;
+          const kickedOrEnded =
+            code === meetingEndedCode ||
+            code === attendeeRemovedCode ||
+            code === 'MeetingEnded' ||
+            code === 'AudioDisconnectAudio';
+          emitState(session, 'ended', kickedOrEnded ? 'meeting-ended' : `stopped:${code ?? 'unknown'}`);
+          publishSnapshot(session);
+          if (!kickedOrEnded) {
+            reportError(session, new Error(`Chime meeting disconnected (status ${code ?? 'unknown'}).`));
+          }
         }
       },
       videoTileDidUpdate(tile) {
@@ -244,7 +281,7 @@ export function createChimeSession(session, context) {
             if (!microphones.length) {
               const available = await audioVideo.listAudioInputDevices();
               if (!available.length) throw new Error('No Chime microphone is available.');
-              const selected = selectedMicrophoneId || available[0].deviceId;
+              const selected = resolveChimeDeviceId(available, selectedMicrophone);
               await audioVideo.startAudioInput(selected);
               microphones = available;
             }
@@ -259,7 +296,7 @@ export function createChimeSession(session, context) {
             if (session.processedTrack) await audioVideo.startVideoInput(new MediaStream([session.processedTrack]));
             else {
               const cameras = await audioVideo.listVideoInputDevices();
-              const cameraId = selectedCameraId || cameras[0]?.deviceId;
+              const cameraId = resolveChimeDeviceId(cameras, selectedCamera);
               if (!cameraId) throw new Error('No Chime camera is available.');
               await audioVideo.startVideoInput(cameraId);
             }
@@ -298,18 +335,32 @@ export function createChimeSession(session, context) {
           const selected = args.device || args;
           if (selected.kind === 'microphone') {
             if (!selected.id) throw new Error('Chime microphone device id is required.');
-            if (!session.localMuted) await audioVideo.startAudioInput(selected.id);
-            selectedMicrophoneId = selected.id;
+            const nextMic = { id: selected.id, label: selected.label || '' };
+            if (!session.localMuted) {
+              const available = microphones.length ? microphones : await audioVideo.listAudioInputDevices();
+              microphones = available;
+              await audioVideo.startAudioInput(resolveChimeDeviceId(available, nextMic));
+            }
+            selectedMicrophone = nextMic;
           }
           if (selected.kind === 'camera') {
             if (!selected.id) throw new Error('Chime camera device id is required.');
+            const nextCamera = { id: selected.id, label: selected.label || '' };
             if (session.localVideoEnabled && !session.processedTrack) {
-              await audioVideo.startVideoInput(selected.id);
+              const cameras = await audioVideo.listVideoInputDevices();
+              await audioVideo.startVideoInput(resolveChimeDeviceId(cameras, nextCamera));
             }
-            selectedCameraId = selected.id;
+            selectedCamera = nextCamera;
           }
           if (selected.kind === 'audioOutput') {
-            await audioVideo.chooseAudioOutput(selected.id);
+            try {
+              await audioVideo.chooseAudioOutput(selected.id);
+            } catch (error) {
+              // Safari and macOS WKWebView lack HTMLMediaElement.setSinkId.
+              if (!String(error?.message || error).includes('setSinkId')) {
+                throw error;
+              }
+            }
             playRemoteAudio();
           }
           return;
@@ -333,6 +384,9 @@ export function createChimeSession(session, context) {
       },
       async attachProcessedTrack(track) {
         await audioVideo.startVideoInput(new MediaStream([track]));
+        if (session.localVideoEnabled) {
+          audioVideo.startLocalVideoTile();
+        }
       },
       async detachProcessedTrack() {
         audioVideo.stopLocalVideoTile();
@@ -360,10 +414,7 @@ export function createChimeSession(session, context) {
         if (contentShareStream || contentShareStarted) audioVideo.stopContentShare();
         releaseLocalContentShare();
         audioVideo.stop();
-        if (pendingAudioUnlock) {
-          global.document.removeEventListener('pointerdown', pendingAudioUnlock);
-          pendingAudioUnlock = null;
-        }
+        clearPendingAudioUnlock();
         remoteAudioElement?.removeEventListener?.('loadedmetadata', onAudioStreamLoaded);
         audioVideo.unbindAudioElement?.();
         remoteAudioElement?.remove();

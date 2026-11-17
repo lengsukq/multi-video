@@ -1693,3 +1693,303 @@ test('legacy string attachment remains compatible with the element-based bridge'
   assert.equal(h.calls.find(call=>Array.isArray(call)&&call[0]==='video.play')?.[1],element);
   await h.bridge.dispose('agora','legacy');
 });
+
+test('overlapping multi-view attachments preserve active container until last detach', async () => {
+  const h = await createAgoraHarness();
+  let stoppedCount = 0;
+  await h.bridge.create('agora', 'multi-view', agoraPayload);
+  await h.bridge.join('agora', 'multi-view');
+  const client = h.context.AgoraRTC.createClient();
+  const played = [];
+  const remote = {
+    uid: 777,
+    videoTrack: {
+      play(container) { played.push(container); },
+      stop() { stoppedCount += 1; },
+    },
+  };
+  client.remoteUsers.push(remote);
+  await client.handlers.get('user-published')(remote, 'video');
+  const gridCleared = [];
+  const grid = { id: 'grid-tile', replaceChildren() { gridCleared.push(true); } };
+  const spotlight = { id: 'spotlight-tile', replaceChildren() {} };
+  await h.bridge.attachVideoElement('agora', 'multi-view', 'agora:video:777', grid);
+  await h.bridge.attachVideoElement('agora', 'multi-view', 'agora:video:777', spotlight);
+  // Detaching the older grid tile while spotlight remains mounted must not stop remote video.
+  h.bridge.detachVideo('agora', 'multi-view', 'agora:video:777', 'grid-tile');
+  await Promise.resolve();
+  assert.equal(stoppedCount, 0);
+  assert.equal(gridCleared.length, 1);
+  assert.equal(played.at(-1), spotlight);
+  // Detaching the final container stops remote playback cleanly.
+  h.bridge.detachVideo('agora', 'multi-view', 'agora:video:777', 'spotlight-tile');
+  assert.equal(stoppedCount, 1);
+  await h.bridge.dispose('agora', 'multi-view');
+});
+
+test('Chime and IVS emit recoverable warnings instead of fatal errors when audio autoplay is blocked', async () => {
+  const listeners = new Map();
+  const chime = await createChimeHarness({
+    document: {
+      addEventListener(name, fn) { listeners.set(name, fn); },
+      removeEventListener(name) { listeners.delete(name); },
+      createElement: () => ({
+        style: {},
+        play: async () => { throw new Error('NotAllowedError: play() failed'); },
+        remove: () => {},
+      }),
+      body: { append: () => {} },
+    },
+  });
+  await chime.bridge.create('chime', 'autoplay-chime', chimePayload);
+  await chime.bridge.join('chime', 'autoplay-chime');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(chime.events.some(({ event }) => event.type === 'error'), false);
+  const warning = chime.events.find(({ event }) => event.type === 'warning')?.event;
+  assert.equal(warning?.code, 'audio-autoplay-blocked');
+  assert.equal(warning?.recoverable, true);
+  assert.equal(typeof listeners.get('pointerdown'), 'function');
+  assert.equal(typeof listeners.get('keydown'), 'function');
+  await chime.bridge.dispose('chime', 'autoplay-chime');
+});
+
+test('Agora Web broadcasts screen-share signals to native peers and supports data messages', async () => {
+  const { bridge, context, events } = await createAgoraHarness();
+  await bridge.create('agora', 'agora-signals', JSON.stringify(agoraPayload));
+  await bridge.join('agora', 'agora-signals');
+  const client = context.AgoraRTC.createClient();
+  const sentPayloads = [];
+  client.sendStreamMessage = async (bytes) => {
+    sentPayloads.push(JSON.parse(new TextDecoder().decode(bytes)));
+  };
+  context.AgoraRTC.createScreenVideoTrack = async () => ({
+    id: 'screen-out',
+    close() {},
+    on() {},
+  });
+  await bridge.command('agora', 'agora-signals', 'setScreenShareEnabled', { enabled: true });
+  assert.equal(sentPayloads[0]?.topic, '_flutter_realtime.screen_share.v1');
+  assert.equal(sentPayloads[0]?.message, 'started');
+  await bridge.command('agora', 'agora-signals', 'sendMessage', {
+    topic: 'custom.whiteboard',
+    message: '{"stroke":1}',
+  });
+  assert.equal(sentPayloads[1]?.topic, 'custom.whiteboard');
+  assert.equal(sentPayloads[1]?.message, '{"stroke":1}');
+
+  client.handlers.get('stream-message')(
+    901,
+    new TextEncoder().encode(JSON.stringify({
+      version: 1,
+      topic: 'custom.whiteboard',
+      message: '{"stroke":2}',
+      timestampMs: 4321,
+    })),
+  );
+  const incoming = events.find(({ event }) => event.type === 'message')?.event;
+  assert.equal(incoming?.topic, 'custom.whiteboard');
+  assert.equal(incoming?.message, '{"stroke":2}');
+
+  await bridge.command('agora', 'agora-signals', 'setScreenShareEnabled', { enabled: false });
+  assert.equal(sentPayloads.at(-1)?.topic, '_flutter_realtime.screen_share.v1');
+  assert.equal(sentPayloads.at(-1)?.message, 'stopped');
+  await bridge.dispose('agora', 'agora-signals');
+});
+
+test('TRTC Web defers camera device updates while video is disabled and applies selected camera on enable', async () => {
+  const h = await createAgoraHarness();
+  const calls = [];
+  const trtc = {
+    on() {},
+    async enterRoom() {},
+    async startLocalVideo({ option }) { calls.push(['startLocalVideo', option]); },
+    async updateLocalVideo({ option }) { calls.push(['updateLocalVideo', option]); },
+    async stopLocalVideo() { calls.push(['stopLocalVideo']); },
+    getVideoTrack() { return { kind: 'video', id: 'trtc-cam' }; },
+    async exitRoom() {},
+    destroy() {},
+  };
+  h.context.TRTC = {
+    create: () => trtc,
+    getCameras: async () => [{ deviceId: 'cam-a' }, { deviceId: 'cam-b' }],
+    TYPE: { SCENE_RTC: 'rtc' },
+  };
+  await h.bridge.create('trtc', 'trtc-offline-cam', {
+    role: 'participant',
+    participantId: 'u1',
+    trtc: { sdkAppId: 1, strRoomId: 'r1', userId: 'u1', userSig: 'sig' },
+  });
+  await h.bridge.join('trtc', 'trtc-offline-cam');
+  await h.bridge.command('trtc', 'trtc-offline-cam', 'selectDevice', {
+    device: { kind: 'camera', id: 'cam-b' },
+  });
+  assert.equal(calls.length, 0, 'selecting camera while video is off must not call updateLocalVideo');
+  await h.bridge.command('trtc', 'trtc-offline-cam', 'setVideoEnabled', { enabled: true });
+  assert.equal(calls[0][0], 'startLocalVideo');
+  assert.equal(calls[0][1].cameraId, 'cam-b');
+  await h.bridge.dispose('trtc', 'trtc-offline-cam');
+});
+
+test('ARTC Web stops active screen capture on leave and defers switchCamera while video is off', async () => {
+  const h = await createAgoraHarness();
+  const calls = [];
+  const artc = {
+    on() {},
+    setChannelProfile() {},
+    async enableLocalVideo() { return 0; },
+    async publishLocalVideoStream() { return 0; },
+    async publishLocalAudioStream() { return 0; },
+    async joinChannel() { return 0; },
+    setCameraCapturerConfiguration(cfg) { calls.push(`config:${cfg.deviceId}`); },
+    async switchCamera(id) { calls.push(`switch:${id}`); return 0; },
+    async startPreviewScreen() { calls.push('screen:start'); return 0; },
+    async publishLocalScreenShareStream(enabled) { calls.push(`screen:publish:${enabled}`); return 0; },
+    async stopPreviewScreen() { calls.push('screen:stop'); return 0; },
+    async leaveChannel() { calls.push('leaveChannel'); },
+    async destroy() {},
+  };
+  h.context.AliRtcEngine = {
+    createInstance: () => artc,
+    getCameraList: async () => [{ deviceId: 'cam-1' }, { deviceId: 'cam-2' }],
+    AliRtcSdkChannelProfile: { AliRtcSdkCommunication: 'rtc' },
+    AliRtcSdkClientRole: {},
+    AliRtcVideoTrack: { AliRtcVideoTrackCamera: 1, AliRtcVideoTrackScreen: 2 },
+    AliRtcConnectionStatus: {},
+  };
+  await h.bridge.create('artc', 'artc-leave-screen', {
+    participantId: 'host',
+    role: 'participant',
+    artc: { authInfo: 'test', userId: 'host' },
+  });
+  await h.bridge.join('artc', 'artc-leave-screen');
+  await h.bridge.command('artc', 'artc-leave-screen', 'selectDevice', {
+    device: { kind: 'camera', id: 'cam-2' },
+  });
+  assert.deepEqual(calls, ['config:cam-2']);
+  await h.bridge.command('artc', 'artc-leave-screen', 'setScreenShareEnabled', { enabled: true });
+  await h.bridge.dispose('artc', 'artc-leave-screen');
+  assert.ok(calls.includes('screen:stop'), 'leaving ARTC while sharing must stop screen capture');
+});
+
+test('Chime entry synthesizes silent AudioContext when navigator.mediaDevices is unavailable', async () => {
+  const chimeBundleSource = await readFile(
+    new URL('../../../packages/flutter_realtime_provider_aws/assets/chime-sdk.js', import.meta.url),
+    'utf8',
+  );
+  let createdContexts = 0;
+  const context = vm.createContext({
+    console,
+    navigator: {},
+    window: {},
+    self: {},
+    AudioContext: class FakeAudioContext {
+      constructor() {
+        createdContexts += 1;
+        this.sampleRate = 48000;
+      }
+    },
+  });
+  context.window = context;
+  context.self = context;
+  vm.runInContext(chimeBundleSource, context, { filename: 'chime-sdk.js' });
+  const audioCtx = context.ChimeSDK.DefaultDeviceController.getAudioContext();
+  assert.ok(audioCtx);
+  assert.equal(createdContexts, 1);
+  assert.equal(context.ChimeSDK.DefaultDeviceController.getAudioContext(), audioCtx);
+});
+
+test('Chime Web tolerates WebKit missing setSinkId, matches native camera label, and preserves tile dimensions', async () => {
+  const { bridge, audioVideo, calls, events } = await createChimeHarness();
+  let capturedObserver;
+  const origAddObserver = audioVideo.addObserver;
+  audioVideo.addObserver = (obs) => {
+    capturedObserver = obs;
+    origAddObserver(obs);
+  };
+  audioVideo.chooseAudioOutput = async () => {
+    throw new Error('Cannot select audio output device. This browser does not support setSinkId.');
+  };
+  audioVideo.listVideoInputDevices = async () => [
+    { deviceId: 'webkit-hashed-cam-id', label: 'FaceTime HD Camera', groupId: 'g-cam' },
+  ];
+
+  await bridge.create('chime', 'webkit-compat', JSON.stringify(chimePayload));
+  await bridge.join('chime', 'webkit-compat');
+
+  // Must not reject on WebKit where HTMLMediaElement.setSinkId is absent.
+  await bridge.command('chime', 'webkit-compat', 'selectAudioOutput', {
+    id: 'default-speaker',
+    label: 'MacBook Pro Speakers',
+    kind: 'audioOutput',
+  });
+
+  // Selecting a macOS AVCaptureDevice uniqueID with matching label resolves to WebKit's deviceId.
+  await bridge.command('chime', 'webkit-compat', 'selectDevice', {
+    device: { id: '0x1234000005ac8514', label: 'FaceTime HD Camera', kind: 'camera' },
+  });
+  await bridge.command('chime', 'webkit-compat', 'setVideoEnabled', { enabled: true });
+  assert.ok(calls.includes('startVideoInput:webkit-hashed-cam-id'));
+
+  capturedObserver.videoTileDidUpdate({
+    tileId: 3,
+    boundAttendeeId: 'remote-peer',
+    localTile: false,
+    isContent: false,
+    videoStreamContentWidth: 1280,
+    videoStreamContentHeight: 720,
+  });
+  const latestSnapshot = events.filter(({ event }) => event.type === 'snapshot').at(-1)?.event;
+  const remoteTrack = latestSnapshot?.tracks?.find((t) => t.id === 'chime:tile:3');
+  assert.equal(remoteTrack?.width, 1280);
+  assert.equal(remoteTrack?.height, 720);
+
+  await bridge.dispose('chime', 'webkit-compat');
+});
+
+test('Chime bridge emits ended state and clears participants on remote MeetingEnded stop', async () => {
+  const { bridge, stopChime, events } = await createChimeHarness();
+  await bridge.create('chime', 'chime-remote-end', JSON.stringify(chimePayload));
+  await bridge.join('chime', 'chime-remote-end');
+
+  events.length = 0;
+  stopChime({ statusCode: () => 6 });
+
+  const endedState = events.find(({ event }) => event.type === 'state' && event.state === 'ended');
+  assert.ok(endedState, 'remote MeetingEnded must emit state: ended');
+  assert.equal(
+    events.some(({ event }) => event.type === 'error'),
+    false,
+    'clean remote MeetingEnded must not emit a fatal error event',
+  );
+  const latestSnapshot = events.filter(({ event }) => event.type === 'snapshot').at(-1)?.event;
+  assert.deepEqual(latestSnapshot?.participants, []);
+  assert.deepEqual(latestSnapshot?.tracks, []);
+
+  await bridge.dispose('chime', 'chime-remote-end');
+});
+
+test('IVS bridge emits ended state when Stage disconnects after connecting', async () => {
+  const { bridge, getStage, events } = await createIvsHarness();
+  await bridge.create('ivs', 'ivs-remote-end', JSON.stringify({
+    participantId: 'viewer-1',
+    role: 'viewer',
+    ivs: { token: 'viewer-token', capabilities: ['SUBSCRIBE'] },
+  }));
+  await bridge.join('ivs', 'ivs-remote-end');
+
+  const connHandler = getStage().handlers.get('stageConnectionStateChanged');
+  assert.equal(typeof connHandler, 'function');
+  connHandler('connected');
+  events.length = 0;
+
+  connHandler('disconnected');
+  const endedState = events.find(({ event }) => event.type === 'state' && event.state === 'ended');
+  assert.ok(endedState, 'remote Stage disconnect after CONNECTED must emit state: ended');
+  const latestSnapshot = events.filter(({ event }) => event.type === 'snapshot').at(-1)?.event;
+  assert.deepEqual(latestSnapshot?.participants, []);
+  assert.deepEqual(latestSnapshot?.tracks, []);
+
+  await bridge.dispose('ivs', 'ivs-remote-end');
+});
+
+

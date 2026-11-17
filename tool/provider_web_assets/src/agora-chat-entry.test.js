@@ -148,3 +148,16 @@ test('rejects operations for unsupported management APIs', async () => {
   );
   await bridge.dispose('s2');
 });
+
+test('closes opened Agora Chat socket immediately when joinChatRoom rejects', async () => {
+  const { bridge, calls, getConnection } = setup();
+  await bridge.create('s3', credentials);
+  const connection = getConnection();
+  connection.joinChatRoom = async () => {
+    calls.push('join:failed');
+    throw new Error('chatroom permission denied');
+  };
+  await assert.rejects(bridge.connect('s3'), /chatroom permission denied/);
+  assert.deepEqual(calls.slice(1), ['open', 'join:failed', 'close']);
+  await bridge.dispose('s3');
+});
