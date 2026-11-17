@@ -20,12 +20,14 @@ class AwsMacosTextureView extends StatefulWidget {
   }) : provider = 'chime',
        userId = '',
        isLocal = false,
+       isScreenShare = false,
        generation = 0;
 
   const AwsMacosTextureView.ivs({
     super.key,
     required this.userId,
     required this.isLocal,
+    this.isScreenShare = false,
     this.generation = 0,
     this.initialWidth = 0,
     this.initialHeight = 0,
@@ -37,6 +39,7 @@ class AwsMacosTextureView extends StatefulWidget {
   final int? tileId;
   final String userId;
   final bool isLocal;
+  final bool isScreenShare;
   final int generation;
   final int initialWidth;
   final int initialHeight;
@@ -103,6 +106,7 @@ class _AwsMacosTextureViewState extends State<AwsMacosTextureView> {
         oldWidget.tileId != widget.tileId ||
         oldWidget.userId != widget.userId ||
         oldWidget.isLocal != widget.isLocal ||
+        oldWidget.isScreenShare != widget.isScreenShare ||
         oldWidget.generation != widget.generation;
     if (identityChanged) {
       unawaited(_releaseCurrentTexture());
@@ -130,6 +134,7 @@ class _AwsMacosTextureViewState extends State<AwsMacosTextureView> {
             if (widget.tileId != null) 'tileId': widget.tileId,
             'userId': widget.userId,
             'isLocal': widget.isLocal,
+            'isScreenShare': widget.isScreenShare,
             'maxDimension': _bucketedMaxDimension,
           });
       final textureId = (response?['textureId'] as num?)?.toInt();

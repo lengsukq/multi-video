@@ -49,8 +49,24 @@ Future<MediaBackgroundCapabilities> _probeEffects(
   if (role == MediaRole.viewer ||
       (!kIsWeb &&
           defaultTargetPlatform != TargetPlatform.android &&
-          defaultTargetPlatform != TargetPlatform.macOS)) {
+          defaultTargetPlatform != TargetPlatform.iOS &&
+          defaultTargetPlatform != TargetPlatform.macOS &&
+          defaultTargetPlatform != TargetPlatform.windows)) {
     return const MediaBackgroundCapabilities.none();
+  }
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    try {
+      final supported =
+          await const MethodChannel(
+            'com.oneplusdream.flutter_realtime_media_aws_desktop/windows',
+          ).invokeMethod<bool>('probeProcessedVideoInput') ==
+          true;
+      if (!supported) return const MediaBackgroundCapabilities.none();
+    } on MissingPluginException {
+      return const MediaBackgroundCapabilities.none();
+    } on PlatformException {
+      return const MediaBackgroundCapabilities.none();
+    }
   }
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS) {
     final channel = {

@@ -26,15 +26,6 @@ class IvsBroadcastHostSession extends _IvsMediaSession
   Future<void> setScreenShareEnabled(bool enabled) =>
       _publishing._setScreenShareEnabled(enabled);
   @override
-  Future<List<MediaAudioDevice>> listAudioDevices() async {
-    await _unsupported('audio-output enumeration');
-    return const [];
-  }
-
-  @override
-  Future<void> selectAudioDevice(MediaAudioDevice device) =>
-      _unsupported('audio-output selection');
-  @override
   Future<void> sendMessage(String message, {String topic = 'chat'}) =>
       _unsupported('RTC data messaging; use a Chat Provider instead');
 }

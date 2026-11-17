@@ -80,14 +80,17 @@
     track.clone = function() { return track; };
     const source = { sourceId: sourceId, references: 0, canvas: canvas, context: context,
       stream: stream, track: track, enabled: true, closed: false, failed: false,
-      timer: null, image: null, requestIndex: 0, pendingTimestamp: null, renderedTimestamp: null, loadFrame: null };
+      timer: null, image: null, requestIndex: 0, pendingTimestamp: null, renderedTimestamp: null,
+      pendingDataUrl: null, loadFrame: null };
     processedSources.set(sourceKey, source);
     track.requestFrame();
 
     function loadFrame() {
       if (source.closed || source.failed || !source.enabled || source.image) return;
+      if (!source.pendingDataUrl) return;
       if (source.pendingTimestamp === source.renderedTimestamp && source.requestIndex > 0) return;
       const timestamp = source.pendingTimestamp;
+      const nextUrl = source.pendingDataUrl;
       const image = new Image();
       source.image = image;
       image.crossOrigin = 'anonymous';
@@ -103,6 +106,7 @@
             context.drawImage(image, 0, 0, canvas.width, canvas.height);
             track.requestFrame();
             source.renderedTimestamp = timestamp;
+            source.requestIndex += 1;
           }
           if (source.pendingTimestamp !== timestamp) loadFrame();
         } catch (error) {
@@ -113,10 +117,9 @@
         source.image = null;
         failProcessedSource(source, 'The native processed video frame could not be decoded.');
       };
-      image.src = 'realtime-video://' + encodeURIComponent(sourceId) + '/frame?request=' + String(++source.requestIndex);
+      image.src = nextUrl;
     }
     source.loadFrame = loadFrame;
-    loadFrame();
     return source;
   }
 
@@ -420,6 +423,15 @@
       source.pendingTimestamp = timestamp;
       source.loadFrame();
     },
+    pushProcessedFrameData: function(sourceId, dataUrl, timestampNs) {
+      const source = processedSources.get(processedSourceKey(sourceId));
+      if (!source || source.closed || source.failed) return;
+      if (typeof dataUrl !== 'string' || !dataUrl) return;
+      const timestamp = String(timestampNs || Date.now());
+      source.pendingDataUrl = dataUrl;
+      source.pendingTimestamp = timestamp;
+      source.loadFrame();
+    },
     invoke: invoke,
     bindTrack: bindTrack,
     unbindTrack: unbindTrack,
@@ -507,19 +519,27 @@
     canConsumeProcessedVideo: async function() {
       const canvas = document.createElement('canvas');
       if (typeof canvas.captureStream !== 'function') return false;
+      canvas.width = 2;
+      canvas.height = 2;
       const context = canvas.getContext('2d');
       if (!context) return false;
-      const loaded = await new Promise(function(resolve) {
-        const image = new Image();
-        const timeout = global.setTimeout(function() { resolve(null); }, 3000);
-        image.crossOrigin = 'anonymous';
-        image.onload = function() { global.clearTimeout(timeout); resolve(image); };
-        image.onerror = function() { global.clearTimeout(timeout); resolve(null); };
-        image.src = 'realtime-video://probe/frame';
-      });
-      if (!loaded) return false;
-      try { context.drawImage(loaded, 0, 0); canvas.toDataURL(); }
-      catch (_) { return false; }
+      try {
+        context.fillStyle = '#000';
+        context.fillRect(0, 0, 2, 2);
+        const probeUrl = canvas.toDataURL('image/png');
+        const loaded = await new Promise(function(resolve) {
+          const image = new Image();
+          const timeout = global.setTimeout(function() { resolve(null); }, 1000);
+          image.onload = function() { global.clearTimeout(timeout); resolve(image); };
+          image.onerror = function() { global.clearTimeout(timeout); resolve(null); };
+          image.src = probeUrl;
+        });
+        if (!loaded) return false;
+        context.drawImage(loaded, 0, 0);
+        canvas.toDataURL();
+      } catch (_) {
+        return false;
+      }
       const stream = canvas.captureStream(0);
       const track = stream.getVideoTracks()[0];
       const supported = Boolean(track && typeof track.requestFrame === 'function');

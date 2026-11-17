@@ -17,11 +17,21 @@ class MeetingSession {
 
     var meetingSession: DefaultMeetingSession?
     var cameraPosition = "front"
+    var processedVideoSource: ChimeIosSystemScreenSource?
+    var localVideoEnabled = false
 
     let audioVideoConfig = AudioVideoConfiguration()
     private let logger = ConsoleLogger(name: "MeetingSession")
 
     private init() {}
+
+    func detachProcessedVideoSource() {
+        let source = processedVideoSource
+        processedVideoSource = nil
+        localVideoEnabled = false
+        meetingSession?.audioVideo.stopLocalVideo()
+        source?.stop()
+    }
 
     func startMeetingAudio() -> MethodChannelResponse {
         let audioSessionConfigured = configureAudioSession()

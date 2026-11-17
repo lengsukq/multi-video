@@ -328,6 +328,10 @@ import { createChimeSession } from './media/chime-session.js';
       if (!session.driver.attachProcessedTrack) throw new Error('Provider has no processed video input.');
       const sourceTrack = effectsTrack(sourceId);
       const track = sourceTrack.clone?.() || sourceTrack;
+      // Keep the clone's enabled state aligned with the session's active
+      // video state; cloning while the source is temporarily muted for binding
+      // would otherwise leave the published WebRTC track permanently black.
+      track.enabled = Boolean(session.localVideoEnabled);
       try { await session.driver.attachProcessedTrack(track); }
       catch (error) { if (track !== sourceTrack) track.stop?.(); throw error; }
       if (session.processedTrack && session.processedTrack !== session.processedSourceTrack) {
@@ -367,7 +371,11 @@ import { createChimeSession } from './media/chime-session.js';
       return '';
     }
     if (sourceId && name === 'setVideoEnabled') {
-      await global.RealtimeProcessedVideoBridge.setEnabled(sourceId, Boolean(args.enabled));
+      const videoEnabled = Boolean(args.enabled);
+      await global.RealtimeProcessedVideoBridge.setEnabled(sourceId, videoEnabled);
+      if (session.processedTrack) {
+        session.processedTrack.enabled = videoEnabled;
+      }
     }
     const result = await session.driver.command(name, args);
     publishSnapshot(session);

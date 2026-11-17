@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_aws_chime/flutter_aws_chime.dart' as chime;
+import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
 import 'chime_join_info.dart';
@@ -17,7 +18,8 @@ MediaCapabilities get _chimeCapabilities => MediaCapabilities(
   canPublishVideo: true,
   canScreenShare:
       !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.iOS ||
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS ||
           defaultTargetPlatform == TargetPlatform.macOS ||
           defaultTargetPlatform == TargetPlatform.windows),
   canSwitchCamera: defaultTargetPlatform == TargetPlatform.android ||
@@ -37,10 +39,14 @@ class ChimeMediaSession
         MediaDeviceController,
         ProcessedVideoSink,
         MediaScreenShareSourceSelector {
-  ChimeMediaSession({chime.ChimeMeetingSession? session})
-    : _session = session ?? chime.ChimeMeetingSession();
+  ChimeMediaSession({
+    chime.ChimeMeetingSession? session,
+    AwsWindowsWebView2Runtime? windowsRuntime,
+  }) : _session = session ?? chime.ChimeMeetingSession(),
+       _windowsRuntime = windowsRuntime ?? AwsWindowsWebView2Runtime.instance;
 
   final chime.ChimeMeetingSession _session;
+  final AwsWindowsWebView2Runtime _windowsRuntime;
   final _stateController = StreamController<MediaSessionState>.broadcast();
   final _snapshotController = StreamController<MediaSnapshot>.broadcast();
   final _eventController = StreamController<MediaEvent>.broadcast();
@@ -86,15 +92,13 @@ class ChimeMediaSession
         !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.windows ||
             defaultTargetPlatform == TargetPlatform.macOS);
-    final canDesktopCamera =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     return _chimeCapabilities.copyWith(
       canBlurBackground:
           _chimeCapabilities.canPublishVideo && _controls._effectsPlatform,
       canReplaceBackgroundImage:
           _chimeCapabilities.canPublishVideo && _controls._effectsPlatform,
-      canEnumerateCameras: _controls._effectsPlatform || canDesktopCamera,
-      canSelectCamera: _controls._effectsPlatform || canDesktopCamera,
+      canEnumerateCameras: _controls._effectsPlatform || isDesktopBridge,
+      canSelectCamera: _controls._effectsPlatform || isDesktopBridge,
       canEnumerateMicrophones: isDesktopBridge,
       canSelectMicrophone: isDesktopBridge,
     );

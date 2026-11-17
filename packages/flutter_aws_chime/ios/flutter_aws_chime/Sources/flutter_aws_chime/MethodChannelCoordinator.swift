@@ -81,6 +81,13 @@ class MethodChannelCoordinator {
                 response = self.startLocalVideo()
             case .stopLocalVideo:
                 response = self.stopLocalVideo()
+            case .attachProcessedVideoSource:
+                self.attachProcessedVideoSource(call: call, result: result)
+                return
+            case .detachProcessedVideoSource:
+                MeetingSession.shared.detachProcessedVideoSource()
+                result(nil)
+                return
             case .attachIosScreenCaptureKitSource:
                 response = self.attachIosScreenCaptureKitSource(call: call)
             case .detachIosScreenCaptureKitSource:
@@ -195,6 +202,7 @@ class MethodChannelCoordinator {
         // Update Singleton Class
         MeetingSession.shared.meetingSession = meetingSession
         MeetingSession.shared.cameraPosition = "front"
+        MeetingSession.shared.localVideoEnabled = false
 
         self.setupAudioVideoFacadeObservers()
         let meetingStartResponse = MeetingSession.shared.startMeetingAudio()
@@ -202,6 +210,7 @@ class MethodChannelCoordinator {
             NSLog("[flutter_aws_chime] startMeetingAudio failed: %@", String(describing: meetingStartResponse.arguments))
             Self.logger.error("startMeetingAudio failed: \(String(describing: meetingStartResponse.arguments), privacy: .public)")
             stopAudioVideoFacadeObservers()
+            MeetingSession.shared.detachProcessedVideoSource()
             MeetingSession.shared.meetingSession = nil
             MeetingSession.shared.cameraPosition = "front"
         }
@@ -214,11 +223,41 @@ class MethodChannelCoordinator {
         }
         Self.logger.info("Stopping Chime meeting session")
         detachIosScreenCaptureKitSource()
+        MeetingSession.shared.detachProcessedVideoSource()
         stopAudioVideoFacadeObservers()
         session.audioVideo.stop()
         MeetingSession.shared.meetingSession = nil
         MeetingSession.shared.cameraPosition = "front"
         return MethodChannelResponse(result: true, arguments: Response.meeting_stopped_successfully.rawValue)
+    }
+
+    private func attachProcessedVideoSource(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let session = MeetingSession.shared.meetingSession else {
+            result(FlutterError(code: "attach_provider_failed", message: "No active Chime meeting session.", details: nil))
+            return
+        }
+        guard let args = call.arguments as? [String: Any],
+              let sourceId = args["sourceId"] as? String,
+              !sourceId.isEmpty else {
+            result(FlutterError(code: "attach_provider_failed", message: "sourceId is required.", details: nil))
+            return
+        }
+        let wasEnabled = MeetingSession.shared.localVideoEnabled
+        session.audioVideo.stopLocalVideo()
+        MeetingSession.shared.detachProcessedVideoSource()
+        let source = ChimeIosSystemScreenSource(sourceId: sourceId, videoContentHint: .motion)
+        do {
+            try source.start()
+            MeetingSession.shared.processedVideoSource = source
+            if wasEnabled {
+                session.audioVideo.startLocalVideo(source: source)
+                MeetingSession.shared.localVideoEnabled = true
+            }
+            result(nil)
+        } catch {
+            source.stop()
+            result(FlutterError(code: "attach_provider_failed", message: error.localizedDescription, details: nil))
+        }
     }
 
     private func attachIosScreenCaptureKitSource(call: FlutterMethodCall) -> MethodChannelResponse {
@@ -296,8 +335,16 @@ class MethodChannelCoordinator {
         guard let session = MeetingSession.shared.meetingSession else {
             return MethodChannelResponse(result: false, arguments: "No Chime meeting session is active.", code: "session_not_found")
         }
+        if let processed = MeetingSession.shared.processedVideoSource {
+            session.audioVideo.startLocalVideo(source: processed)
+            MeetingSession.shared.localVideoEnabled = true
+            NSLog("[flutter_aws_chime] Started local Chime processed video")
+            Self.logger.info("Started local Chime processed video")
+            return MethodChannelResponse(result: true, arguments: Response.local_video_on_success.rawValue)
+        }
         do {
             try session.audioVideo.startLocalVideo()
+            MeetingSession.shared.localVideoEnabled = true
             NSLog("[flutter_aws_chime] Started local Chime camera video")
             Self.logger.info("Started local Chime camera video")
             return MethodChannelResponse(result: true, arguments: Response.local_video_on_success.rawValue)
@@ -314,6 +361,7 @@ class MethodChannelCoordinator {
             return MethodChannelResponse(result: false, arguments: "No Chime meeting session is active.", code: "session_not_found")
         }
         session.audioVideo.stopLocalVideo()
+        MeetingSession.shared.localVideoEnabled = false
         return MethodChannelResponse(result: true, arguments: Response.local_video_off_success.rawValue)
     }
 

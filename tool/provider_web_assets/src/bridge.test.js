@@ -785,6 +785,7 @@ async function createIvsHarness(browserGlobals = {}) {
   vm.runInContext(source, context, { filename: 'bridge.js' });
   return {
     bridge: context.MediaProviderBridge,
+    context,
     calls,
     events,
     getStage: () => stage,
@@ -2104,6 +2105,11 @@ test('Chime preserves shared non-cloned processed track across detach and leave'
     await bridge.command('chime', 'chime-mac-blur', 'attachProcessedVideoSource', { sourceId: 'mac-blur' });
     assert.ok(calls.some((entry) => entry.startsWith('startVideoInput:')), 'attaching processed source must feed Chime');
     await bridge.command('chime', 'chime-mac-blur', 'setVideoEnabled', { enabled: true });
+    assert.equal(
+      calls.filter((entry) => entry.startsWith('startVideoInput:')).length,
+      1,
+      'enabling processed video must reuse active MediaStream instead of re-calling startVideoInput and stopping track',
+    );
     assert.equal(enabledState, true);
     await bridge.command('chime', 'chime-mac-blur', 'detachProcessedVideoSource', {});
     assert.equal(stopped, 0, 'non-cloned desktop track must stay owned by native runtime');
@@ -2116,5 +2122,113 @@ test('Chime preserves shared non-cloned processed track across detach and leave'
   }
 });
 
+test('Chime and IVS enable cloned processed track when setVideoEnabled toggles', async () => {
+  for (const [provider, createHarness, payload] of [
+    ['chime', createChimeHarness, chimePayload],
+    [
+      'ivs',
+      createIvsHarness,
+      {
+        participantId: 'host-1',
+        displayName: 'Host',
+        role: 'host',
+        ivs: { token: 'publisher-token', capabilities: ['PUBLISH', 'SUBSCRIBE'] },
+      },
+    ],
+  ]) {
+    const h = await createHarness();
+    const clones = [];
+    const sourceTrack = {
+      kind: 'video',
+      id: `${provider}-effects-0`,
+      enabled: false,
+      clone() {
+        const cloned = {
+          kind: 'video',
+          id: `${provider}-clone-${clones.length}`,
+          enabled: this.enabled,
+          stop() {},
+          addEventListener() {},
+        };
+        clones.push(cloned);
+        return cloned;
+      },
+      stop() {},
+    };
+    h.context.MediaStream = h.context.MediaStream || class { constructor(tracks) { this.tracks = tracks; } };
+    h.context.RealtimeProcessedVideoBridge.register(`${provider}-disabled`, {
+      track: sourceTrack,
+      async setEnabled() {},
+      async setCameraDevice() {},
+    });
+    try {
+      await h.bridge.create(provider, `${provider}-clone`, JSON.stringify(payload));
+      await h.bridge.join(provider, `${provider}-clone`);
+      await h.bridge.command(provider, `${provider}-clone`, 'attachProcessedVideoSource', {
+        sourceId: `${provider}-disabled`,
+      });
+      assert.equal(clones.length, 1);
+      assert.equal(clones[0].enabled, false, `${provider} starts with disabled processed clone`);
+      await h.bridge.command(provider, `${provider}-clone`, 'setVideoEnabled', { enabled: true });
+      assert.equal(clones[0].enabled, true, `${provider} enables cloned processed track`);
+      await h.bridge.command(provider, `${provider}-clone`, 'setVideoEnabled', { enabled: false });
+      assert.equal(clones[0].enabled, false, `${provider} disables cloned processed track`);
+      await h.bridge.dispose(provider, `${provider}-clone`);
+    } finally {
+      h.context.RealtimeProcessedVideoBridge.unregister(`${provider}-disabled`);
+    }
+  }
+});
 
+test('Chime unlocks hidden WebKit camera labels on video enable and matches suffixed labels without OverconstrainedError', async () => {
+  let unlocked = false;
+  let probeStopped = 0;
+  const mediaDevices = {
+    async getUserMedia(constraints) {
+      assert.equal(constraints.audio, false);
+      assert.equal(constraints.video, true);
+      unlocked = true;
+      return {
+        getTracks: () => [{ stop() { probeStopped += 1; } }],
+      };
+    },
+  };
+  const { bridge, context, audioVideo, calls } = await createChimeHarness({
+    __testMediaDevices: mediaDevices,
+  });
+  vm.runInContext(
+    "Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices: __testMediaDevices }, configurable: true });",
+    context,
+  );
+  audioVideo.listVideoInputDevices = async () => {
+    if (!unlocked) {
+      return [{ deviceId: 'webkit-placeholder', label: '', groupId: '' }];
+    }
+    return [
+      { deviceId: 'webkit-cam-builtin', label: 'FaceTime HD Camera (Built-in)', groupId: 'g1' },
+      { deviceId: 'webkit-cam-usb', label: 'Logitech BRIO (046d:085e)', groupId: 'g2' },
+    ];
+  };
 
+  await bridge.create('chime', 'macos-raw-cam', JSON.stringify(chimePayload));
+  await bridge.join('chime', 'macos-raw-cam');
+
+  // Native macOS AVCaptureDevice uniqueID + localizedName (no USB suffix) selected while video is off.
+  await bridge.command('chime', 'macos-raw-cam', 'selectDevice', {
+    device: { id: '0x14400000046d085e', label: 'Logitech BRIO', kind: 'camera' },
+  });
+  assert.equal(unlocked, false, 'selecting camera while video is off must not open camera');
+
+  await bridge.command('chime', 'macos-raw-cam', 'setVideoEnabled', { enabled: true });
+  assert.equal(unlocked, true);
+  assert.equal(probeStopped, 1);
+  assert.ok(calls.includes('startVideoInput:webkit-cam-usb'));
+
+  // Switching to a disconnected macOS hardware ID falls back safely to WebKit's first valid camera.
+  await bridge.command('chime', 'macos-raw-cam', 'selectDevice', {
+    device: { id: '0x9999000005ac8514', label: 'Disconnected Virtual Cam', kind: 'camera' },
+  });
+  assert.equal(calls.filter((c) => c.startsWith('startVideoInput:')).at(-1), 'startVideoInput:webkit-cam-builtin');
+
+  await bridge.dispose('chime', 'macos-raw-cam');
+});

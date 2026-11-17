@@ -45,11 +45,17 @@ class IvsDeviceCounts {
 
 abstract interface class IvsEngine {
   Future<void> join(IvsJoinInfo info, IvsEngineEvents events);
-  Future<void> exchangeToken(String token);
+  Future<void> exchangeToken(
+    String token, {
+    MediaRole? role,
+    List<String>? capabilities,
+  });
   Future<void> leave();
   Future<void> setMuted(bool muted);
   Future<void> setVideoEnabled(bool enabled);
   Future<void> switchCamera(MediaCameraPosition position);
+  Future<List<MediaAudioDevice>> listAudioDevices();
+  Future<void> selectAudioDevice(MediaAudioDevice device);
   Future<void> requestStats();
   Future<void> dispose();
 }
@@ -60,6 +66,7 @@ class IvsEngineEvents {
     this.onParticipantJoined,
     this.onParticipantLeft,
     this.onRemoteVideoChanged,
+    this.onRemoteScreenShareChanged,
     this.onRemoteAudioChanged,
     this.onReconnecting,
     this.onRecovered,
@@ -71,6 +78,8 @@ class IvsEngineEvents {
   final void Function(String userId, String displayName)? onParticipantJoined;
   final void Function(String userId)? onParticipantLeft;
   final void Function(String userId, bool available)? onRemoteVideoChanged;
+  final void Function(String ownerUserId, String trackUserId, bool available)?
+  onRemoteScreenShareChanged;
   final void Function(String userId, bool available)? onRemoteAudioChanged;
   final void Function()? onReconnecting;
   final void Function()? onRecovered;
@@ -158,8 +167,15 @@ class _NativeIvsEngine implements IvsEngine {
   }
 
   @override
-  Future<void> exchangeToken(String token) =>
-      _invoke('exchangeToken', {'token': token});
+  Future<void> exchangeToken(
+    String token, {
+    MediaRole? role,
+    List<String>? capabilities,
+  }) => _invoke('exchangeToken', {
+    'token': token,
+    if (role != null) 'role': role.wireName,
+    if (capabilities != null) 'capabilities': capabilities,
+  });
 
   @override
   Future<void> leave() => _invoke('leave');
@@ -174,6 +190,31 @@ class _NativeIvsEngine implements IvsEngine {
   @override
   Future<void> switchCamera(MediaCameraPosition position) =>
       _invoke('switchCamera', {'position': position.name});
+
+  @override
+  Future<List<MediaAudioDevice>> listAudioDevices() async {
+    try {
+      final raw = await _methods.invokeListMethod<dynamic>('listAudioDevices');
+      return [
+        for (final item in raw ?? const <dynamic>[])
+          if (item is Map && (item['label']?.toString().isNotEmpty ?? false))
+            MediaAudioDevice.fromLabel(
+              item['label'].toString(),
+              id: item['id']?.toString(),
+            ),
+      ];
+    } on MissingPluginException {
+      return const [];
+    } on PlatformException catch (error) {
+      throw mapIvsPlatformError(error);
+    }
+  }
+
+  @override
+  Future<void> selectAudioDevice(MediaAudioDevice device) => _invoke(
+    'selectAudioDevice',
+    {'id': device.id ?? device.label, 'label': device.label},
+  );
 
   @override
   Future<void> requestStats() => _invoke('requestStats');
@@ -204,6 +245,19 @@ class _NativeIvsEngine implements IvsEngine {
         if (userId.isNotEmpty) {
           _handlers.onRemoteVideoChanged?.call(
             userId,
+            event['available'] == true,
+          );
+        }
+        return;
+      case 'screenShareChanged':
+        if (userId.isNotEmpty) {
+          final trackUserId =
+              event['trackUserId']?.toString().trim().isNotEmpty == true
+              ? event['trackUserId'].toString().trim()
+              : '$userId#content';
+          _handlers.onRemoteScreenShareChanged?.call(
+            userId,
+            trackUserId,
             event['available'] == true,
           );
         }

@@ -596,4 +596,249 @@ test('exposes RealtimeScreenCaptureBridge for native macOS screen capture lifecy
   assert.equal(track.readyState, 'ended');
 });
 
+  test('Windows runtime routes Chime virtual background frames end-to-end on aws-windows-chime-v1', async () => {
+  const [windowsRuntimeSource, windowsHostSource] = await Promise.all([
+    readFile(new URL('../assets/windows_runtime.js', import.meta.url), 'utf8'),
+    readFile(new URL('../assets/windows_host.js', import.meta.url), 'utf8'),
+  ]);
+  const posted = [];
+  const bridgeCommands = [];
+  const loadedImageUrls = [];
+  let messageHandler = null;
+  let requestFrameCalls = 0;
+
+  class FakeChimeWindowsImage {
+    naturalWidth = 1280;
+    naturalHeight = 720;
+    onload = null;
+    onerror = null;
+    set src(url) {
+      loadedImageUrls.push(url);
+      setTimeout(() => this.onload?.(), 0);
+    }
+  }
+
+  class FakeChimeWindowsCanvas {
+    width = 0;
+    height = 0;
+    getContext() {
+      return { fillStyle: '', fillRect() {}, drawImage() {} };
+    }
+    toDataURL() {
+      return 'data:image/png;base64,AA==';
+    }
+    captureStream() {
+      const track = {
+        enabled: true,
+        readyState: 'live',
+        requestFrame() { requestFrameCalls += 1; },
+        stop() { this.readyState = 'ended'; },
+      };
+      return {
+        getVideoTracks() { return [track]; },
+        getTracks() { return [track]; },
+      };
+    }
+  }
+
+  const context = {
+    chrome: {
+      webview: {
+        postMessage: (msg) => posted.push(msg),
+        addEventListener: (event, fn) => {
+          if (event === 'message') messageHandler = fn;
+        },
+      },
+    },
+    location: { hostname: 'aws-chime-local.invalid' },
+    document: {
+      body: { appendChild() {} },
+      createElement() { return new FakeChimeWindowsCanvas(); },
+    },
+    Image: FakeChimeWindowsImage,
+    MediaProviderBridge: {
+      async command(providerId, sessionId, name, serializedArgs) {
+        const args = JSON.parse(serializedArgs);
+        bridgeCommands.push({ providerId, sessionId, name, args });
+        if (name === 'attachProcessedVideoSource') {
+          const track = context.RealtimeProcessedVideoBridge.getTrack(args.sourceId);
+          assert.equal(track.readyState, 'live');
+          assert.strictEqual(track.clone(), track);
+        }
+      },
+    },
+    setTimeout,
+    clearTimeout,
+  };
+  context.globalThis = context;
+
+  vm.runInNewContext(windowsRuntimeSource, context, { filename: 'windows_runtime.js' });
+  vm.runInNewContext(windowsHostSource, context, { filename: 'windows_host.js' });
+  assert.equal(context.__awsWindowsHostChannel, 'aws-windows-chime-v1');
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-chime-v1',
+      id: 10,
+      operation: 'attachProcessedVideo',
+      providerId: 'chime',
+      sessionId: 'aws-desktop-chime',
+      payload: { sourceId: 'win-chime-blur', generation: 1 },
+    },
+  });
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-chime-v1',
+      kind: 'processedFrame',
+      sourceId: 'win-chime-blur',
+      timestampNs: 1001,
+      data: 'data:image/jpeg;base64,/9j/4AAQChime1',
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.ok(requestFrameCalls >= 2);
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-chime-v1',
+      id: 11,
+      operation: 'detachProcessedVideo',
+      providerId: 'chime',
+      sessionId: 'aws-desktop-chime',
+      payload: { sourceId: 'win-chime-blur', generation: 2 },
+    },
+  });
+
+  const results = posted.filter((m) => m.kind === 'result');
+  assert.equal(results.length, 2);
+  assert.equal(results[0].success, true, results[0].message);
+  assert.equal(results[1].success, true, results[1].message);
+  assert.ok(loadedImageUrls.includes('data:image/jpeg;base64,/9j/4AAQChime1'));
+  assert.deepEqual(
+    bridgeCommands.map((c) => [c.providerId, c.sessionId, c.name]),
+    [
+      ['chime', 'aws-desktop-chime', 'attachProcessedVideoSource'],
+      ['chime', 'aws-desktop-chime', 'detachProcessedVideoSource'],
+    ],
+  );
+});
+
+test('Windows runtime consumes pushed JPEG data-URL processed frames without custom URI scheme', async () => {
+  const [windowsRuntimeSource, windowsHostSource] = await Promise.all([
+    readFile(new URL('../assets/windows_runtime.js', import.meta.url), 'utf8'),
+    readFile(new URL('../assets/windows_host.js', import.meta.url), 'utf8'),
+  ]);
+  const posted = [];
+  const bridgeCommands = [];
+  const loadedImageUrls = [];
+  let messageHandler = null;
+
+  class FakeWindowsImage {
+    naturalWidth = 640;
+    naturalHeight = 360;
+    onload = null;
+    onerror = null;
+    set src(url) {
+      loadedImageUrls.push(url);
+      setTimeout(() => this.onload?.(), 0);
+    }
+  }
+
+  class FakeWindowsCanvas {
+    width = 0;
+    height = 0;
+    getContext() {
+      return { fillStyle: '', fillRect() {}, drawImage() {} };
+    }
+    toDataURL() {
+      return 'data:image/png;base64,AA==';
+    }
+    captureStream() {
+      const track = {
+        enabled: true,
+        readyState: 'live',
+        requestFrame() {},
+        stop() { this.readyState = 'ended'; },
+      };
+      return {
+        getVideoTracks() { return [track]; },
+        getTracks() { return [track]; },
+      };
+    }
+  }
+
+  const context = {
+    chrome: {
+      webview: {
+        postMessage: (msg) => posted.push(msg),
+        addEventListener: (event, fn) => {
+          if (event === 'message') messageHandler = fn;
+        },
+      },
+    },
+    location: { hostname: 'aws-ivs-local.invalid' },
+    document: {
+      body: { appendChild() {} },
+      createElement() { return new FakeWindowsCanvas(); },
+    },
+    Image: FakeWindowsImage,
+    MediaProviderBridge: {
+      async command(providerId, sessionId, name, serializedArgs) {
+        bridgeCommands.push({ providerId, sessionId, name, args: JSON.parse(serializedArgs) });
+      },
+    },
+    setTimeout,
+    clearTimeout,
+  };
+  context.globalThis = context;
+
+  vm.runInNewContext(windowsRuntimeSource, context, { filename: 'windows_runtime.js' });
+  vm.runInNewContext(windowsHostSource, context, { filename: 'windows_host.js' });
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 1,
+      operation: 'attachProcessedVideo',
+      providerId: 'ivs',
+      sessionId: 'aws-desktop-ivs',
+      payload: { sourceId: 'win-blur-1', generation: 1 },
+    },
+  });
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      kind: 'processedFrame',
+      sourceId: 'win-blur-1',
+      timestampNs: 4242,
+      data: 'data:image/jpeg;base64,/9j/4AAQ',
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 15));
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 2,
+      operation: 'detachProcessedVideo',
+      providerId: 'ivs',
+      sessionId: 'aws-desktop-ivs',
+      payload: { sourceId: 'win-blur-1', generation: 2 },
+    },
+  });
+
+  const results = posted.filter((m) => m.kind === 'result');
+  assert.equal(results.length, 2);
+  assert.equal(results[0].success, true, results[0].message);
+  assert.equal(results[1].success, true, results[1].message);
+  assert.ok(loadedImageUrls.includes('data:image/jpeg;base64,/9j/4AAQ'));
+  assert.ok(!loadedImageUrls.some((url) => url.startsWith('realtime-video://')));
+  assert.equal(bridgeCommands[0].name, 'attachProcessedVideoSource');
+  assert.equal(bridgeCommands[1].name, 'detachProcessedVideoSource');
+});
+
 

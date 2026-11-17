@@ -107,6 +107,25 @@ class FakeChimeMeetingSession extends chime.ChimeMeetingSession {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> listDesktopMediaDevices() async {
+    actions.add('listDesktopMediaDevices');
+    return const [
+      {'id': 'cam-builtin', 'label': 'FaceTime HD Camera', 'kind': 'camera'},
+      {'id': 'cam-usb', 'label': 'External 4K Webcam', 'kind': 'camera'},
+      {'id': 'mic-builtin', 'label': 'MacBook Pro Microphone', 'kind': 'microphone'},
+    ];
+  }
+
+  @override
+  Future<void> selectDesktopMediaDevice({
+    required String id,
+    required String label,
+    required String kind,
+  }) async {
+    actions.add('selectDesktopMediaDevice:$kind:$id');
+  }
+
+  @override
   Future<List<Map<String, dynamic>>> listScreenShareSources() async {
     actions.add('listScreenShareSources');
     return const [

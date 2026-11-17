@@ -16,11 +16,11 @@ import org.amazon.chime.webrtc.YuvHelper
 /** Native conversion of the common processed frame; Chime never owns a second camera. */
 internal class ProcessedChimeVideoSource(
     private val sourceId: String,
+    override val contentHint: VideoContentHint = VideoContentHint.Motion,
     private val convertFrame: (ProcessedVideoFrame) -> VideoFrameI420Buffer = ::convertChimeFrame,
 ) : VideoSource, ProcessedVideoFrameSink {
     private val sinks = CopyOnWriteArraySet<VideoSink>()
     private var disposed = false
-    override val contentHint = VideoContentHint.Motion
 
     init { ProcessedVideoFrameHub.register(sourceId, this) }
     @Synchronized override fun addVideoSink(sink: VideoSink) { if (!disposed) sinks.add(sink) }

@@ -35,7 +35,7 @@ class ProviderWebProfile {
   final bool canReplaceBackgroundImage;
 
   String contentOwner(String participantId, {required bool isScreenShare}) =>
-      usesChimeAttendeePayload &&
+      (usesChimeAttendeePayload || providerId == 'ivs') &&
           isScreenShare &&
           participantId.endsWith('#content')
       ? participantId.substring(0, participantId.length - '#content'.length)
@@ -67,6 +67,7 @@ class ProviderWebProfile {
     'ivs' => const ProviderWebProfile(
       providerId: 'ivs',
       supportedRoles: {MediaRole.participant, MediaRole.host, MediaRole.viewer},
+      supportsAudioOutputSelection: true,
       canRemoveParticipants: true,
     ),
     _ => ProviderWebProfile(

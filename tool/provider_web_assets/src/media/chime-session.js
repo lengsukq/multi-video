@@ -6,6 +6,10 @@ export function createChimeSession(session, context) {
     if (!meeting || !attendee) throw new Error('Chime join data must include meeting and attendee objects.');
     const logger = new ChimeSDK.ConsoleLogger(`media-web-${session.id}`, ChimeSDK.LogLevel.WARN);
     const deviceController = new ChimeSDK.DefaultDeviceController(logger);
+    // Prevent passive listDevices() during listener join from invoking Chime's
+    // default getUserMedia({audio:true,video:true}) label trigger, which lights
+    // the macOS camera LED prematurely and fails on mic-less desktops.
+    deviceController.setDeviceLabelTrigger?.(async () => new global.MediaStream());
     const configuration = new ChimeSDK.MeetingSessionConfiguration(meeting, attendee);
     const meetingSession = new ChimeSDK.DefaultMeetingSession(configuration, logger, deviceController);
     const audioVideo = meetingSession.audioVideo;
@@ -26,14 +30,62 @@ export function createChimeSession(session, context) {
     let microphones = [];
     let selectedMicrophone = null;
     let selectedCamera = null;
+    const normalizeChimeLabel = (value) =>
+      String(value || '')
+        .replace(/\s*\([^)]*\)\s*$/g, '')
+        .trim()
+        .toLowerCase();
     const resolveChimeDeviceId = (available, selected) => {
       if (!Array.isArray(available) || !available.length) return selected?.id || null;
       if (!selected) return available[0].deviceId;
-      const byId = selected.id && available.find((item) => item.deviceId === selected.id);
+      const byId = selected.id && available.find((item) => item.deviceId && item.deviceId === selected.id);
       if (byId) return byId.deviceId;
-      const byLabel = selected.label && available.find((item) => item.label && item.label === selected.label);
-      if (byLabel) return byLabel.deviceId;
+      const rawLabel = String(selected.label || '').trim().toLowerCase();
+      if (rawLabel) {
+        const byExactLabel = available.find(
+          (item) => String(item.label || '').trim().toLowerCase() === rawLabel,
+        );
+        if (byExactLabel) return byExactLabel.deviceId;
+        const normLabel = normalizeChimeLabel(selected.label);
+        if (normLabel) {
+          const byNormalized = available.find(
+            (item) => item.label && normalizeChimeLabel(item.label) === normLabel,
+          );
+          if (byNormalized) return byNormalized.deviceId;
+        }
+      }
+      // Never pass an unmatched native macOS IOKit/AVFoundation ID or Windows
+      // Media Foundation symbolic link into WebKit/WebView2 getUserMedia.
+      const isNativeHardwareId =
+        /^0x[0-9a-f]+$/i.test(String(selected.id || '')) ||
+        String(selected.id || '').startsWith('\\\\?\\') ||
+        available.every((item) => !item.label);
+      if (isNativeHardwareId) return available[0].deviceId;
       return selected.id || available[0].deviceId;
+    };
+    const listUnlockedVideoDevices = async (targetCamera) => {
+      let cameras = await audioVideo.listVideoInputDevices(true);
+      const matchedById = targetCamera?.id && cameras.some((item) => item.deviceId === targetCamera.id);
+      const mediaDevices =
+        global.navigator?.mediaDevices ||
+        (typeof navigator !== 'undefined' ? navigator?.mediaDevices : null);
+      if (
+        !matchedById &&
+        targetCamera?.label &&
+        cameras.some((item) => !item.label) &&
+        typeof mediaDevices?.getUserMedia === 'function'
+      ) {
+        let probe = null;
+        try {
+          probe = await mediaDevices.getUserMedia({ audio: false, video: true });
+          cameras = await audioVideo.listVideoInputDevices(true);
+        } catch (_) {
+          // Keep existing camera list; startVideoInput will surface any real capture error.
+        } finally {
+          probe?.getTracks?.().forEach((track) => track.stop?.());
+        }
+      }
+      return cameras;
     };
     let contentShareStream = null;
     let contentShareStarted = false;
@@ -113,6 +165,9 @@ export function createChimeSession(session, context) {
     const tiles = new Map();
     const tileIdFor = (tile) => `chime:tile:${tile.tileId}`;
     let settleStart = null;
+    let processedStream = null;
+    let processedTrack = null;
+    let processedVideoInputActive = false;
     const observer = {
       audioVideoDidStart() {
         settleStart?.(null);
@@ -306,9 +361,24 @@ export function createChimeSession(session, context) {
         }
         if (name === 'setVideoEnabled') {
           if (args.enabled) {
-            if (session.processedTrack) await audioVideo.startVideoInput(new MediaStream([session.processedTrack]));
-            else {
-              const cameras = await audioVideo.listVideoInputDevices();
+            if (session.processedTrack) {
+              // Reuse the already-bound MediaStream so Chime's DefaultDeviceController
+              // does not call stop() on session.processedTrack during re-enable.
+              if (
+                !processedStream ||
+                !processedVideoInputActive ||
+                processedTrack !== session.processedTrack
+              ) {
+                processedTrack = session.processedTrack;
+                processedStream = new global.MediaStream([processedTrack]);
+                await audioVideo.startVideoInput(processedStream);
+                processedVideoInputActive = true;
+              }
+            } else {
+              processedStream = null;
+              processedTrack = null;
+              processedVideoInputActive = false;
+              const cameras = await listUnlockedVideoDevices(selectedCamera);
               const cameraId = resolveChimeDeviceId(cameras, selectedCamera);
               if (!cameraId) throw new Error('No Chime camera is available.');
               await audioVideo.startVideoInput(cameraId);
@@ -318,7 +388,10 @@ export function createChimeSession(session, context) {
             audioVideo.stopLocalVideoTile();
             // Stop the vendor-owned camera capture as well as its video tile;
             // leaving a black tile is not equivalent to releasing a camera.
-            if (!session.processedTrack) await audioVideo.stopVideoInput?.();
+            if (!session.processedTrack) {
+              processedVideoInputActive = false;
+              await audioVideo.stopVideoInput?.();
+            }
           }
           session.localVideoEnabled = Boolean(args.enabled);
           return;
@@ -372,7 +445,7 @@ export function createChimeSession(session, context) {
             if (!selected.id) throw new Error('Chime camera device id is required.');
             const nextCamera = { id: selected.id, label: selected.label || '' };
             if (session.localVideoEnabled && !session.processedTrack) {
-              const cameras = await audioVideo.listVideoInputDevices();
+              const cameras = await listUnlockedVideoDevices(nextCamera);
               await audioVideo.startVideoInput(resolveChimeDeviceId(cameras, nextCamera));
             }
             selectedCamera = nextCamera;
@@ -408,13 +481,19 @@ export function createChimeSession(session, context) {
         throw new Error(`Chime does not support ${name}.`);
       },
       async attachProcessedTrack(track) {
-        await audioVideo.startVideoInput(new MediaStream([track]));
+        processedTrack = track;
+        processedStream = new global.MediaStream([track]);
+        await audioVideo.startVideoInput(processedStream);
+        processedVideoInputActive = true;
         if (session.localVideoEnabled) {
           audioVideo.startLocalVideoTile();
         }
       },
       async detachProcessedTrack() {
         audioVideo.stopLocalVideoTile();
+        processedVideoInputActive = false;
+        processedStream = null;
+        processedTrack = null;
         await audioVideo.stopVideoInput?.();
       },
       attachVideo(track, container) {

@@ -12,6 +12,12 @@ class _FakeIvsEngine implements IvsEngine {
   final List<String> calls = [];
   IvsJoinInfo? joinedInfo;
   String? exchangedToken;
+  MediaRole? exchangedRole;
+  List<MediaAudioDevice> audioDevices = [
+    MediaAudioDevice.fromLabel('Speaker', id: 'speaker'),
+    MediaAudioDevice.fromLabel('Bluetooth Headset', id: 'bt-1'),
+  ];
+  MediaAudioDevice? selectedAudioDevice;
 
   @override
   Future<void> join(IvsJoinInfo info, IvsEngineEvents events) async {
@@ -22,8 +28,13 @@ class _FakeIvsEngine implements IvsEngine {
   }
 
   @override
-  Future<void> exchangeToken(String token) async {
+  Future<void> exchangeToken(
+    String token, {
+    MediaRole? role,
+    List<String>? capabilities,
+  }) async {
     exchangedToken = token;
+    exchangedRole = role;
     calls.add('exchangeToken');
   }
 
@@ -40,6 +51,18 @@ class _FakeIvsEngine implements IvsEngine {
   @override
   Future<void> switchCamera(MediaCameraPosition position) async =>
       calls.add('camera:${position.name}');
+
+  @override
+  Future<List<MediaAudioDevice>> listAudioDevices() async {
+    calls.add('listAudioDevices');
+    return audioDevices;
+  }
+
+  @override
+  Future<void> selectAudioDevice(MediaAudioDevice device) async {
+    selectedAudioDevice = device;
+    calls.add('selectAudioDevice:${device.id ?? device.label}');
+  }
 
   @override
   Future<void> requestStats() async => calls.add('stats');
@@ -677,6 +700,179 @@ void main() {
         ),
         isEmpty,
       );
+    },
+  );
+
+  test(
+    'IVS iOS advertises virtual background support and attaches processed source',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const ivsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_ivs/methods',
+      );
+      final calls = <String>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(ivsChannel, (call) async {
+        calls.add(call.method);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(ivsChannel, null));
+      final info = IvsJoinInfo.fromJson(_joinJson());
+      final session =
+          IvsSessionFactory(
+                engineFactory: () async => _FakeIvsEngine(),
+              ).createSession(info)
+              as InteractiveMediaSession;
+      addTearDown(session.dispose);
+      await session.join(info);
+      expect(session.capabilities.canBlurBackground, isTrue);
+      expect(session.capabilities.canReplaceBackgroundImage, isTrue);
+      const source = ProcessedVideoSource(
+        id: 'ivs-ios-effects',
+        kind: ProcessedVideoSourceKind.nativeFrameHub,
+        platform: ProcessedVideoPlatform.ios,
+        width: 1280,
+        height: 720,
+        frameRate: 24,
+      );
+      final sink = session as ProcessedVideoSink;
+      expect(sink.supportsProcessedVideoSource(source), isTrue);
+      await sink.attachProcessedVideoSource(source);
+      expect(calls, contains('attachProcessedVideoSource'));
+    },
+  );
+
+  test(
+    'IVS Android screen capture attaches MediaProjection source and restores camera',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const capture = MethodChannel(
+        'flutter_realtime_processed_video/android_system_screen_capture',
+      );
+      const ivsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_ivs/methods',
+      );
+      final calls = <String>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(capture, (call) async {
+        calls.add(call.method);
+        if (call.method == 'androidScreenCaptureAvailable') return true;
+        if (call.method == 'androidScreenCaptureStart') {
+          return {
+            'id': 'ivs-android-screen',
+            'kind': 'nativeFrameHub',
+            'platform': 'android',
+            'width': 720,
+            'height': 1280,
+            'frameRate': 15.0,
+          };
+        }
+        return null;
+      });
+      messenger.setMockMethodCallHandler(ivsChannel, (call) async {
+        calls.add(call.method);
+        return null;
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(capture, null);
+        messenger.setMockMethodCallHandler(ivsChannel, null);
+      });
+      final info = IvsJoinInfo.fromJson(_joinJson());
+      final session =
+          IvsSessionFactory(
+                engineFactory: () async => _FakeIvsEngine(),
+              ).createSession(info)
+              as InteractiveMediaSession;
+      await session.join(info);
+      expect(session.capabilities.canScreenShare, isTrue);
+      await session.setScreenShareEnabled(true);
+      expect(session.snapshot.localScreenShareEnabled, isTrue);
+      expect(calls, contains('attachAndroidScreenCaptureSource'));
+      await session.setScreenShareEnabled(false);
+      expect(session.snapshot.localScreenShareEnabled, isFalse);
+      expect(calls, contains('detachAndroidScreenCaptureSource'));
+      await session.dispose();
+    },
+  );
+
+  test(
+    'viewer promotes cleanly to co-host and demotes back without rejoining',
+    () async {
+      final engine = _FakeIvsEngine();
+      final factory = IvsSessionFactory(engineFactory: () async => engine);
+      final viewerInfo = IvsJoinInfo.fromJson(_joinJson(role: MediaRole.viewer));
+      final viewerSession =
+          factory.createSession(viewerInfo) as BroadcastViewerSession;
+      (viewerSession as MediaRoleSwitchable).setRoleChangeCallback((target) {
+        return Future.value(
+          IvsJoinInfo.fromJson(
+            _joinJson(
+              role: target,
+              token: target == MediaRole.participant ? 'cohost-tok' : 'viewer-tok',
+            ),
+          ),
+        );
+      });
+      await viewerSession.join(viewerInfo);
+
+      final promoted = await (viewerSession as MediaRoleSwitchable).switchRole(
+        MediaRole.participant,
+      );
+      expect(promoted, isA<InteractiveMediaSession>());
+      expect(promoted.role, MediaRole.participant);
+      expect(promoted.capabilities.canPublishAudio, isTrue);
+      expect(engine.exchangedToken, 'cohost-tok');
+      expect(engine.exchangedRole, MediaRole.participant);
+
+      // Events from the original engine forward to the adopted session.
+      engine.events.onRemoteScreenShareChanged?.call(
+        'host-1',
+        'host-1#content',
+        true,
+      );
+      final contentTrack = promoted.snapshot.contentShareTrack;
+      expect(contentTrack, isNotNull);
+      expect(contentTrack!.isScreenShare, isTrue);
+      expect(
+        (contentTrack as MediaContentOwnerTrack).contentOwnerParticipantId,
+        'host-1',
+      );
+
+      final demoted = await (promoted as MediaRoleSwitchable).switchRole(
+        MediaRole.viewer,
+      );
+      expect(demoted, isA<BroadcastViewerSession>());
+      expect(demoted.role, MediaRole.viewer);
+      expect(demoted.capabilities.canPublishAudio, isFalse);
+
+      // Disposing the adopted-out previous sessions never leaves the Stage.
+      await viewerSession.dispose();
+      await promoted.dispose();
+      expect(engine.calls, isNot(contains('leave')));
+      await demoted.dispose();
+      expect(engine.calls, contains('leave'));
+    },
+  );
+
+  test(
+    'IVS enumerates and selects audio output devices on all platforms',
+    () async {
+      final engine = _FakeIvsEngine();
+      final factory = IvsSessionFactory(engineFactory: () async => engine);
+      final info = IvsJoinInfo.fromJson(_joinJson(role: MediaRole.participant));
+      final session = factory.createSession(info) as InteractiveMediaSession;
+      await session.join(info);
+      expect(session.capabilities.canEnumerateAudioDevices, isTrue);
+      expect(session.capabilities.canSelectAudioOutput, isTrue);
+      final devices = await session.listAudioDevices();
+      expect(devices.map((d) => d.id), ['speaker', 'bt-1']);
+      await session.selectAudioDevice(devices.last);
+      expect(engine.selectedAudioDevice?.id, 'bt-1');
+      await session.dispose();
     },
   );
 }

@@ -61,6 +61,7 @@ class IvsTrackRenderer extends MediaTrackRenderer {
     final params = <String, Object?>{
       'userId': track.userId,
       'isLocal': track.isLocal,
+      'isScreenShare': track.isScreenShare,
       'generation': track.generation,
       'fit': fitMode,
     };
@@ -81,6 +82,7 @@ class IvsTrackRenderer extends MediaTrackRenderer {
         key: ValueKey('macos-${track.id}'),
         userId: track.userId,
         isLocal: track.isLocal,
+        isScreenShare: track.isScreenShare,
         generation: track.generation,
         fit: fit,
       ),
@@ -137,7 +139,8 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
     if (rawTracks is! List) return null;
     for (final item in rawTracks) {
       if (item is! Map) continue;
-      if (item['isScreenShare'] == true) continue;
+      final isScreen = item['isScreenShare'] == true;
+      if (isScreen != widget.track.isScreenShare) continue;
       final isLocal = item['isLocal'] == true;
       final participantId = item['participantId']?.toString() ?? '';
       if (participantId == widget.track.userId &&
@@ -203,7 +206,11 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
     if (_bound || _binding || !mounted) return;
     _binding = true;
     try {
-      await _runtime.invoke('bind', trackId: _lookupTrackId, viewKey: _viewKey);
+      await _runtime.invoke(
+        'bind',
+        trackId: expectedJsId ?? _lookupTrackId,
+        viewKey: _viewKey,
+      );
       if (!mounted) {
         await _runtime.invoke('unbind', viewKey: _viewKey);
         return;

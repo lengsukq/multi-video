@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_aws_chime/flutter_aws_chime.dart';
 import 'package:flutter_aws_chime/src/chime_native_channel.dart';
+import 'package:flutter_aws_chime/src/chime_windows_webview2.dart';
+import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
 
 const _channel = MethodChannel('com.oneplusdream.aws.chime.methodChannel');
 
@@ -615,6 +618,121 @@ void main() {
       expect(updated.width, 540);
       expect(updated.height, 960);
       expect(updated.aspectRatio, closeTo(540 / 960, 0.001));
+    },
+  );
+
+  test(
+    'ChimeWindowsWebview2Transport routes processed video and camera switching',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(AwsWindowsWebView2Runtime.debugResetWindowsChannelHandler);
+
+      const windowsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_aws_desktop/windows',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final nativeCalls = <MethodCall>[];
+      final webCalls = <Map<String, dynamic>>[];
+
+      late final AwsWindowsWebView2Runtime runtime;
+      runtime = AwsWindowsWebView2Runtime.forTesting(
+        'chime',
+        probeOverride: () async => true,
+        postWebMessageOverride: (encoded) async {
+          final decoded = Map<String, dynamic>.from(
+            jsonDecode(encoded) as Map,
+          );
+          webCalls.add(decoded);
+          if (decoded['id'] != null) {
+            final payload = decoded['payload'];
+            Object? value = true;
+            if (decoded['operation'] == 'invoke' &&
+                decoded['name'] == 'command' &&
+                payload is Map &&
+                payload['name'] == 'listDevices') {
+              value = jsonEncode([
+                {'id': 'cam-front-1', 'label': 'Front Integrated Cam', 'kind': 'camera'},
+                {'id': 'cam-ext-2', 'label': 'USB Studio Cam', 'kind': 'camera'},
+              ]);
+            }
+            runtime.debugHandleWebMessage({
+              'channel': 'aws-windows-chime-v1',
+              'kind': 'result',
+              'id': decoded['id'],
+              'success': true,
+              'value': value,
+            });
+          }
+        },
+      );
+      addTearDown(runtime.dispose);
+
+      messenger.setMockMethodCallHandler(windowsChannel, (call) async {
+        nativeCalls.add(call);
+        if (call.method == 'probeProcessedVideoInput') return true;
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(windowsChannel, null));
+
+      final transport = ChimeWindowsWebview2Transport((_) {}, runtime: runtime);
+      transport.reserve();
+      addTearDown(transport.release);
+
+      final probed = await transport.invoke('probeProcessedVideoInput', null);
+      expect(probed, {'success': true, 'data': true});
+
+      final invalidAttach = await transport.invoke(
+        'attachProcessedVideoSource',
+        {'sourceId': '   '},
+      );
+      expect(invalidAttach['success'], isFalse);
+      expect(invalidAttach['code'], 'invalid_argument');
+
+      final attached = await transport.invoke(
+        'attachProcessedVideoSource',
+        {'sourceId': 'win_effects_42'},
+      );
+      expect(attached['success'], isTrue);
+      expect(
+        nativeCalls.map((c) => c.method),
+        contains('subscribeProcessedVideo'),
+      );
+
+      final switchedFront = await transport.invoke(
+        'setCameraPosition',
+        {'position': 'front'},
+      );
+      expect(switchedFront['success'], isTrue);
+      final switchedAlternate = await transport.invoke(
+        'setCameraPosition',
+        {'position': 'back'},
+      );
+      expect(switchedAlternate['success'], isTrue);
+      final selectedIds = webCalls
+          .where(
+            (m) =>
+                m['operation'] == 'invoke' &&
+                m['name'] == 'command' &&
+                (m['payload'] as Map?)?['name'] == 'selectDevice',
+          )
+          .map(
+            (m) =>
+                (((m['payload'] as Map)['args'] as Map)['device'] as Map)['id'],
+          )
+          .toList();
+      expect(selectedIds, ['cam-front-1', 'cam-ext-2']);
+
+      final stopped = await transport.invoke('stop', null);
+      expect(stopped['success'], isTrue);
+      expect(
+        webCalls.any((m) => m['operation'] == 'detachProcessedVideo'),
+        isTrue,
+      );
+      expect(
+        nativeCalls.map((c) => c.method),
+        contains('unsubscribeProcessedVideo'),
+      );
     },
   );
 }

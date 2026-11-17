@@ -1,6 +1,8 @@
 package com.oneplusdream.flutter_aws_chime
 
 import com.amazonaws.services.chime.sdk.meetings.device.MediaDevice
+import com.amazonaws.services.chime.sdk.meetings.audiovideo.contentshare.ContentShareSource
+import com.amazonaws.services.chime.sdk.meetings.audiovideo.video.VideoContentHint
 import com.amazonaws.services.chime.sdk.meetings.session.DefaultMeetingSession
 import com.amazonaws.services.chime.sdk.meetings.session.MediaPlacement
 import com.amazonaws.services.chime.sdk.meetings.session.MeetingSessionConfiguration
@@ -64,6 +66,34 @@ class MethodChannelCoordinator(binaryMessenger: BinaryMessenger, activity: Activ
                 "detachProcessedVideoSource" -> {
                     MeetingSessionManager.detachProcessedVideoSource()
                     result.success(null)
+                    return@setMethodCallHandler
+                }
+                "attachAndroidScreenCaptureSource" -> {
+                    try {
+                        val sourceId = call.argument<String>("sourceId").orEmpty()
+                        require(sourceId.isNotEmpty()) { "sourceId is required." }
+                        val audioVideo = MeetingSessionManager.meetingSession?.audioVideo
+                            ?: throw IllegalStateException("No active Chime meeting session.")
+                        MeetingSessionManager.detachAndroidScreenCaptureSource()
+                        val source = ProcessedChimeVideoSource(
+                            sourceId = sourceId,
+                            contentHint = VideoContentHint.Text,
+                        )
+                        MeetingSessionManager.androidScreenSource = source
+                        val contentShare = ContentShareSource().apply {
+                            videoSource = source
+                        }
+                        audioVideo.startContentShare(contentShare)
+                        result.success(mapOf("success" to true))
+                    } catch (error: Throwable) {
+                        MeetingSessionManager.detachAndroidScreenCaptureSource()
+                        result.error("attach_screen_share_failed", error.message, null)
+                    }
+                    return@setMethodCallHandler
+                }
+                "detachAndroidScreenCaptureSource" -> {
+                    MeetingSessionManager.detachAndroidScreenCaptureSource()
+                    result.success(true)
                     return@setMethodCallHandler
                 }
                 MethodCallFlutter.manageAudioPermissions.call -> {
@@ -140,6 +170,7 @@ class MethodChannelCoordinator(binaryMessenger: BinaryMessenger, activity: Activ
     }
 
     fun dispose() {
+        MeetingSessionManager.detachAndroidScreenCaptureSource()
         MeetingSessionManager.detachProcessedVideoSource()
         permissionsManager.cancelPendingRequests()
         methodChannel.setMethodCallHandler(null)

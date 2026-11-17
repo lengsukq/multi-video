@@ -1,4 +1,5 @@
 analyzer:
   exclude:
     - macos/**
+    - windows/**
 include: ../../analysis_options.sdk.yaml

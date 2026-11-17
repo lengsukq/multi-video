@@ -17,6 +17,7 @@ public final class FlutterRealtimeMediaIvsPlugin:
 
     private var eventSink: FlutterEventSink?
     private var stage: IVSStage?
+    private var contentStage: IVSStage?
     // Creating IVSDeviceDiscovery immediately changes the process-wide
     // AVAudioSession category/mode and can deactivate the active audio engine.
     // The combined Flutter SDK registers all vendor plugins at startup, so
@@ -25,11 +26,13 @@ public final class FlutterRealtimeMediaIvsPlugin:
     private var publishStreams: [IVSLocalStageStream] = []
     private var cameraStream: IVSLocalStageStream?
     private var microphoneStream: IVSLocalStageStream?
+    private var processedVideoSource: IvsIosSystemScreenSource?
     private var iosScreenStream: IVSLocalStageStream?
     private var iosScreenSource: IvsIosSystemScreenSource?
     private var remoteVideoStreams: [String: IVSStageStream] = [:]
     private var platformViews: [IvsVideoPlatformView] = []
     private var shouldPublish = false
+    private var videoEnabled = false
     private var connectedOnce = false
     private var pendingJoinResult: FlutterResult?
     private lazy var stageDelegate = IvsStageDelegateProxy(owner: self)
@@ -70,6 +73,10 @@ public final class FlutterRealtimeMediaIvsPlugin:
             switch call.method {
             case "probeDevices":
                 self.probeDevices(result: result)
+            case "listAudioDevices":
+                self.listAudioDevices(result: result)
+            case "selectAudioDevice":
+                self.selectAudioDevice(call.arguments, result: result)
             case "join":
                 self.join(call.arguments, result: result)
             case "exchangeToken":
@@ -81,6 +88,11 @@ public final class FlutterRealtimeMediaIvsPlugin:
                 self.setMuted(call.arguments, result: result)
             case "setVideoEnabled":
                 self.setVideoEnabled(call.arguments, result: result)
+            case "attachProcessedVideoSource":
+                self.attachProcessedVideoSource(call.arguments, result: result)
+            case "detachProcessedVideoSource":
+                self.detachProcessedVideoSource()
+                result(nil)
             case "attachIosScreenCaptureKitSource":
                 self.attachIosScreenCaptureKitSource(call.arguments, result: result)
             case "detachIosScreenCaptureKitSource":
@@ -178,8 +190,94 @@ public final class FlutterRealtimeMediaIvsPlugin:
             )
             return
         }
+        if let nextRole = nonEmptyString(values["role"]) {
+            let nextPublish = nextRole != "viewer"
+            if nextPublish != shouldPublish {
+                shouldPublish = nextPublish
+                if !nextPublish {
+                    detachIosScreenCaptureKitSource()
+                    detachProcessedVideoSource()
+                }
+                prepareLocalStreams()
+            }
+        }
         do {
             try stage.exchangeToken(token)
+            stage.refreshStrategy()
+            result(nil)
+        } catch {
+            result(
+                FlutterError(
+                    code: "native_error",
+                    message: error.localizedDescription,
+                    details: String(describing: error)
+                )
+            )
+        }
+    }
+
+    private func listAudioDevices(result: @escaping FlutterResult) {
+        let session = AVAudioSession.sharedInstance()
+        var devices: [[String: String]] = [
+            ["id": "speaker", "label": "Speaker"],
+            ["id": "receiver", "label": "Receiver"],
+        ]
+        var seenIds: Set<String> = ["speaker", "receiver"]
+        if let inputs = session.availableInputs {
+            for input in inputs where input.portType != .builtInMic {
+                if seenIds.insert(input.uid).inserted {
+                    devices.append(["id": input.uid, "label": input.portName])
+                }
+            }
+        }
+        for output in session.currentRoute.outputs {
+            if output.portType == .builtInSpeaker || output.portType == .builtInReceiver {
+                continue
+            }
+            if seenIds.insert(output.uid).inserted {
+                devices.append(["id": output.uid, "label": output.portName])
+            }
+        }
+        result(devices)
+    }
+
+    private func selectAudioDevice(
+        _ arguments: Any?,
+        result: @escaping FlutterResult
+    ) {
+        guard let values = arguments as? [String: Any],
+              let id = nonEmptyString(values["id"]) else {
+            result(
+                FlutterError(
+                    code: "invalid_argument",
+                    message: "Audio output device id is required.",
+                    details: nil
+                )
+            )
+            return
+        }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            if id == "speaker" {
+                try session.overrideOutputAudioPort(.speaker)
+            } else if id == "receiver" {
+                try session.overrideOutputAudioPort(.none)
+                if let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
+                    try session.setPreferredInput(builtIn)
+                }
+            } else if let matchingInput = session.availableInputs?.first(where: { $0.uid == id }) {
+                try session.overrideOutputAudioPort(.none)
+                try session.setPreferredInput(matchingInput)
+            } else {
+                result(
+                    FlutterError(
+                        code: "invalid_argument",
+                        message: "Unknown audio output device id: \(id).",
+                        details: nil
+                    )
+                )
+                return
+            }
             result(nil)
         } catch {
             result(
@@ -194,6 +292,7 @@ public final class FlutterRealtimeMediaIvsPlugin:
 
     private func leave() {
         detachIosScreenCaptureKitSource()
+        detachProcessedVideoSource()
         stage?.leave()
         if let stage {
             stage.remove(stageDelegate)
@@ -201,6 +300,7 @@ public final class FlutterRealtimeMediaIvsPlugin:
         stage = nil
         pendingJoinResult = nil
         connectedOnce = false
+        videoEnabled = false
         publishStreams.removeAll()
         cameraStream = nil
         microphoneStream = nil
@@ -209,11 +309,77 @@ public final class FlutterRealtimeMediaIvsPlugin:
         refreshPlatformViews()
     }
 
+    private func attachProcessedVideoSource(
+        _ arguments: Any?, result: @escaping FlutterResult
+    ) {
+        guard let stage, shouldPublish else {
+            result(FlutterError(code: "invalid_state",
+                                message: "An active IVS publisher Stage is required.",
+                                details: nil))
+            return
+        }
+        guard let sourceId = nonEmptyString((arguments as? [String: Any])?["sourceId"]) else {
+            result(FlutterError(code: "invalid_join_info",
+                                message: "sourceId is required.",
+                                details: nil))
+            return
+        }
+        let wasEnabled = videoEnabled
+        detachProcessedVideoSource()
+        if let existing = cameraStream {
+            existing.setMuted(true)
+            publishStreams.removeAll { $0 === existing }
+            cameraStream = nil
+        }
+        let device = deviceDiscovery().createImageSource(withName: "processed-camera")
+        let stream = IVSLocalStageStream(device: device)
+        stream.setMuted(!wasEnabled)
+        stream.delegate = stageDelegate
+        let source = IvsIosSystemScreenSource(sourceId: sourceId, output: device)
+        do {
+            try source.start()
+            processedVideoSource = source
+            cameraStream = stream
+            videoEnabled = wasEnabled
+            publishStreams.insert(stream, at: 0)
+            stage.refreshStrategy()
+            refreshPlatformViews()
+            result(nil)
+        } catch {
+            source.stop()
+            result(FlutterError(code: "native_error",
+                                message: error.localizedDescription,
+                                details: nil))
+        }
+    }
+
+    private func detachProcessedVideoSource() {
+        guard processedVideoSource != nil else { return }
+        let wasEnabled = videoEnabled
+        processedVideoSource?.stop()
+        processedVideoSource = nil
+        if let existing = cameraStream {
+            existing.setMuted(true)
+            publishStreams.removeAll { $0 === existing }
+            cameraStream = nil
+        }
+        if shouldPublish, wasEnabled, let camera = defaultCameraDevice() {
+            let stream = IVSLocalStageStream(device: camera)
+            stream.setMuted(false)
+            stream.delegate = stageDelegate
+            cameraStream = stream
+            publishStreams.insert(stream, at: 0)
+        }
+        stage?.refreshStrategy()
+        refreshPlatformViews()
+    }
+
     private func attachIosScreenCaptureKitSource(
         _ arguments: Any?, result: @escaping FlutterResult
     ) {
+        let values = arguments as? [String: Any]
         guard let stage, shouldPublish,
-              let sourceId = (arguments as? [String: Any])?["sourceId"] as? String,
+              let sourceId = values?["sourceId"] as? String,
               !sourceId.isEmpty else {
             result(FlutterError(code: "invalid_state",
                                 message: "IVS Stage and the native screen source must be active.",
@@ -221,21 +387,36 @@ public final class FlutterRealtimeMediaIvsPlugin:
             return
         }
         detachIosScreenCaptureKitSource()
-        // A single IVS Stage participant publishes one video stream. Replace
-        // the camera rather than silently attempting simultaneous video tracks.
+        let auxiliaryToken = nonEmptyString(values?["auxiliaryToken"])
         let device = deviceDiscovery().createImageSource(withName: "screen-share")
         let stream = IVSLocalStageStream(device: device)
         stream.setMuted(false)
         stream.delegate = stageDelegate
         let source = IvsIosSystemScreenSource(sourceId: sourceId, output: device)
+        var auxStage: IVSStage?
         do {
             try source.start()
             iosScreenSource = source
             iosScreenStream = stream
-            stage.refreshStrategy()
+            if let auxiliaryToken {
+                let created = try IVSStage(token: auxiliaryToken, strategy: stageDelegate)
+                created.addRenderer(stageDelegate)
+                auxStage = created
+                contentStage = created
+                try created.join()
+            } else {
+                stage.refreshStrategy()
+            }
             refreshPlatformViews()
             result(nil)
         } catch {
+            auxStage?.leave()
+            if auxStage != nil {
+                auxStage?.remove(stageDelegate)
+            }
+            contentStage = nil
+            iosScreenSource = nil
+            iosScreenStream = nil
             source.stop()
             result(FlutterError(code: "native_error", message: error.localizedDescription,
                                 details: nil))
@@ -243,7 +424,14 @@ public final class FlutterRealtimeMediaIvsPlugin:
     }
 
     private func detachIosScreenCaptureKitSource() {
-        guard iosScreenStream != nil || iosScreenSource != nil else { return }
+        guard iosScreenStream != nil || iosScreenSource != nil || contentStage != nil else {
+            return
+        }
+        if let auxStage = contentStage {
+            auxStage.leave()
+            auxStage.remove(stageDelegate)
+            contentStage = nil
+        }
         iosScreenSource?.stop()
         iosScreenSource = nil
         iosScreenStream = nil
@@ -263,10 +451,23 @@ public final class FlutterRealtimeMediaIvsPlugin:
         return created
     }
 
+    private func defaultCameraDevice() -> IVSDevice? {
+        let devices = deviceDiscovery().listLocalDevices()
+        return devices.first {
+            let descriptor = $0.descriptor()
+            return descriptor.type == .camera && descriptor.position == .front
+        } ?? devices.first {
+            $0.descriptor().type == .camera
+        }
+    }
+
     private func prepareLocalStreams() {
         iosScreenSource?.stop()
         iosScreenSource = nil
         iosScreenStream = nil
+        processedVideoSource?.stop()
+        processedVideoSource = nil
+        videoEnabled = false
         publishStreams.removeAll()
         cameraStream = nil
         microphoneStream = nil
@@ -276,12 +477,7 @@ public final class FlutterRealtimeMediaIvsPlugin:
         }
 
         let devices = deviceDiscovery().listLocalDevices()
-        let camera = devices.first {
-            let descriptor = $0.descriptor()
-            return descriptor.type == .camera && descriptor.position == .front
-        } ?? devices.first {
-            $0.descriptor().type == .camera
-        }
+        let camera = defaultCameraDevice()
         let microphone = devices.first {
             let descriptor = $0.descriptor()
             return descriptor.type == .microphone && descriptor.isDefault
@@ -356,10 +552,22 @@ public final class FlutterRealtimeMediaIvsPlugin:
         }
         let enabled =
             ((arguments as? [String: Any])?["enabled"] as? Bool) ?? false
+        videoEnabled = enabled
+        if cameraStream == nil, processedVideoSource == nil, enabled,
+           let camera = defaultCameraDevice()
+        {
+            let stream = IVSLocalStageStream(device: camera)
+            stream.setMuted(true)
+            stream.delegate = stageDelegate
+            cameraStream = stream
+            publishStreams.insert(stream, at: 0)
+            stage?.refreshStrategy()
+        }
         guard let cameraStream else {
             if !enabled {
                 result(nil)
             } else {
+                videoEnabled = false
                 result(
                     FlutterError(
                         code: "invalid_state",
@@ -443,7 +651,10 @@ public final class FlutterRealtimeMediaIvsPlugin:
         _ stage: IVSStage,
         streamsToPublishForParticipant participant: IVSParticipantInfo
     ) -> [IVSLocalStageStream] {
-        if let iosScreenStream {
+        if stage === contentStage {
+            return iosScreenStream.map { [$0] } ?? []
+        }
+        if let iosScreenStream, contentStage == nil {
             return [iosScreenStream, microphoneStream].compactMap { $0 }
         }
         return publishStreams
@@ -453,14 +664,16 @@ public final class FlutterRealtimeMediaIvsPlugin:
         _ stage: IVSStage,
         shouldPublishParticipant participant: IVSParticipantInfo
     ) -> Bool {
-        shouldPublish
+        if stage === contentStage { return true }
+        return shouldPublish
     }
 
     fileprivate func stage(
         _ stage: IVSStage,
         shouldSubscribeToParticipant participant: IVSParticipantInfo
     ) -> IVSStageSubscribeType {
-        participant.isLocal ? .none : .audioVideo
+        if stage === contentStage { return .none }
+        return participant.isLocal ? .none : .audioVideo
     }
 
     fileprivate func stage(
@@ -468,6 +681,16 @@ public final class FlutterRealtimeMediaIvsPlugin:
         didChange connectionState: IVSStageConnectionState,
         withError error: Error?
     ) {
+        if stage === contentStage {
+            if connectionState == .disconnected, let error {
+                emit([
+                    "type": "error",
+                    "code": -1,
+                    "message": error.localizedDescription,
+                ])
+            }
+            return
+        }
         switch connectionState {
         case .connected:
             if let pendingJoinResult {
@@ -497,11 +720,22 @@ public final class FlutterRealtimeMediaIvsPlugin:
         }
     }
 
+    private static func isContentUserId(_ userId: String) -> Bool {
+        userId.hasSuffix("#content")
+    }
+
+    private static func stripContentSuffix(_ userId: String) -> String {
+        isContentUserId(userId)
+            ? String(userId.dropLast("#content".count))
+            : userId
+    }
+
     fileprivate func stage(
         _ stage: IVSStage,
         participantDidJoin participant: IVSParticipantInfo
     ) {
-        guard !participant.isLocal else { return }
+        guard stage === self.stage, !participant.isLocal else { return }
+        if Self.isContentUserId(participant.userId) { return }
         emit([
             "type": "participantJoined",
             "userId": participant.userId,
@@ -521,13 +755,26 @@ public final class FlutterRealtimeMediaIvsPlugin:
         _ stage: IVSStage,
         participantDidLeave participant: IVSParticipantInfo
     ) {
-        guard !participant.isLocal else { return }
+        guard stage === self.stage, !participant.isLocal else { return }
         remoteVideoStreams.removeValue(forKey: participant.userId)
         refreshPlatformViews()
+        if Self.isContentUserId(participant.userId) {
+            emit([
+                "type": "screenShareChanged",
+                "userId": Self.stripContentSuffix(participant.userId),
+                "trackUserId": participant.userId,
+                "available": false,
+            ])
+            return
+        }
         emit([
             "type": "participantLeft",
             "userId": participant.userId,
         ])
+    }
+
+    private static func isVideoDeviceType(_ type: IVSDeviceType) -> Bool {
+        type == .camera || type == .userImage
     }
 
     fileprivate func stage(
@@ -535,19 +782,32 @@ public final class FlutterRealtimeMediaIvsPlugin:
         participant: IVSParticipantInfo,
         didAdd streams: [IVSStageStream]
     ) {
+        guard stage === self.stage else { return }
+        let isContent = Self.isContentUserId(participant.userId)
         for stream in streams {
             stream.delegate = stageDelegate
+            let type = stream.device.descriptor().type
             if !participant.isLocal,
-               stream.device.descriptor().type == .camera
+               Self.isVideoDeviceType(type)
             {
                 remoteVideoStreams[participant.userId] = stream
-                emit([
-                    "type": "videoChanged",
-                    "userId": participant.userId,
-                    "available": !stream.isMuted,
-                ])
+                if isContent {
+                    emit([
+                        "type": "screenShareChanged",
+                        "userId": Self.stripContentSuffix(participant.userId),
+                        "trackUserId": participant.userId,
+                        "available": !stream.isMuted,
+                    ])
+                } else {
+                    emit([
+                        "type": "videoChanged",
+                        "userId": participant.userId,
+                        "available": !stream.isMuted,
+                    ])
+                }
             } else if !participant.isLocal,
-                      stream.device.descriptor().type == .microphone
+                      !isContent,
+                      type == .microphone
             {
                 emit([
                     "type": "audioChanged",
@@ -564,15 +824,27 @@ public final class FlutterRealtimeMediaIvsPlugin:
         participant: IVSParticipantInfo,
         didRemove streams: [IVSStageStream]
     ) {
+        guard stage === self.stage else { return }
+        let isContent = Self.isContentUserId(participant.userId)
         for stream in streams where !participant.isLocal {
-            if stream.device.descriptor().type == .camera {
+            let type = stream.device.descriptor().type
+            if Self.isVideoDeviceType(type) {
                 remoteVideoStreams.removeValue(forKey: participant.userId)
-                emit([
-                    "type": "videoChanged",
-                    "userId": participant.userId,
-                    "available": false,
-                ])
-            } else if stream.device.descriptor().type == .microphone {
+                if isContent {
+                    emit([
+                        "type": "screenShareChanged",
+                        "userId": Self.stripContentSuffix(participant.userId),
+                        "trackUserId": participant.userId,
+                        "available": false,
+                    ])
+                } else {
+                    emit([
+                        "type": "videoChanged",
+                        "userId": participant.userId,
+                        "available": false,
+                    ])
+                }
+            } else if !isContent, type == .microphone {
                 emit([
                     "type": "audioChanged",
                     "userId": participant.userId,
@@ -588,15 +860,26 @@ public final class FlutterRealtimeMediaIvsPlugin:
         participant: IVSParticipantInfo,
         didChangeMutedStreams streams: [IVSStageStream]
     ) {
+        guard stage === self.stage else { return }
+        let isContent = Self.isContentUserId(participant.userId)
         for stream in streams where !participant.isLocal {
             let type = stream.device.descriptor().type
-            if type == .camera {
-                emit([
-                    "type": "videoChanged",
-                    "userId": participant.userId,
-                    "available": !stream.isMuted,
-                ])
-            } else if type == .microphone {
+            if Self.isVideoDeviceType(type) {
+                if isContent {
+                    emit([
+                        "type": "screenShareChanged",
+                        "userId": Self.stripContentSuffix(participant.userId),
+                        "trackUserId": participant.userId,
+                        "available": !stream.isMuted,
+                    ])
+                } else {
+                    emit([
+                        "type": "videoChanged",
+                        "userId": participant.userId,
+                        "available": !stream.isMuted,
+                    ])
+                }
+            } else if !isContent, type == .microphone {
                 emit([
                     "type": "audioChanged",
                     "userId": participant.userId,
@@ -700,7 +983,7 @@ public final class FlutterRealtimeMediaIvsPlugin:
     private func refresh(_ view: IvsVideoPlatformView) {
         let stream: IVSStageStream?
         if view.isLocal {
-            stream = cameraStream
+            stream = view.isScreenShare ? iosScreenStream : cameraStream
         } else {
             stream = remoteVideoStreams[view.userId]
         }
@@ -969,6 +1252,7 @@ private final class IvsVideoPlatformView:
 {
     let userId: String
     let isLocal: Bool
+    let isScreenShare: Bool
     let fit: String
     private weak var plugin: FlutterRealtimeMediaIvsPlugin?
     private let container = UIView()
@@ -977,11 +1261,13 @@ private final class IvsVideoPlatformView:
         frame: CGRect,
         userId: String,
         isLocal: Bool,
+        isScreenShare: Bool,
         fit: String,
         plugin: FlutterRealtimeMediaIvsPlugin
     ) {
         self.userId = userId
         self.isLocal = isLocal
+        self.isScreenShare = isScreenShare
         self.fit = fit
         self.plugin = plugin
         super.init()
@@ -1035,6 +1321,7 @@ private final class IvsVideoPlatformViewFactory:
             frame: frame,
             userId: values["userId"] as? String ?? "",
             isLocal: values["isLocal"] as? Bool ?? false,
+            isScreenShare: values["isScreenShare"] as? Bool ?? false,
             fit: values["fit"] as? String ?? "contain",
             plugin: plugin!
         )

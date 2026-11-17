@@ -28,9 +28,20 @@ class ChimeMediaVideoTrack extends MediaVideoTrack
   bool get isScreenShare => tile.isContentShare;
 
   @override
-  int get width => tile.width > 0 ? tile.width : (processedSource?.width ?? 0);
+  int get width {
+    final source = processedSource;
+    if (source != null && source.width > 0 && source.height > 0) {
+      return source.width;
+    }
+    return tile.width;
+  }
 
   @override
-  int get height =>
-      tile.height > 0 ? tile.height : (processedSource?.height ?? 0);
+  int get height {
+    final source = processedSource;
+    if (source != null && source.width > 0 && source.height > 0) {
+      return source.height;
+    }
+    return tile.height;
+  }
 }

@@ -3,14 +3,14 @@ import CoreVideo
 import Foundation
 import os
 
-/// Publishes iOS 27 ScreenCaptureKit frames as Chime's separate content stream.
+/// Publishes FrameHub CVPixelBuffers (screen share or processed camera) into Chime.
 /// Capture ownership remains in flutter_realtime_processed_video's FrameHub;
 /// no CVPixelBuffer bytes travel through Flutter method channels.
 final class ChimeIosSystemScreenSource: NSObject, VideoSource {
     private static let logger = Logger(subsystem: "com.oneplusdream.aws.chime",
                                        category: "ChimeIosSystemScreenSource")
 
-    var videoContentHint: VideoContentHint = .text
+    var videoContentHint: VideoContentHint
 
     private let sourceId: String
     private let dispatchQueue = DispatchQueue(label: "com.oneplusdream.aws.chime.screen",
@@ -22,8 +22,9 @@ final class ChimeIosSystemScreenSource: NSObject, VideoSource {
     private var isDispatchScheduled = false
     private var firstFrameLogged = false
 
-    init(sourceId: String) {
+    init(sourceId: String, videoContentHint: VideoContentHint = .text) {
         self.sourceId = sourceId
+        self.videoContentHint = videoContentHint
         super.init()
     }
 

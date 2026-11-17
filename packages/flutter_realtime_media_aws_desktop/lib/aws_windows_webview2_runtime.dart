@@ -25,6 +25,14 @@ enum _AwsWindowsStartupStep {
 class AwsWindowsWebView2Runtime {
   AwsWindowsWebView2Runtime._(this.providerId);
 
+  @visibleForTesting
+  AwsWindowsWebView2Runtime.forTesting(
+    this.providerId, {
+    Future<bool> Function()? probeOverride,
+    Future<void> Function(String jsonMessage)? postWebMessageOverride,
+  }) : _probeOverride = probeOverride,
+       _postWebMessageOverride = postWebMessageOverride;
+
   static final instance = AwsWindowsWebView2Runtime._('chime');
   static final ivs = AwsWindowsWebView2Runtime._('ivs');
   static Future<void>? _environmentInitialization;
@@ -51,6 +59,8 @@ class AwsWindowsWebView2Runtime {
   String get _sessionId => 'aws-desktop-$providerId';
 
   WebviewController? _controller;
+  Future<bool> Function()? _probeOverride;
+  Future<void> Function(String jsonMessage)? _postWebMessageOverride;
   Directory? _temporaryAssets;
   StreamSubscription<dynamic>? _subscription;
   Future<bool>? _initializing;
@@ -59,10 +69,220 @@ class AwsWindowsWebView2Runtime {
   AwsWindowsRuntimeDiagnostic? lastDiagnostic;
   Map<String, dynamic> lastProbe = const {};
   int _nextCallId = 0;
+  int _processedGeneration = 0;
+  String? _attachedProcessedSourceId;
+  bool _postingProcessedFrame = false;
+  Map<String, Object?>? _queuedProcessedFrame;
+  final Set<String> _reportedProcessedFailures = <String>{};
   final _pending = <int, Completer<dynamic>>{};
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   final _frames = StreamController<Map<String, dynamic>>.broadcast();
   final _viewFrames = <String, StreamController<Map<String, dynamic>>>{};
+
+  static const MethodChannel _windowsChannel = MethodChannel(
+    'com.oneplusdream.flutter_realtime_media_aws_desktop/windows',
+  );
+  static const MethodChannel _effectsChannel = MethodChannel(
+    'flutter_realtime_video_effects',
+  );
+  static final Set<AwsWindowsWebView2Runtime> _processedRuntimes =
+      <AwsWindowsWebView2Runtime>{};
+  static bool _windowsChannelBound = false;
+
+  bool get _canPostWebMessage =>
+      _ready && (_controller != null || _postWebMessageOverride != null);
+
+  Future<void> _postWebMessage(String encoded) {
+    final override = _postWebMessageOverride;
+    if (override != null) return override(encoded);
+    return _controller!.postWebMessage(encoded);
+  }
+
+  @visibleForTesting
+  void debugConfigureForTesting({
+    Future<bool> Function()? probeOverride,
+    Future<void> Function(String jsonMessage)? postWebMessageOverride,
+  }) {
+    _probeOverride = probeOverride;
+    _postWebMessageOverride = postWebMessageOverride;
+    _ready = false;
+  }
+
+  @visibleForTesting
+  void debugHandleWebMessage(dynamic data) => _handleWebMessage(data);
+
+  @visibleForTesting
+  static void debugResetWindowsChannelHandler() {
+    if (_windowsChannelBound) {
+      _windowsChannel.setMethodCallHandler(null);
+      _windowsChannelBound = false;
+    }
+    _processedRuntimes.clear();
+  }
+
+  static void _ensureWindowsChannelHandler() {
+    if (_windowsChannelBound) return;
+    _windowsChannelBound = true;
+    _windowsChannel.setMethodCallHandler((call) async {
+      if (call.method != 'onProcessedFrame' || call.arguments is! Map) return;
+      final args = Map<Object?, Object?>.from(call.arguments as Map);
+      final sourceId = args['sourceId']?.toString() ?? '';
+      final data = args['data']?.toString() ?? '';
+      if (sourceId.isEmpty || data.isEmpty) return;
+      final timestampNs = (args['timestampNs'] as num?)?.toInt() ?? 0;
+      for (final runtime in List<AwsWindowsWebView2Runtime>.of(
+        _processedRuntimes,
+      )) {
+        if (runtime._attachedProcessedSourceId?.toLowerCase() ==
+            sourceId.toLowerCase()) {
+          runtime._pushProcessedFrame(
+            sourceId: sourceId,
+            timestampNs: timestampNs,
+            data: data,
+          );
+        }
+      }
+    });
+  }
+
+  /// Checks whether Windows WebView2 and the native processed-video FrameHub
+  /// can both exchange processed frames safely. Always fails closed when absent.
+  Future<bool> probeProcessedVideoInput() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return false;
+    try {
+      final hasNativeSymbols =
+          await _windowsChannel.invokeMethod<bool>(
+            'probeProcessedVideoInput',
+          ) ??
+          false;
+      if (!hasNativeSymbols) return false;
+      return await probe();
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<void> attachProcessedVideoSource(String sourceId) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) {
+      throw UnsupportedError(
+        'Windows WebView2 processed video requires Windows.',
+      );
+    }
+    _ensureWindowsChannelHandler();
+    final generation = ++_processedGeneration;
+    _reportedProcessedFailures.remove(sourceId.toLowerCase());
+    _attachedProcessedSourceId = sourceId;
+    _processedRuntimes.add(this);
+    try {
+      await invoke(
+        'attachProcessedVideo',
+        payload: {'sourceId': sourceId, 'generation': generation},
+      );
+      await _windowsChannel.invokeMethod<void>('subscribeProcessedVideo', {
+        'sourceId': sourceId,
+      });
+    } catch (_) {
+      await detachProcessedVideoSource();
+      rethrow;
+    }
+  }
+
+  Future<void> detachProcessedVideoSource() async {
+    final previousSourceId = _attachedProcessedSourceId;
+    _attachedProcessedSourceId = null;
+    _queuedProcessedFrame = null;
+    _processedRuntimes.remove(this);
+    final generation = ++_processedGeneration;
+    try {
+      if (_ready) {
+        await invoke(
+          'detachProcessedVideo',
+          payload: {
+            if (previousSourceId != null) 'sourceId': previousSourceId,
+            'generation': generation,
+          },
+        );
+      }
+    } catch (_) {
+      // Ignore detach RPC errors during teardown.
+    }
+    final stillInUse = _processedRuntimes.any(
+      (runtime) =>
+          previousSourceId != null &&
+          runtime._attachedProcessedSourceId?.toLowerCase() ==
+              previousSourceId.toLowerCase(),
+    );
+    if (!stillInUse) {
+      try {
+        await _windowsChannel.invokeMethod<void>('unsubscribeProcessedVideo');
+      } on MissingPluginException {
+        // Ignore when native Windows plugin is absent in unit tests.
+      } on PlatformException {
+        // Best-effort cleanup.
+      }
+    }
+  }
+
+  void _pushProcessedFrame({
+    required String sourceId,
+    required int timestampNs,
+    required String data,
+  }) {
+    if (!_canPostWebMessage) return;
+    final payload = <String, Object?>{
+      'channel': _channel,
+      'kind': 'processedFrame',
+      'sourceId': sourceId,
+      'timestampNs': timestampNs,
+      'data': data,
+    };
+    if (_postingProcessedFrame) {
+      _queuedProcessedFrame = payload;
+      return;
+    }
+    _postingProcessedFrame = true;
+    unawaited(_drainProcessedFrames(payload));
+  }
+
+  Future<void> _drainProcessedFrames(Map<String, Object?> initial) async {
+    Map<String, Object?>? current = initial;
+    try {
+      while (current != null &&
+          _canPostWebMessage &&
+          _attachedProcessedSourceId != null) {
+        await _postWebMessage(jsonEncode(current));
+        current = _queuedProcessedFrame;
+        _queuedProcessedFrame = null;
+      }
+    } catch (_) {
+      // Dropped frame cleanly when WebView2 is closing.
+    } finally {
+      _postingProcessedFrame = false;
+    }
+  }
+
+  void _reportProcessedVideoError(String sourceId, String message) {
+    final key = sourceId.trim().toLowerCase();
+    if (key.isEmpty || !_reportedProcessedFailures.add(key)) return;
+    unawaited(
+      _windowsChannel
+          .invokeMethod<void>('reportProcessedVideoError', {
+            'sourceId': sourceId,
+            'message': message,
+          })
+          .catchError((Object _) {}),
+    );
+    unawaited(
+      _effectsChannel
+          .invokeMethod<void>('sourceError', {
+            'sourceId': sourceId,
+            'message': message,
+          })
+          .catchError((Object _) {}),
+    );
+  }
 
   Stream<Map<String, dynamic>> get events => _events.stream;
   Stream<Map<String, dynamic>> get frames => _frames.stream;
@@ -100,6 +320,20 @@ class AwsWindowsWebView2Runtime {
       return Future<bool>.value(false);
     }
     if (_ready) return Future<bool>.value(true);
+    final override = _probeOverride;
+    if (override != null) {
+      return _initializing ??= override()
+          .then((ok) {
+            _ready = ok;
+            if (!ok && lastDiagnostic == null) {
+              _diagnose(AwsWindowsRuntimeDiagnostic.webView2Missing);
+            }
+            return ok;
+          })
+          .whenComplete(() {
+            _initializing = null;
+          });
+    }
     return _initializing ??= _initialize().whenComplete(() {
       _initializing = null;
     });
@@ -264,12 +498,11 @@ class AwsWindowsWebView2Runtime {
             'Windows WebView2 $providerId transport is unavailable.',
       );
     }
-    final browser = _controller!;
     final id = ++_nextCallId;
     final completion = Completer<dynamic>();
     _pending[id] = completion;
     try {
-      await browser.postWebMessage(
+      await _postWebMessage(
         jsonEncode({
           'channel': _channel,
           'id': id,
@@ -288,7 +521,15 @@ class AwsWindowsWebView2Runtime {
     }
   }
 
-  void _handleWebMessage(dynamic data) {
+  void _handleWebMessage(dynamic rawData) {
+    dynamic data = rawData;
+    if (data is String && data.trimLeft().startsWith('{')) {
+      try {
+        data = jsonDecode(data);
+      } catch (_) {
+        return;
+      }
+    }
     if (data is! Map) return;
     final body = Map<String, dynamic>.from(data);
     if (body['channel'] == _channel && body['kind'] == 'result') {
@@ -307,6 +548,14 @@ class AwsWindowsWebView2Runtime {
       }
       return;
     }
+    if (body['kind'] == 'processedVideoError') {
+      final sourceId = body['sourceId']?.toString() ?? '';
+      final message =
+          body['message']?.toString() ??
+          'Windows WebView2 processed video failed.';
+      _reportProcessedVideoError(sourceId, message);
+      return;
+    }
     if (body['kind'] == 'event' &&
         body['sessionId'] == _sessionId &&
         body['event'] is Map) {
@@ -323,8 +572,10 @@ class AwsWindowsWebView2Runtime {
   }
 
   Future<void> dispose() async {
+    await detachProcessedVideoSource();
     _ready = false;
     _initializing = null;
+    _reportedProcessedFailures.clear();
     for (final result in _pending.values) {
       if (!result.isCompleted) {
         result.completeError(StateError('$providerId WebView2 was disposed.'));

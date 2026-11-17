@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
 import 'ivs_engine.dart';
@@ -29,7 +30,9 @@ abstract class _IvsMediaSession
         MediaCredentialRefreshable,
         MediaStatsProvider,
         ProcessedVideoSink,
-        MediaDeviceController {
+        MediaDeviceController,
+        MediaRoleSwitchable,
+        MediaAuxiliaryTokenConsumer {
   _IvsMediaSession({required this.role, required this.engineFactory})
     : _snapshot = MediaSnapshot(role: role);
 
@@ -43,6 +46,8 @@ abstract class _IvsMediaSession
 
   IvsEngine? _engine;
   IvsJoinInfo? _joinInfo;
+  _IvsMediaSession? _adoptedTarget;
+  _IvsMediaSession get _eventTarget => _adoptedTarget?._eventTarget ?? this;
   MediaSessionState _state = MediaSessionState.idle;
   MediaSnapshot _snapshot;
   bool _disposed = false;
@@ -66,13 +71,15 @@ abstract class _IvsMediaSession
   MediaCapabilities get capabilities {
     final publisher = role != MediaRole.viewer;
     final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final isMacos = !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
     return MediaCapabilities(
       canPublishAudio: publisher,
       canPublishVideo: publisher,
       canScreenShare:
           publisher &&
           !kIsWeb &&
-          (defaultTargetPlatform == TargetPlatform.iOS ||
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS ||
               defaultTargetPlatform == TargetPlatform.macOS ||
               defaultTargetPlatform == TargetPlatform.windows),
       canSwitchCamera:
@@ -82,11 +89,13 @@ abstract class _IvsMediaSession
       canBlurBackground: publisher && _publishing._effectsPlatform,
       canReplaceBackgroundImage: publisher && _publishing._effectsPlatform,
       canEnumerateCameras:
-          publisher && (_publishing._effectsPlatform || isWindows),
+          publisher && (_publishing._effectsPlatform || isWindows || isMacos),
       canSelectCamera:
-          publisher && (_publishing._effectsPlatform || isWindows),
-      canEnumerateMicrophones: publisher && isWindows,
-      canSelectMicrophone: publisher && isWindows,
+          publisher && (_publishing._effectsPlatform || isWindows || isMacos),
+      canEnumerateMicrophones: publisher && (isWindows || isMacos),
+      canSelectMicrophone: publisher && (isWindows || isMacos),
+      canEnumerateAudioDevices: true,
+      canSelectAudioOutput: true,
       canSubscribeVideo: true,
       canReportNetworkStats: true,
       canListParticipants: role == MediaRole.host,
@@ -114,6 +123,15 @@ abstract class _IvsMediaSession
   void setCredentialRefreshCallback(MediaCredentialRefreshCallback? callback) =>
       _credentials.setCredentialRefreshCallback(callback);
   @override
+  void setRoleChangeCallback(MediaRoleChangeCallback? callback) =>
+      _credentials.setRoleChangeCallback(callback);
+  @override
+  void setAuxiliaryTokenCallback(MediaAuxiliaryTokenCallback? callback) =>
+      _publishing.setAuxiliaryTokenCallback(callback);
+  @override
+  Future<MediaSession> switchRole(MediaRole targetRole) =>
+      _credentials.switchRole(targetRole);
+  @override
   bool supportsProcessedVideoSource(ProcessedVideoSource source) =>
       _publishing.supportsProcessedVideoSource(source);
   @override
@@ -128,6 +146,54 @@ abstract class _IvsMediaSession
   @override
   Future<void> selectMediaDevice(MediaDevice device) =>
       _publishing.selectMediaDevice(device);
+  Future<List<MediaAudioDevice>> listAudioDevices() =>
+      _publishing.listAudioDevices();
+  Future<void> selectAudioDevice(MediaAudioDevice device) =>
+      _publishing.selectAudioDevice(device);
+
+  void _adoptStateFrom(_IvsMediaSession previous) {
+    previous._adoptedTarget = this;
+    previous._statistics.stop();
+    _engine = previous._engine;
+    previous._engine = null;
+    _joinInfo = previous._joinInfo;
+    _state = previous._state;
+    _connectionGeneration = previous._connectionGeneration;
+    _joinFuture = Future<void>.value();
+    _publishing._adoptFrom(previous._publishing);
+    _mapper._adoptFrom(previous._mapper);
+    _credentials._adoptFrom(previous._credentials);
+    final nextParticipants = previous._snapshot.participants
+        .map(
+          (item) => item.isLocal && role == MediaRole.viewer
+              ? item.copyWith(
+                  isMuted: true,
+                  isVideoEnabled: false,
+                  clearVideoTrack: true,
+                )
+              : item,
+        )
+        .toList(growable: false);
+    _snapshot = previous._snapshot.copyWith(
+      role: role,
+      capabilities: capabilities,
+      participants: nextParticipants,
+      localMuted: role == MediaRole.viewer ? true : previous._snapshot.localMuted,
+      localVideoEnabled: role == MediaRole.viewer
+          ? false
+          : previous._snapshot.localVideoEnabled,
+      localScreenShareEnabled: role == MediaRole.viewer
+          ? false
+          : previous._snapshot.localScreenShareEnabled,
+      clearContentShareTrack:
+          role == MediaRole.viewer &&
+          previous._snapshot.contentShareTrack?.isLocal == true,
+    );
+    if (identical(_activeIvsSession, previous)) {
+      _activeIvsSession = this;
+    }
+    _statistics._startStatsPolling();
+  }
 
   @override
   Future<void> join(MediaJoinInfo joinInfo) {
@@ -239,6 +305,7 @@ abstract class _IvsMediaSession
   Future<void> _leave() async {
     _connectionGeneration++;
     if (_disposed ||
+        _adoptedTarget != null ||
         _state == MediaSessionState.idle ||
         _state == MediaSessionState.ended) {
       return;
@@ -248,6 +315,10 @@ abstract class _IvsMediaSession
     _joinCancelled = _joinCancelled || _joinFuture != null;
     _setState(MediaSessionState.leaving);
     final cleanup = Cleanup(timeout: cleanupTimeout);
+    await cleanup.run(
+      'auxiliary.revoke',
+      _publishing._revokeAuxiliaryScreenTokenIfNeeded,
+    );
     var left = false;
     await cleanup.run('engine.leave', () async {
       await _releaseEngine(leave: true);
@@ -265,6 +336,7 @@ abstract class _IvsMediaSession
         clearLocalParticipantId: true,
         localMuted: true,
         localVideoEnabled: false,
+        localScreenShareEnabled: false,
         clearContentShareTrack: true,
       ),
     );
@@ -283,16 +355,22 @@ abstract class _IvsMediaSession
     await cleanup.run('refresh.timer', () async {
       await _credentials.dispose();
     });
-    if (_state.isActive || _state == MediaSessionState.connecting) {
-      await cleanup.run('engine.leave', () => _releaseEngine(leave: true));
+    if (_adoptedTarget == null) {
+      await cleanup.run(
+        'auxiliary.revoke',
+        _publishing._revokeAuxiliaryScreenTokenIfNeeded,
+      );
+      if (_state.isActive || _state == MediaSessionState.connecting) {
+        await cleanup.run('engine.leave', () => _releaseEngine(leave: true));
+      }
+      await cleanup.run('engine.dispose', () => _releaseEngine(leave: false));
+      await cleanup.run('active.owner', () async {
+        if (identical(_activeIvsSession, this)) _activeIvsSession = null;
+      });
+      await cleanup.run('terminal', () async {
+        _setState(MediaSessionState.disposed);
+      });
     }
-    await cleanup.run('engine.dispose', () => _releaseEngine(leave: false));
-    await cleanup.run('active.owner', () async {
-      if (identical(_activeIvsSession, this)) _activeIvsSession = null;
-    });
-    await cleanup.run('terminal', () async {
-      _setState(MediaSessionState.disposed);
-    });
     await cleanup.run('states', () async {
       await _states.close();
     });

@@ -20,11 +20,9 @@ class WindowsIvsWebView2Engine implements IvsEngine {
   IvsEngineEvents _events = const IvsEngineEvents();
   final Map<String, Map<String, dynamic>> _participants = {};
   final Set<String> _videoParticipants = {};
+  String? _remoteScreenTrackUserId;
   Map<String, dynamic>? _joinPayload;
   String? _localUserId;
-  bool _localMuted = true;
-  bool _localVideoEnabled = false;
-  Map<String, dynamic>? _selectedMicrophone;
   Map<String, dynamic>? _selectedCamera;
   bool _joined = false;
   bool _disposed = false;
@@ -38,8 +36,6 @@ class WindowsIvsWebView2Engine implements IvsEngine {
     }
     _events = events;
     _localUserId = info.participantId;
-    _localMuted = true;
-    _localVideoEnabled = false;
     final payload = <String, dynamic>{
       'provider': 'ivs',
       'participantId': info.participantId,
@@ -75,7 +71,11 @@ class WindowsIvsWebView2Engine implements IvsEngine {
   }
 
   @override
-  Future<void> exchangeToken(String token) async {
+  Future<void> exchangeToken(
+    String token, {
+    MediaRole? role,
+    List<String>? capabilities,
+  }) async {
     if (!_joined || _disposed || _joinPayload == null) {
       throw StateError('IVS Windows Stage is inactive.');
     }
@@ -87,50 +87,34 @@ class WindowsIvsWebView2Engine implements IvsEngine {
         message: 'Missing refreshed IVS token.',
       );
     }
-    final wasMuted = _localMuted;
-    final wasVideoEnabled = _localVideoEnabled;
     final ivsBlock = Map<String, dynamic>.from(
       _joinPayload!['ivs'] as Map<Object?, Object?>,
     )..['token'] = nextToken;
+    if (capabilities != null) {
+      ivsBlock['capabilities'] = List<String>.from(capabilities);
+    }
     final updatedPayload = <String, dynamic>{
       ..._joinPayload!,
+      if (role != null) 'role': role.wireName,
       'ivs': ivsBlock,
     };
     _joinPayload = updatedPayload;
     _exchangingToken = true;
     try {
-      await _runtime
-          .invoke('invoke', name: 'leave')
-          .catchError((Object _) => null);
-      await _runtime
-          .invoke('invoke', name: 'dispose')
-          .catchError((Object _) => null);
-      if (_disposed) return;
-      await _runtime.invoke('invoke', name: 'create', payload: updatedPayload);
-      await _runtime.invoke('invoke', name: 'join');
+      await _command('exchangeToken', {'payload': updatedPayload});
     } finally {
       _exchangingToken = false;
     }
-    if (_selectedMicrophone != null) {
-      await _command('selectDevice', {'device': _selectedMicrophone});
-    }
-    if (_selectedCamera != null) {
-      await _command('selectDevice', {'device': _selectedCamera});
-    }
-    if (!wasMuted) await setMuted(false);
-    if (wasVideoEnabled) await setVideoEnabled(true);
   }
 
   @override
   Future<void> setMuted(bool muted) async {
     await _command('setMuted', {'muted': muted});
-    _localMuted = muted;
   }
 
   @override
   Future<void> setVideoEnabled(bool enabled) async {
     await _command('setVideoEnabled', {'enabled': enabled});
-    _localVideoEnabled = enabled;
   }
 
   Future<List<MediaDevice>> listMediaDevices({
@@ -184,9 +168,7 @@ class WindowsIvsWebView2Engine implements IvsEngine {
         MediaDeviceKind.audioOutput => 'audioOutput',
       },
     };
-    if (device.kind == MediaDeviceKind.microphone) {
-      _selectedMicrophone = serialized;
-    } else if (device.kind == MediaDeviceKind.camera) {
+    if (device.kind == MediaDeviceKind.camera) {
       _selectedCamera = serialized;
     }
     await _command('selectDevice', {'device': serialized});
@@ -201,17 +183,69 @@ class WindowsIvsWebView2Engine implements IvsEngine {
     }
   }
 
-  Future<void> setScreenShareEnabled(bool enabled) async {
-    await _command('setScreenShareEnabled', {'enabled': enabled});
+  @override
+  Future<List<MediaAudioDevice>> listAudioDevices() async {
+    final outputs = await listMediaDevices(
+      kinds: const {MediaDeviceKind.audioOutput},
+    );
+    return outputs
+        .map(
+          (device) =>
+              MediaAudioDevice.fromLabel(device.label, id: device.id),
+        )
+        .toList(growable: false);
   }
 
   @override
+  Future<void> selectAudioDevice(MediaAudioDevice device) => _command(
+    'selectAudioOutput',
+    {
+      'id': device.id ?? device.label,
+      'label': device.label,
+      'kind': 'audioOutput',
+    },
+  );
+
+  Future<void> setScreenShareEnabled(
+    bool enabled, {
+    String? auxiliaryToken,
+  }) async {
+    await _command('setScreenShareEnabled', {
+      'enabled': enabled,
+      if (auxiliaryToken != null && auxiliaryToken.trim().isNotEmpty)
+        'auxiliaryToken': auxiliaryToken.trim(),
+    });
+  }
+
+  Future<void> attachProcessedVideoSource(ProcessedVideoSource source) =>
+      _runtime.attachProcessedVideoSource(source.id);
+
+  Future<void> detachProcessedVideoSource() =>
+      _runtime.detachProcessedVideoSource();
+
+  @override
   Future<void> switchCamera(MediaCameraPosition position) async {
-    throw const RealtimeException(
-      code: RealtimeErrorCode.unsupportedFeature,
-      providerId: 'ivs',
-      message: 'IVS Windows camera position switching is not implemented.',
+    final cameras = await listMediaDevices(kinds: const {MediaDeviceKind.camera});
+    if (cameras.isEmpty) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        providerId: 'ivs',
+        message: 'No camera device is available on Windows.',
+      );
+    }
+    final desiredToken = position == MediaCameraPosition.front ? 'front' : 'back';
+    final byLabel = cameras.cast<MediaDevice?>().firstWhere(
+      (c) => c!.label.toLowerCase().contains(desiredToken),
+      orElse: () => null,
     );
+    final currentId = _selectedCamera?['id']?.toString();
+    final target =
+        byLabel ??
+        cameras.firstWhere(
+          (c) => c.id != currentId,
+          orElse: () => cameras.first,
+        );
+    await selectMediaDevice(target);
   }
 
   @override
@@ -318,7 +352,38 @@ class WindowsIvsWebView2Engine implements IvsEngine {
     _videoParticipants
       ..clear()
       ..addAll(videos);
+    final rawContentTrack = event['contentShareTrack'];
+    String? nextScreenTrackUserId;
+    if (rawContentTrack is Map && rawContentTrack['isLocal'] != true) {
+      final trackParticipant = rawContentTrack['participantId']?.toString().trim();
+      if (trackParticipant != null && trackParticipant.isNotEmpty) {
+        nextScreenTrackUserId = trackParticipant;
+      }
+    }
+    if (_remoteScreenTrackUserId != nextScreenTrackUserId) {
+      if (_remoteScreenTrackUserId != null) {
+        final oldOwner = _stripContentSuffix(_remoteScreenTrackUserId!);
+        _events.onRemoteScreenShareChanged?.call(
+          oldOwner,
+          _remoteScreenTrackUserId!,
+          false,
+        );
+      }
+      if (nextScreenTrackUserId != null) {
+        final owner = _stripContentSuffix(nextScreenTrackUserId);
+        _events.onRemoteScreenShareChanged?.call(
+          owner,
+          nextScreenTrackUserId,
+          true,
+        );
+      }
+      _remoteScreenTrackUserId = nextScreenTrackUserId;
+    }
   }
+
+  static String _stripContentSuffix(String userId) => userId.endsWith('#content')
+      ? userId.substring(0, userId.length - '#content'.length)
+      : userId;
 
   @override
   Future<void> leave() async {
@@ -329,6 +394,7 @@ class WindowsIvsWebView2Engine implements IvsEngine {
     } finally {
       _participants.clear();
       _videoParticipants.clear();
+      _remoteScreenTrackUserId = null;
       _reconnecting = false;
     }
   }

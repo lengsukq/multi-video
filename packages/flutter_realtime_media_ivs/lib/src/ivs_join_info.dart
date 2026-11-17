@@ -13,6 +13,7 @@ class IvsJoinInfo extends MediaJoinInfo {
     required this.capabilities,
     required this.expiresAtMs,
     this.region,
+    this.auxiliaryScreenToken = false,
   }) : super(
          providerId: providerIdValue,
          payload: {
@@ -33,6 +34,7 @@ class IvsJoinInfo extends MediaJoinInfo {
   final List<String> capabilities;
   final int expiresAtMs;
   final String? region;
+  final bool auxiliaryScreenToken;
 
   bool get canPublish => capabilities.contains('PUBLISH');
   bool get canSubscribe => capabilities.contains('SUBSCRIBE');
@@ -135,6 +137,9 @@ class IvsJoinInfo extends MediaJoinInfo {
       capabilities: capabilities,
       expiresAtMs: expiresAtMs,
       region: ivs['region']?.toString(),
+      auxiliaryScreenToken:
+          ivs['auxiliaryScreenToken'] == true ||
+          json['auxiliaryScreenToken'] == true,
     );
   }
 }

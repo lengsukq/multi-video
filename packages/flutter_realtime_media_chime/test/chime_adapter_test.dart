@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_realtime_media_aws_desktop/aws_windows_diagnostics.dart';
+import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
 import 'package:flutter_aws_chime/flutter_aws_chime.dart' as chime;
 import 'package:flutter_realtime_media_chime/flutter_realtime_media_chime.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
@@ -426,7 +428,7 @@ void main() {
       expect(session.snapshot.localParticipantId, 'attendee-local');
       expect(session.snapshot.localParticipant?.displayName, 'Local User');
       expect(session.capabilities.canPublishVideo, isTrue);
-      expect(session.capabilities.canScreenShare, isFalse);
+      expect(session.capabilities.canScreenShare, isTrue);
       expect(session.capabilities.canSelectAudioOutput, isTrue);
       expect(session.capabilities.canSendData, isTrue);
       expect(session.capabilities.canReceiveData, isTrue);
@@ -560,6 +562,383 @@ void main() {
     expect(factory.supportedRoles, {MediaRole.participant});
     expect(factory.createSession(info).chimeSession, same(fake));
   });
+
+  test('iOS supports Chime virtual background processed video input', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    const channel = MethodChannel('com.oneplusdream.aws.chime.methodChannel');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return {'success': true, 'data': null};
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final session = ChimeMediaSession(session: FakeChimeMeetingSession());
+    addTearDown(session.dispose);
+    await session.join(ChimeJoinInfo.fromBackendResponse(backendJson()));
+    expect(session.capabilities.canBlurBackground, isTrue);
+    expect(session.capabilities.canReplaceBackgroundImage, isTrue);
+    const source = ProcessedVideoSource(
+      id: 'ios-effects',
+      kind: ProcessedVideoSourceKind.nativeFrameHub,
+      platform: ProcessedVideoPlatform.ios,
+      width: 1280,
+      height: 720,
+      frameRate: 24,
+    );
+    expect(session.supportsProcessedVideoSource(source), isTrue);
+    await session.attachProcessedVideoSource(source);
+    expect(
+      calls.any((call) => call.method == 'attachProcessedVideoSource'),
+      isTrue,
+    );
+  });
+
+  test(
+    'Android Chime local processed video track uses processed dimensions',
+    () {
+      const source = ProcessedVideoSource(
+        id: 'android-effects',
+        kind: ProcessedVideoSourceKind.nativeFrameHub,
+        platform: ProcessedVideoPlatform.android,
+        width: 1280,
+        height: 720,
+        frameRate: 24,
+      );
+      const tile = chime.MeetingVideoTile(
+        tileId: 1,
+        attendeeId: 'attendee-local',
+        width: 720,
+        height: 1280,
+        isLocal: true,
+        isContentShare: false,
+      );
+      const track = ChimeMediaVideoTrack(tile, processedSource: source);
+      expect(track.width, 1280);
+      expect(track.height, 720);
+    },
+  );
+
+  test('Android screen capture delegates content sharing to native Chime', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    const capture = MethodChannel(
+      'flutter_realtime_processed_video/android_system_screen_capture',
+    );
+    const chimeChannel = MethodChannel('com.oneplusdream.aws.chime.methodChannel');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(capture, (call) async {
+      calls.add(call.method);
+      if (call.method == 'androidScreenCaptureAvailable') return true;
+      if (call.method == 'androidScreenCaptureStart') {
+        return {
+          'id': 'android-screen-1',
+          'kind': 'nativeFrameHub',
+          'platform': 'android',
+          'width': 720,
+          'height': 1280,
+          'frameRate': 15.0,
+        };
+      }
+      return null;
+    });
+    messenger.setMockMethodCallHandler(chimeChannel, (call) async {
+      calls.add(call.method);
+      return {'success': true, 'data': null};
+    });
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(capture, null);
+      messenger.setMockMethodCallHandler(chimeChannel, null);
+    });
+    final adapter = ChimeMediaSession(session: FakeChimeMeetingSession());
+    await adapter.join(ChimeJoinInfo.fromBackendResponse(backendJson()));
+    expect(adapter.capabilities.canScreenShare, isTrue);
+    await adapter.setScreenShareEnabled(true);
+    expect(adapter.snapshot.localScreenShareEnabled, isTrue);
+    expect(calls, contains('attachAndroidScreenCaptureSource'));
+    await adapter.setScreenShareEnabled(false);
+    expect(adapter.snapshot.localScreenShareEnabled, isFalse);
+    expect(calls, contains('detachAndroidScreenCaptureSource'));
+    await adapter.dispose();
+  });
+
+  test(
+    'macOS Chime enumerates and selects desktop cameras without video effects',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const channel = MethodChannel('com.oneplusdream.aws.chime.methodChannel');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'probeProcessedVideoInput') return false;
+        return {'success': true, 'data': null};
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+      final fake = FakeChimeMeetingSession();
+      final adapter = ChimeMediaSession(session: fake);
+      addTearDown(adapter.dispose);
+      await adapter.join(ChimeJoinInfo.fromBackendResponse(backendJson()));
+
+      expect(adapter.capabilities.canBlurBackground, isFalse);
+      expect(adapter.capabilities.canEnumerateCameras, isTrue);
+      expect(adapter.capabilities.canSelectCamera, isTrue);
+      expect(adapter.capabilities.canEnumerateMicrophones, isTrue);
+      expect(adapter.capabilities.canSelectMicrophone, isTrue);
+
+      final cameras = await adapter.listMediaDevices(
+        kinds: const {MediaDeviceKind.camera},
+      );
+      expect(cameras.map((d) => d.id), ['cam-builtin', 'cam-usb']);
+      await adapter.selectMediaDevice(cameras.last);
+      expect(
+        fake.actions,
+        contains('selectDesktopMediaDevice:camera:cam-usb'),
+      );
+    },
+  );
+
+  test(
+    'macOS Chime selects camera without active effects and reconciles ID when effects attach',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const chimeChannel = MethodChannel(
+        'com.oneplusdream.aws.chime.methodChannel',
+      );
+      const sourcesChannel = MethodChannel(
+        'flutter_realtime_processed_video/sources',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final sourceCalls = <MethodCall>[];
+      messenger.setMockMethodCallHandler(chimeChannel, (call) async {
+        if (call.method == 'probeProcessedVideoInput') return true;
+        return null;
+      });
+      messenger.setMockMethodCallHandler(sourcesChannel, (call) async {
+        sourceCalls.add(call);
+        if (call.method == 'listCameras') {
+          return [
+            {
+              'id': 'avcapture-builtin-id',
+              'label': 'FaceTime HD Camera',
+              'isFrontFacing': true,
+            },
+            {
+              'id': 'avcapture-usb-id',
+              'label': 'External 4K Webcam',
+              'isFrontFacing': false,
+            },
+          ];
+        }
+        return null;
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(chimeChannel, null);
+        messenger.setMockMethodCallHandler(sourcesChannel, null);
+      });
+
+      final fake = FakeChimeMeetingSession();
+      final adapter = ChimeMediaSession(session: fake);
+      addTearDown(adapter.dispose);
+      await adapter.join(ChimeJoinInfo.fromBackendResponse(backendJson()));
+
+      expect(adapter.capabilities.canBlurBackground, isTrue);
+      expect(adapter.capabilities.canEnumerateCameras, isTrue);
+      expect(adapter.capabilities.canSelectCamera, isTrue);
+
+      final cameras = await adapter.listMediaDevices(
+        kinds: const {MediaDeviceKind.camera},
+      );
+      expect(cameras.map((d) => d.id), ['cam-builtin', 'cam-usb']);
+      await adapter.selectMediaDevice(cameras.last);
+      expect(
+        fake.actions,
+        contains('selectDesktopMediaDevice:camera:cam-usb'),
+      );
+
+      const source = ProcessedVideoSource(
+        id: 'macos-blur-source',
+        kind: ProcessedVideoSourceKind.nativeFrameHub,
+        platform: ProcessedVideoPlatform.macos,
+        width: 1280,
+        height: 720,
+        frameRate: 30,
+      );
+      await adapter.attachProcessedVideoSource(source);
+      final selectCalls = sourceCalls
+          .where((call) => call.method == 'selectCamera')
+          .toList();
+      expect(selectCalls, hasLength(1));
+      expect(
+        (selectCalls.single.arguments as Map)['deviceId'],
+        'avcapture-usb-id',
+      );
+    },
+  );
+
+  test(
+    'Windows Chime bridges virtual background processed video frames and releases on leave',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        AwsWindowsWebView2Runtime.debugResetWindowsChannelHandler();
+      });
+      const windowsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_aws_desktop/windows',
+      );
+      const sourcesChannel = MethodChannel(
+        'flutter_realtime_processed_video/sources',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final nativeCalls = <MethodCall>[];
+      final sourceCalls = <MethodCall>[];
+      final webMessages = <Map<String, dynamic>>[];
+
+      late final AwsWindowsWebView2Runtime testRuntime;
+      testRuntime = AwsWindowsWebView2Runtime.forTesting(
+        'chime',
+        probeOverride: () async => true,
+        postWebMessageOverride: (encoded) async {
+          final decoded = Map<String, dynamic>.from(
+            jsonDecode(encoded) as Map,
+          );
+          webMessages.add(decoded);
+          if (decoded['id'] != null) {
+            testRuntime.debugHandleWebMessage({
+              'channel': 'aws-windows-chime-v1',
+              'kind': 'result',
+              'id': decoded['id'],
+              'success': true,
+              'value': true,
+            });
+          }
+        },
+      );
+      addTearDown(testRuntime.dispose);
+
+      messenger.setMockMethodCallHandler(windowsChannel, (call) async {
+        nativeCalls.add(call);
+        if (call.method == 'probeProcessedVideoInput') return true;
+        return null;
+      });
+      messenger.setMockMethodCallHandler(sourcesChannel, (call) async {
+        sourceCalls.add(call);
+        if (call.method == 'listCameras') {
+          return [
+            {
+              'id': r'\\?\usb#vid_046d&pid_085e#front',
+              'label': 'Integrated Camera',
+              'isFrontFacing': true,
+            },
+            {
+              'id': r'\\?\usb#vid_046d&pid_082d#ext',
+              'label': 'External 4K Webcam (046d:082d)',
+              'isFrontFacing': false,
+            },
+          ];
+        }
+        return null;
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(windowsChannel, null);
+        messenger.setMockMethodCallHandler(sourcesChannel, null);
+      });
+
+      final fake = FakeChimeMeetingSession();
+      final adapter = ChimeMediaSession(
+        session: fake,
+        windowsRuntime: testRuntime,
+      );
+      addTearDown(adapter.dispose);
+      await adapter.join(ChimeJoinInfo.fromBackendResponse(backendJson()));
+
+      expect(adapter.capabilities.canBlurBackground, isTrue);
+      expect(adapter.capabilities.canReplaceBackgroundImage, isTrue);
+
+      await adapter.selectMediaDevice(
+        const MediaDevice(
+          id: 'webview2-hashed-ext-cam',
+          label: 'External 4K Webcam',
+          kind: MediaDeviceKind.camera,
+        ),
+      );
+      const source = ProcessedVideoSource(
+        id: 'win_effects_1',
+        kind: ProcessedVideoSourceKind.nativeFrameHub,
+        platform: ProcessedVideoPlatform.windows,
+        width: 1280,
+        height: 720,
+        frameRate: 24,
+      );
+      expect(adapter.supportsProcessedVideoSource(source), isTrue);
+      await adapter.attachProcessedVideoSource(source);
+
+      expect(
+        webMessages.any((m) => m['operation'] == 'attachProcessedVideo'),
+        isTrue,
+      );
+      expect(
+        nativeCalls.map((c) => c.method),
+        contains('subscribeProcessedVideo'),
+      );
+      expect(
+        sourceCalls
+            .where((c) => c.method == 'selectCamera')
+            .map((c) => (c.arguments as Map)['deviceId']),
+        [r'\\?\usb#vid_046d&pid_082d#ext'],
+      );
+
+      await messenger.handlePlatformMessage(
+        windowsChannel.name,
+        const StandardMethodCodec().encodeMethodCall(
+          const MethodCall('onProcessedFrame', {
+            'sourceId': 'win_effects_1',
+            'timestampNs': 987654321,
+            'data': 'data:image/jpeg;base64,/9j/4AAQWinFrame',
+          }),
+        ),
+        (_) {},
+      );
+      await pumpEventQueue();
+      final pushedFrames = webMessages
+          .where((m) => m['kind'] == 'processedFrame')
+          .toList();
+      expect(pushedFrames, hasLength(1));
+      expect(pushedFrames.single['sourceId'], 'win_effects_1');
+      expect(
+        pushedFrames.single['data'],
+        'data:image/jpeg;base64,/9j/4AAQWinFrame',
+      );
+
+      await adapter.switchCamera(MediaCameraPosition.front);
+      expect(
+        sourceCalls
+            .where((c) => c.method == 'selectCamera')
+            .map((c) => (c.arguments as Map)['deviceId'])
+            .last,
+        r'\\?\usb#vid_046d&pid_085e#front',
+      );
+
+      await adapter.leave();
+      expect(
+        webMessages.any((m) => m['operation'] == 'detachProcessedVideo'),
+        isTrue,
+      );
+      expect(
+        nativeCalls.map((c) => c.method),
+        contains('unsubscribeProcessedVideo'),
+      );
+    },
+  );
 }
 
 class _PendingChimeSession extends FakeChimeMeetingSession {

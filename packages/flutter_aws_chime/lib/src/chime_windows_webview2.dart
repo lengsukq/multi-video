@@ -9,12 +9,16 @@ import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.
 /// This Windows bridge is enabled by default but requires a working runtime;
 /// successful JS execution is not evidence of a supported AWS media call.
 class ChimeWindowsWebview2Transport {
-  ChimeWindowsWebview2Transport(this.onNativeCall);
+  ChimeWindowsWebview2Transport(
+    this.onNativeCall, {
+    AwsWindowsWebView2Runtime? runtime,
+  }) : _runtime = runtime ?? AwsWindowsWebView2Runtime.instance;
 
   final FutureOr<void> Function(MethodCall) onNativeCall;
-  final _runtime = AwsWindowsWebView2Runtime.instance;
+  final AwsWindowsWebView2Runtime _runtime;
   StreamSubscription<Map<String, dynamic>>? _subscription;
   final _devices = <Map<String, dynamic>>[];
+  String? _selectedCameraId;
   Map<String, Map<String, dynamic>> _participants = {};
   Map<String, Map<String, dynamic>> _tracks = {};
 
@@ -26,6 +30,7 @@ class ChimeWindowsWebview2Transport {
     final subscription = _subscription;
     if (subscription != null) unawaited(subscription.cancel());
     _subscription = null;
+    _selectedCameraId = null;
     _participants = {};
     _tracks = {};
     _devices.clear();
@@ -57,6 +62,9 @@ class ChimeWindowsWebview2Transport {
           }
           return _success();
         case 'stop':
+          try {
+            await _runtime.detachProcessedVideoSource();
+          } catch (_) {}
           try {
             await _runtime.invoke('invoke', name: 'leave');
           } finally {
@@ -111,6 +119,10 @@ class ChimeWindowsWebview2Transport {
           await _command('selectAudioOutput', candidates.first);
           return _success();
         case 'selectDevice':
+          final device = args['device'];
+          if (device is Map && device['kind']?.toString() == 'camera') {
+            _selectedCameraId = device['id']?.toString();
+          }
           await _command('selectDevice', args);
           return _success();
         case 'sendMessage':
@@ -122,12 +134,54 @@ class ChimeWindowsWebview2Transport {
           });
           return _success();
         case 'setCameraPosition':
-        case 'probeProcessedVideoInput':
-        case 'attachProcessedVideoSource':
-          return _failure(
-            'method_not_implemented',
-            'Chime Windows WebView2 does not support this native feature.',
+          final devices = await _fetchNormalizedDevices();
+          _devices
+            ..clear()
+            ..addAll(devices);
+          final cameras = _devices
+              .where((d) => d['kind'] == 'camera')
+              .toList(growable: false);
+          if (cameras.isEmpty) {
+            return _failure(
+              'method_not_implemented',
+              'No camera device is available on Windows.',
+            );
+          }
+          final desired =
+              (args['position']?.toString().toLowerCase() == 'back')
+              ? 'back'
+              : 'front';
+          final byLabel = cameras.cast<Map<String, dynamic>?>().firstWhere(
+            (c) => (c!['label']?.toString().toLowerCase() ?? '').contains(
+              desired,
+            ),
+            orElse: () => null,
           );
+          final target =
+              byLabel ??
+              cameras.firstWhere(
+                (c) => c['id']?.toString() != _selectedCameraId,
+                orElse: () => cameras.first,
+              );
+          _selectedCameraId = target['id']?.toString();
+          await _command('selectDevice', {'device': target});
+          return _success();
+        case 'probeProcessedVideoInput':
+          final supported = await _runtime.probeProcessedVideoInput();
+          return _success(supported);
+        case 'attachProcessedVideoSource':
+          final sourceId = args['sourceId']?.toString().trim() ?? '';
+          if (sourceId.isEmpty) {
+            return _failure(
+              'invalid_argument',
+              'A processed video sourceId is required.',
+            );
+          }
+          await _runtime.attachProcessedVideoSource(sourceId);
+          return _success();
+        case 'detachProcessedVideoSource':
+          await _runtime.detachProcessedVideoSource();
+          return _success();
         default:
           return _failure(
             'method_not_implemented',

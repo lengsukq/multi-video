@@ -17,6 +17,7 @@ object MeetingSessionManager {
     var meetingSession: DefaultMeetingSession? = null
     var cameraPosition: String = "front"
     internal var processedVideoSource: ProcessedChimeVideoSource? = null
+    internal var androidScreenSource: ProcessedChimeVideoSource? = null
     internal var localVideoEnabled = false
 
     @Synchronized
@@ -25,6 +26,14 @@ object MeetingSessionManager {
         processedVideoSource = null
         localVideoEnabled = false
         meetingSession?.audioVideo?.stopLocalVideo()
+        source.dispose()
+    }
+
+    @Synchronized
+    internal fun detachAndroidScreenCaptureSource() {
+        val source = androidScreenSource ?: return
+        androidScreenSource = null
+        meetingSession?.audioVideo?.stopContentShare()
         source.dispose()
     }
 
@@ -54,6 +63,7 @@ object MeetingSessionManager {
 
     fun stop(): MethodChannelResult {
         val session = meetingSession ?: return NULL_MEETING_SESSION_RESPONSE
+        detachAndroidScreenCaptureSource()
         detachProcessedVideoSource()
         VideoTileView.clearAll()
         removeObservers()
@@ -66,6 +76,7 @@ object MeetingSessionManager {
 
     @Synchronized
     fun onSessionStopped() {
+        detachAndroidScreenCaptureSource()
         detachProcessedVideoSource()
         VideoTileView.clearAll()
         removeObservers()

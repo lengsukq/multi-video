@@ -182,6 +182,7 @@ private final class AwsDesktopRuntime: NSObject,
   private var snapshots: [AwsDesktopProvider: [String: Any]] = [:]
   private var payloads: [AwsDesktopProvider: [String: Any]] = [:]
   private var chimeDevices: [[String: Any]] = []
+  private var selectedChimeCameraId: String?
   private let processedFrameHandler = AwsProcessedFrameSchemeHandler()
   private var processedFeeds: [AwsDesktopProvider: AwsProcessedFrameFeed] = [:]
   private var processedFeedPool: [String: AwsProcessedFrameFeed] = [:]
@@ -244,6 +245,7 @@ private final class AwsDesktopRuntime: NSObject,
       let fixedTrackId: String?
       let participantId: String
       let isLocal: Bool
+      let isScreenShare = arguments["isScreenShare"] as? Bool ?? false
       switch provider {
       case .chime:
         let tileId = (arguments["tileId"] as? NSNumber)?.intValue ?? 0
@@ -260,6 +262,7 @@ private final class AwsDesktopRuntime: NSObject,
         provider: provider,
         participantId: participantId,
         isLocal: isLocal,
+        isScreenShare: isScreenShare,
         fixedTrackId: fixedTrackId,
         maxDimension: maxDimension,
         textureRegistry: registrar.textures
@@ -366,11 +369,37 @@ private final class AwsDesktopRuntime: NSObject,
         error == nil ? self.chimeSuccess(result) : self.chimeFailure(result, code: "native_error", message: error!)
       }
     case "setCameraPosition":
-      chimeFailure(
-        result,
-        code: "method_not_implemented",
-        message: "Chime macOS does not expose mobile front/back camera switching."
-      )
+      let desired = ((arguments["position"] as? String)?.lowercased() == "back") ? "back" : "front"
+      command(.chime, name: "listDevices", args: [:]) { value, error in
+        if let error {
+          self.chimeFailure(result, code: "native_error", message: error)
+          return
+        }
+        let cameras = self.normalizeChimeDevices(self.decodeArray(value))
+          .filter { ($0["kind"] as? String) == "camera" }
+        guard !cameras.isEmpty else {
+          self.chimeFailure(
+            result,
+            code: "method_not_implemented",
+            message: "No alternate desktop camera is available on macOS."
+          )
+          return
+        }
+        let byLabel = cameras.first(where: {
+          (($0["label"] as? String)?.lowercased() ?? "").contains(desired)
+        })
+        let target = byLabel
+          ?? cameras.first(where: { ($0["id"] as? String) != self.selectedChimeCameraId })
+          ?? cameras.first!
+        self.selectedChimeCameraId = target["id"] as? String
+        self.command(.chime, name: "selectDevice", args: ["device": target]) { _, selectError in
+          if let selectError {
+            self.chimeFailure(result, code: "native_error", message: selectError)
+          } else {
+            self.chimeSuccess(result)
+          }
+        }
+      }
     case "listAudioDevices":
       command(.chime, name: "listDevices", args: [:]) { value, error in
         guard error == nil else {
@@ -414,6 +443,11 @@ private final class AwsDesktopRuntime: NSObject,
         error == nil ? self.chimeSuccess(result) : self.chimeFailure(result, code: "native_error", message: error!)
       }
     case "selectDevice":
+      let selected = (arguments["device"] as? [String: Any]) ?? arguments
+      if (selected["kind"] as? String) == "camera",
+         let id = nonEmptyString(selected["id"]) {
+        selectedChimeCameraId = id
+      }
       command(.chime, name: "selectDevice", args: arguments) { _, error in
         error == nil ? self.chimeSuccess(result) : self.chimeFailure(result, code: "native_error", message: error!)
       }
@@ -492,20 +526,54 @@ private final class AwsDesktopRuntime: NSObject,
         return
       }
       ivs["token"] = token
+      if let caps = arguments["capabilities"] {
+        ivs["capabilities"] = caps
+      }
       payload["ivs"] = ivs
+      if let nextRole = nonEmptyString(arguments["role"]) {
+        payload["role"] = nextRole
+      }
       payloads[.ivs] = payload
       exchangingIvsToken = true
-      leaveAndDispose(.ivs) { _ in
-        self.createAndJoin(.ivs, payload: payload) { error in
-          self.exchangingIvsToken = false
-          if error == nil {
-            self.ivsJoined = true
-            result(nil)
-          } else {
-            self.ivsJoined = false
-            result(self.flutterError(error!))
-          }
+      command(.ivs, name: "exchangeToken", args: ["payload": payload]) { _, error in
+        self.exchangingIvsToken = false
+        if let error {
+          result(FlutterError(code: "native_error", message: error, details: nil))
+        } else {
+          result(nil)
         }
+      }
+    case "listMediaDevices":
+      command(.ivs, name: "listDevices", args: [:]) { value, error in
+        if let error {
+          result(self.flutterError(error))
+          return
+        }
+        result(self.normalizeChimeDevices(self.decodeArray(value)))
+      }
+    case "listAudioDevices":
+      command(.ivs, name: "listDevices", args: [:]) { value, error in
+        if let error {
+          result(self.flutterError(error))
+          return
+        }
+        let devices = self.normalizeChimeDevices(self.decodeArray(value))
+          .filter { ($0["kind"] as? String) == "audioOutput" }
+          .map { ["id": ($0["id"] as? String) ?? "", "label": ($0["label"] as? String) ?? ""] }
+        result(devices)
+      }
+    case "selectAudioDevice":
+      guard let id = nonEmptyString(arguments["id"]) else {
+        result(FlutterError(code: "invalid_argument", message: "Audio output device id is required.", details: nil))
+        return
+      }
+      let payload: [String: Any] = [
+        "id": id,
+        "label": (arguments["label"] as? String) ?? id,
+        "kind": "audioOutput",
+      ]
+      command(.ivs, name: "selectAudioOutput", args: payload) { _, error in
+        error == nil ? result(nil) : result(self.flutterError(error!))
       }
     case "leave":
       ivsJoined = false
@@ -525,11 +593,21 @@ private final class AwsDesktopRuntime: NSObject,
         error == nil ? result(nil) : result(self.flutterError(error!))
       }
     case "switchCamera":
-      result(FlutterError(
-        code: "unsupported_feature",
-        message: "IVS macOS uses desktop camera selection instead of front/back switching.",
-        details: nil
-      ))
+      command(.ivs, name: "listDevices", args: [:]) { value, error in
+        if let error {
+          result(self.flutterError(error))
+          return
+        }
+        let cameras = self.normalizeChimeDevices(self.decodeArray(value))
+          .filter { ($0["kind"] as? String) == "camera" }
+        guard let target = cameras.last else {
+          result(FlutterError(code: "unsupported_feature", message: "No alternate desktop camera is available.", details: nil))
+          return
+        }
+        self.command(.ivs, name: "selectDevice", args: ["device": target]) { _, selectError in
+          selectError == nil ? result(nil) : result(self.flutterError(selectError!))
+        }
+      }
     case "listScreenShareSources":
       listDesktopScreenSources { sources, error in
         if let error {
@@ -547,7 +625,8 @@ private final class AwsDesktopRuntime: NSObject,
       result(nil)
     case "setScreenShareEnabled":
       let enabled = (arguments["enabled"] as? Bool) ?? false
-      setDesktopScreenShareEnabled(provider: .ivs, enabled: enabled) { error in
+      let auxiliaryToken = nonEmptyString(arguments["auxiliaryToken"])
+      setDesktopScreenShareEnabled(provider: .ivs, enabled: enabled, auxiliaryToken: auxiliaryToken) { error in
         if let error {
           result(FlutterError(code: error.code, message: error.message, details: nil))
         } else {
@@ -796,6 +875,9 @@ private final class AwsDesktopRuntime: NSObject,
         self.invoke(provider, operation: "dispose", payload: [:]) { _, error in
           self.snapshots.removeValue(forKey: provider)
           self.selectedScreenSourceIds.removeValue(forKey: provider)
+          if provider == .chime {
+            self.selectedChimeCameraId = nil
+          }
           self.refreshViews(provider, snapshot: nil)
           completion(error)
         }
@@ -829,6 +911,7 @@ private final class AwsDesktopRuntime: NSObject,
   private func setDesktopScreenShareEnabled(
     provider: AwsDesktopProvider,
     enabled: Bool,
+    auxiliaryToken: String? = nil,
     completion: @escaping ((code: String, message: String)?) -> Void
   ) {
     if !enabled {
@@ -842,12 +925,17 @@ private final class AwsDesktopRuntime: NSObject,
       }
       return
     }
+    var shareArgs: [String: Any] = ["enabled": true]
+    if let auxiliaryToken, !auxiliaryToken.isEmpty {
+      shareArgs["auxiliaryToken"] = auxiliaryToken
+    }
     if let existingSourceId = screenCaptureSourceIds[provider],
        screenCaptureSessions[provider] != nil {
+      shareArgs["processedSourceId"] = existingSourceId
       command(
         provider,
         name: "setScreenShareEnabled",
-        args: ["enabled": true, "processedSourceId": existingSourceId]
+        args: shareArgs
       ) { _, error in
         completion(error.map { ("native_error", $0) })
       }
@@ -898,10 +986,14 @@ private final class AwsDesktopRuntime: NSObject,
                 in: nil,
                 contentWorld: .page
               )
+              var args: [String: Any] = ["enabled": true, "processedSourceId": sourceId]
+              if let auxiliaryToken, !auxiliaryToken.isEmpty {
+                args["auxiliaryToken"] = auxiliaryToken
+              }
               self.command(
                 provider,
                 name: "setScreenShareEnabled",
-                args: ["enabled": true, "processedSourceId": sourceId]
+                args: args
               ) { _, commandError in
                 if let commandError {
                   self.stopDesktopScreenCapture(provider, notifyJsSession: false)
@@ -1981,6 +2073,34 @@ private final class AwsDesktopRuntime: NSObject,
       }
     }
     snapshots[.ivs] = next
+    let prevScreen = previous["contentShareTrack"] as? [String: Any]
+    let nextScreen = next["contentShareTrack"] as? [String: Any]
+    let prevScreenTrackId = prevScreen?["participantId"] as? String
+    let nextScreenTrackId = nextScreen?["participantId"] as? String
+    let prevRemoteScreen = prevScreenTrackId != nil && !((prevScreen?["isLocal"] as? Bool) ?? false)
+    let nextRemoteScreen = nextScreenTrackId != nil && !((nextScreen?["isLocal"] as? Bool) ?? false)
+    if prevRemoteScreen && (!nextRemoteScreen || prevScreenTrackId != nextScreenTrackId) {
+      let ownerId = prevScreenTrackId!.hasSuffix("#content")
+        ? String(prevScreenTrackId!.dropLast("#content".count))
+        : prevScreenTrackId!
+      ivsSink?([
+        "type": "screenShareChanged",
+        "userId": ownerId,
+        "trackUserId": prevScreenTrackId!,
+        "available": false,
+      ])
+    }
+    if nextRemoteScreen && (!prevRemoteScreen || prevScreenTrackId != nextScreenTrackId) {
+      let ownerId = nextScreenTrackId!.hasSuffix("#content")
+        ? String(nextScreenTrackId!.dropLast("#content".count))
+        : nextScreenTrackId!
+      ivsSink?([
+        "type": "screenShareChanged",
+        "userId": ownerId,
+        "trackUserId": nextScreenTrackId!,
+        "available": true,
+      ])
+    }
     refreshViews(.ivs, snapshot: next)
   }
 
@@ -2034,7 +2154,8 @@ private final class AwsDesktopRuntime: NSObject,
     provider: AwsDesktopProvider,
     fixedTrackId: String?,
     participantId: String,
-    isLocal: Bool
+    isLocal: Bool,
+    isScreenShare: Bool = false
   ) -> String? {
     guard let snapshot = snapshots[provider],
       let tracks = snapshot["tracks"] as? [[String: Any]]
@@ -2055,14 +2176,22 @@ private final class AwsDesktopRuntime: NSObject,
         trackId = fixedTrackId
       }
     case .ivs:
-      trackId = (tracks.first(where: {
-        ($0["participantId"] as? String) == participantId &&
-          (($0["isLocal"] as? Bool) ?? false) == isLocal &&
-          !(($0["isScreenShare"] as? Bool) ?? false)
-      }) ?? tracks.first(where: {
-        ($0["participantId"] as? String) == participantId &&
-          (($0["isLocal"] as? Bool) ?? false) == isLocal
-      }))?["id"] as? String
+      if isScreenShare {
+        trackId = tracks.first(where: {
+          ($0["participantId"] as? String) == participantId &&
+            (($0["isLocal"] as? Bool) ?? false) == isLocal &&
+            (($0["isScreenShare"] as? Bool) ?? false)
+        })?["id"] as? String
+      } else {
+        trackId = (tracks.first(where: {
+          ($0["participantId"] as? String) == participantId &&
+            (($0["isLocal"] as? Bool) ?? false) == isLocal &&
+            !(($0["isScreenShare"] as? Bool) ?? false)
+        }) ?? tracks.first(where: {
+          ($0["participantId"] as? String) == participantId &&
+            (($0["isLocal"] as? Bool) ?? false) == isLocal
+        }))?["id"] as? String
+      }
     }
     guard let trackId,
       tracks.contains(where: { ($0["id"] as? String) == trackId })
@@ -2075,7 +2204,8 @@ private final class AwsDesktopRuntime: NSObject,
       provider: texture.provider,
       fixedTrackId: texture.fixedTrackId,
       participantId: texture.participantId,
-      isLocal: texture.isLocal
+      isLocal: texture.isLocal,
+      isScreenShare: texture.isScreenShare
     ) else {
       if texture.currentTrackId != nil {
         unbind(viewKey: texture.viewKey)
@@ -2164,9 +2294,64 @@ private final class AwsDesktopRuntime: NSObject,
     return []
   }
 
+  private func nativeMacCameras() -> [[String: Any]] {
+    let discovery = AVCaptureDevice.DiscoverySession(
+      deviceTypes: [.builtInWideAngleCamera, .externalUnknown],
+      mediaType: .video,
+      position: .unspecified
+    )
+    return discovery.devices.map { device in
+      [
+        "id": device.uniqueID,
+        "label": device.localizedName,
+        "kind": "camera",
+      ]
+    }
+  }
+
+  private func normalizeCameraLabel(_ value: String) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let range = trimmed.range(of: #"\s*\([^)]*\)\s*$"#, options: .regularExpression) {
+      return String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+    return trimmed.lowercased()
+  }
+
   private func normalizeChimeDevices(_ devices: [[String: Any]]) -> [[String: Any]] {
+    let rawCameras = devices.filter { ($0["kind"] as? String) == "camera" }
+    let hasLabeledWebKitCameras = rawCameras.contains { raw in
+      let label = (raw["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return !label.isEmpty
+    }
+    let avCameras = nativeMacCameras()
+    var mergedInput: [[String: Any]] = []
+    if !hasLabeledWebKitCameras && !avCameras.isEmpty {
+      mergedInput.append(contentsOf: devices.filter { ($0["kind"] as? String) != "camera" })
+      mergedInput.append(contentsOf: avCameras)
+    } else {
+      mergedInput.append(contentsOf: devices)
+      var existingCameraLabels = Set<String>(
+        rawCameras.compactMap { ($0["label"] as? String).map(normalizeCameraLabel) }.filter { !$0.isEmpty }
+      )
+      var existingCameraIds = Set<String>(
+        rawCameras.compactMap { $0["id"] as? String }
+      )
+      for nativeCam in avCameras {
+        guard let id = nativeCam["id"] as? String,
+              let label = nativeCam["label"] as? String
+        else { continue }
+        let norm = normalizeCameraLabel(label)
+        if existingCameraIds.contains(id) || (!norm.isEmpty && existingCameraLabels.contains(norm)) {
+          continue
+        }
+        existingCameraIds.insert(id)
+        if !norm.isEmpty { existingCameraLabels.insert(norm) }
+        mergedInput.append(nativeCam)
+      }
+    }
+
     var counts: [String: Int] = [:]
-    return devices.compactMap { raw in
+    return mergedInput.compactMap { raw in
       guard let kind = raw["kind"] as? String, !kind.isEmpty,
         let id = raw["id"] as? String, !id.isEmpty
       else { return nil }
@@ -2231,6 +2416,7 @@ private final class AwsDesktopVideoTexture: NSObject, FlutterTexture {
   let provider: AwsDesktopProvider
   let participantId: String
   let isLocal: Bool
+  let isScreenShare: Bool
   let fixedTrackId: String?
   var maxDimension: Int
   var currentTrackId: String?
@@ -2253,6 +2439,7 @@ private final class AwsDesktopVideoTexture: NSObject, FlutterTexture {
     provider: AwsDesktopProvider,
     participantId: String,
     isLocal: Bool,
+    isScreenShare: Bool,
     fixedTrackId: String?,
     maxDimension: Int,
     textureRegistry: FlutterTextureRegistry,
@@ -2262,6 +2449,7 @@ private final class AwsDesktopVideoTexture: NSObject, FlutterTexture {
     self.provider = provider
     self.participantId = participantId
     self.isLocal = isLocal
+    self.isScreenShare = isScreenShare
     self.fixedTrackId = fixedTrackId
     self.maxDimension = maxDimension
     self.textureRegistry = textureRegistry

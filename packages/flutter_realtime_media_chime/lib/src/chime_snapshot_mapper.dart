@@ -48,7 +48,7 @@ class _ChimeSnapshotMapper {
                     attendee.videoTile!,
                     processedSource:
                         attendee.isLocal && !attendee.videoTile!.isContentShare
-                        ? _session._controls._processedSink.source
+                        ? _session._controls._activeProcessedSource
                         : null,
                   ),
             joinedAt: attendee.joinedAt,

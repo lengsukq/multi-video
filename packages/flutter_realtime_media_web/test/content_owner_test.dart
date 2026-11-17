@@ -5,7 +5,7 @@ import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
 void main() {
   test(
-    'Web content ownership normalizes Chime modality only and preserves other tracks',
+    'Web content ownership normalizes Chime/IVS modality only and preserves other tracks',
     () {
       final profile = ProviderWebProfile.forProvider('chime');
       final owner = profile.contentOwner(
@@ -27,6 +27,12 @@ void main() {
         profile.contentOwner('teacher#content', isScreenShare: false),
         'teacher#content',
       );
+      final ivsProfile = ProviderWebProfile.forProvider('ivs');
+      expect(
+        ivsProfile.contentOwner('host-1#content', isScreenShare: true),
+        'host-1',
+      );
+      expect(ivsProfile.supportsAudioOutputSelection, isTrue);
       expect(
         ProviderWebProfile.forProvider(
           'agora',

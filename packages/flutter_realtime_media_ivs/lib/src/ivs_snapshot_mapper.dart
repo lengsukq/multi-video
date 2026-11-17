@@ -11,58 +11,86 @@ class _IvsSnapshotMapper {
   Duration get cleanupTimeout => _session.cleanupTimeout;
 
   int _trackGeneration = 0;
+
+  void _adoptFrom(_IvsSnapshotMapper previous) {
+    _trackGeneration = previous._trackGeneration;
+  }
+
   IvsEngineEvents _createEngineEvents() {
     final generation = _session._connectionGeneration;
     final engine = _session._engine;
-    bool currentLease() =>
-        generation == _session._connectionGeneration &&
-        identical(engine, _session._engine) &&
-        !_session._disposed &&
-        !state.isTerminal &&
-        state != MediaSessionState.leaving;
+    bool currentLease() {
+      final target = _session._eventTarget;
+      final targetState = target._state;
+      return generation == target._connectionGeneration &&
+          identical(engine, target._engine) &&
+          !target._disposed &&
+          !targetState.isTerminal &&
+          targetState != MediaSessionState.leaving;
+    }
+
     return IvsEngineEvents(
       onError: (code, message) {
-        if (currentLease()) _session._onNativeError(code, message);
+        if (currentLease()) _session._eventTarget._onNativeError(code, message);
       },
       onParticipantJoined: (id, name) {
-        if (currentLease()) _participantJoined(id, name);
+        if (currentLease()) {
+          _session._eventTarget._mapper._participantJoined(id, name);
+        }
       },
       onParticipantLeft: (id) {
-        if (currentLease()) _participantLeft(id);
+        if (currentLease()) _session._eventTarget._mapper._participantLeft(id);
       },
       onRemoteVideoChanged: (id, available) {
-        if (currentLease()) _remoteVideoChanged(id, available);
+        if (currentLease()) {
+          _session._eventTarget._mapper._remoteVideoChanged(id, available);
+        }
+      },
+      onRemoteScreenShareChanged: (ownerUserId, trackUserId, available) {
+        if (currentLease()) {
+          _session._eventTarget._mapper._remoteScreenShareChanged(
+            ownerUserId,
+            trackUserId,
+            available,
+          );
+        }
       },
       onRemoteAudioChanged: (id, available) {
-        if (currentLease()) _remoteAudioChanged(id, available);
+        if (currentLease()) {
+          _session._eventTarget._mapper._remoteAudioChanged(id, available);
+        }
       },
       onReconnecting: () {
         if (!currentLease()) return;
-        if (_session._state == MediaSessionState.connected) {
-          _session._setState(MediaSessionState.reconnecting);
+        final target = _session._eventTarget;
+        if (target._state == MediaSessionState.connected) {
+          target._setState(MediaSessionState.reconnecting);
         }
       },
       onRecovered: () {
         if (!currentLease()) return;
-        if (_session._state == MediaSessionState.reconnecting) {
-          _session._setState(MediaSessionState.connected);
+        final target = _session._eventTarget;
+        if (target._state == MediaSessionState.reconnecting) {
+          target._setState(MediaSessionState.connected);
         }
       },
       onDisconnected: () {
         if (!currentLease()) return;
-        _session._setSnapshot(
-          _session._snapshot.copyWith(
+        final target = _session._eventTarget;
+        target._setSnapshot(
+          target._snapshot.copyWith(
             participants: const [],
             clearLocalParticipantId: true,
             localMuted: true,
             localVideoEnabled: false,
+            localScreenShareEnabled: false,
             clearContentShareTrack: true,
           ),
         );
-        _session._setState(MediaSessionState.ended);
+        target._setState(MediaSessionState.ended);
       },
       onStats: (values) {
-        if (currentLease()) _session._statistics._onStats(values);
+        if (currentLease()) _session._eventTarget._statistics._onStats(values);
       },
     );
   }
@@ -102,18 +130,64 @@ class _IvsSnapshotMapper {
   void _participantLeft(String userId) {
     final existing = _participantById(userId);
     if (existing == null || existing.isLocal) return;
+    final screen = _session._snapshot.contentShareTrack;
+    final clearScreen =
+        screen != null &&
+        !screen.isLocal &&
+        ((screen is MediaContentOwnerTrack &&
+                screen.contentOwnerParticipantId == userId) ||
+            screen.participantId == userId ||
+            screen.participantId == '$userId#content');
     _session._setSnapshot(
       _session._snapshot.copyWith(
         participants: _session._snapshot.participants
             .where((item) => item.id != userId)
             .toList(),
+        clearContentShareTrack: clearScreen,
       ),
     );
+    if (clearScreen) {
+      _session._emit(
+        MediaTrackUnpublished(trackId: screen.id, participantId: userId),
+      );
+    }
     _session._emit(
       MediaParticipantLeft(
         participantId: userId,
         displayName: existing.displayName,
       ),
+    );
+  }
+
+  void _remoteScreenShareChanged(
+    String ownerUserId,
+    String trackUserId,
+    bool available,
+  ) {
+    if (_session._disposed) return;
+    final existing = snapshot.contentShareTrack;
+    if (available) {
+      final track = IvsMediaVideoTrack(
+        userId: trackUserId,
+        local: false,
+        generation: _trackGeneration,
+        isScreenShare: true,
+        explicitContentOwnerId: ownerUserId,
+      );
+      _session._setSnapshot(snapshot.copyWith(contentShareTrack: track));
+      _session._emit(MediaTrackPublished(track));
+      return;
+    }
+    final matchesOwner =
+        existing != null &&
+        !existing.isLocal &&
+        (existing.participantId == trackUserId ||
+            (existing is MediaContentOwnerTrack &&
+                existing.contentOwnerParticipantId == ownerUserId));
+    if (!matchesOwner) return;
+    _session._setSnapshot(snapshot.copyWith(clearContentShareTrack: true));
+    _session._emit(
+      MediaTrackUnpublished(trackId: existing.id, participantId: ownerUserId),
     );
   }
 

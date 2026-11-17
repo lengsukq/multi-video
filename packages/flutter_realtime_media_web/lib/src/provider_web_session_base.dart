@@ -2,6 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 import 'provider_web_bridge.dart';
+import 'provider_web_broadcast_host_session.dart';
+import 'provider_web_broadcast_viewer_session.dart';
+import 'provider_web_browser_capabilities.dart';
+import 'provider_web_participant_session.dart';
+import 'provider_web_profile.dart';
 import 'provider_web_track.dart';
 import 'provider_web_decoding.dart';
 import 'provider_web_snapshot_decoder.dart';
@@ -11,7 +16,9 @@ abstract class ProviderWebSessionBase
         MediaSession,
         MediaDeviceController,
         MediaStatsProvider,
-        MediaDataMessenger {
+        MediaDataMessenger,
+        MediaRoleSwitchable,
+        MediaAuxiliaryTokenConsumer {
   ProviderWebSessionBase({
     required this.providerId,
     required this.role,
@@ -38,6 +45,10 @@ abstract class ProviderWebSessionBase
   bool _disposed = false;
   Future<void>? _joinFuture;
   RealtimeException? _joiningFailure;
+  MediaRoleChangeCallback? _roleChangeCallback;
+  MediaAuxiliaryTokenCallback? _auxiliaryTokenCallback;
+  bool _auxiliaryScreenShareActive = false;
+  bool _adoptedOut = false;
   Future<void>? _leaveFuture;
   Future<void>? _disposeFuture;
 
@@ -152,6 +163,143 @@ abstract class ProviderWebSessionBase
   }
 
   @override
+  void setRoleChangeCallback(MediaRoleChangeCallback? callback) {
+    _roleChangeCallback = callback;
+  }
+
+  @override
+  void setAuxiliaryTokenCallback(MediaAuxiliaryTokenCallback? callback) {
+    _auxiliaryTokenCallback = callback;
+  }
+
+  bool get _supportsAuxiliaryScreenToken {
+    if (joinPayload['auxiliaryScreenToken'] == true) return true;
+    final ivs = joinPayload['ivs'];
+    return ivs is Map && ivs['auxiliaryScreenToken'] == true;
+  }
+
+  Future<void> _revokeAuxiliaryScreenTokenIfNeeded() async {
+    if (!_auxiliaryScreenShareActive) return;
+    _auxiliaryScreenShareActive = false;
+    final callback = _auxiliaryTokenCallback;
+    if (callback == null) return;
+    try {
+      await callback(action: 'revoke');
+    } catch (_) {}
+  }
+
+  @override
+  Future<MediaSession> switchRole(MediaRole targetRole) async {
+    _ensureActive();
+    if (targetRole == role) return this;
+    if (providerId != 'ivs') {
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        message: '$providerId does not support live role switching on Web.',
+        providerId: providerId,
+      );
+    }
+    final callback = _roleChangeCallback;
+    if (callback == null) {
+      throw RealtimeException(
+        code: RealtimeErrorCode.invalidState,
+        message: 'No role-change credential provider is attached.',
+        providerId: providerId,
+      );
+    }
+    final nextJoinInfo = await callback(targetRole);
+    final nextPayload = nextJoinInfo.payload;
+    if (targetRole == MediaRole.viewer) {
+      if (_auxiliaryScreenShareActive || _snapshot.localScreenShareEnabled) {
+        try {
+          await setScreenShareEnabled(false);
+        } catch (_) {
+          await _revokeAuxiliaryScreenTokenIfNeeded();
+        }
+      }
+      await detachProcessedVideoSourceInternal();
+    }
+    await _command('exchangeToken', {'payload': nextPayload});
+    final next = _buildSessionForRole(targetRole, nextPayload);
+    next._adoptStateFrom(this);
+    return next;
+  }
+
+  ProviderWebSessionBase _buildSessionForRole(
+    MediaRole targetRole,
+    Map<String, Object?> nextPayload,
+  ) {
+    final profile = ProviderWebProfile.forProvider(providerId);
+    final nextCapabilities = providerWebCapabilities(profile, targetRole);
+    return switch (targetRole) {
+      MediaRole.host => ProviderWebBroadcastHostSession(
+        providerId: providerId,
+        role: targetRole,
+        sessionId: sessionId,
+        joinPayload: nextPayload,
+        capabilities: nextCapabilities,
+      ),
+      MediaRole.viewer => ProviderWebBroadcastViewerSession(
+        providerId: providerId,
+        role: targetRole,
+        sessionId: sessionId,
+        joinPayload: nextPayload,
+        capabilities: nextCapabilities,
+      ),
+      MediaRole.participant => ProviderWebParticipantSession(
+        providerId: providerId,
+        role: targetRole,
+        sessionId: sessionId,
+        joinPayload: nextPayload,
+        capabilities: nextCapabilities,
+      ),
+    };
+  }
+
+  void _adoptStateFrom(ProviderWebSessionBase previous) {
+    previous._adoptedOut = true;
+    ProviderWebBridge.registerHandler(sessionId, _onBridgeEvent);
+    _joinFuture = Future<void>.value();
+    _roleChangeCallback = previous._roleChangeCallback;
+    _auxiliaryTokenCallback = previous._auxiliaryTokenCallback;
+    _auxiliaryScreenShareActive =
+        role == MediaRole.viewer ? false : previous._auxiliaryScreenShareActive;
+    _connectionStats = previous._connectionStats;
+    _processedVideoSource =
+        role == MediaRole.viewer ? null : previous._processedVideoSource;
+    _backgroundEffect = role == MediaRole.viewer
+        ? const MediaBackgroundEffect.none()
+        : previous._backgroundEffect;
+    _tracks.clear();
+    previous._tracks.forEach((id, track) {
+      if (role == MediaRole.viewer && track.isLocal) return;
+      _tracks[id] = track;
+    });
+    final nextParticipants = role == MediaRole.viewer
+        ? previous._snapshot.participants
+              .where((p) => !p.isLocal)
+              .toList(growable: false)
+        : previous._snapshot.participants;
+    _snapshot = previous._snapshot.copyWith(
+      role: role,
+      capabilities: capabilities,
+      participants: nextParticipants,
+      localMuted: role == MediaRole.viewer
+          ? true
+          : previous._snapshot.localMuted,
+      localVideoEnabled: role == MediaRole.viewer
+          ? false
+          : previous._snapshot.localVideoEnabled,
+      localScreenShareEnabled: role == MediaRole.viewer
+          ? false
+          : previous._snapshot.localScreenShareEnabled,
+      clearContentShareTrack:
+          role == MediaRole.viewer &&
+          previous._snapshot.contentShareTrack?.isLocal == true,
+    );
+  }
+
+  @override
   Stream<MediaConnectionStats> get stats => _statsController.stream;
 
   @override
@@ -241,6 +389,7 @@ abstract class ProviderWebSessionBase
     }
     _setState(MediaSessionState.leaving);
     try {
+      await _revokeAuxiliaryScreenTokenIfNeeded();
       await ProviderWebBridge.leave(providerId, sessionId);
       _tracks.clear();
       _setState(MediaSessionState.ended);
@@ -267,17 +416,23 @@ abstract class ProviderWebSessionBase
   Future<void> _dispose() async {
     _disposed = true;
     final cleanup = Cleanup();
-    if (state.isActive || state == MediaSessionState.connecting) {
+    if (!_adoptedOut) {
       await cleanup.run(
-        'bridge.leave',
-        () => ProviderWebBridge.leave(providerId, sessionId),
+        'auxiliary.revoke',
+        _revokeAuxiliaryScreenTokenIfNeeded,
       );
+      if (state.isActive || state == MediaSessionState.connecting) {
+        await cleanup.run(
+          'bridge.leave',
+          () => ProviderWebBridge.leave(providerId, sessionId),
+        );
+      }
+      await cleanup.run(
+        'bridge.dispose',
+        () => ProviderWebBridge.dispose(providerId, sessionId),
+      );
+      _setState(MediaSessionState.disposed);
     }
-    await cleanup.run(
-      'bridge.dispose',
-      () => ProviderWebBridge.dispose(providerId, sessionId),
-    );
-    _setState(MediaSessionState.disposed);
     await cleanup.run('states', _stateController.close);
     await cleanup.run('snapshots', _snapshotController.close);
     await cleanup.run('events', _eventController.close);
@@ -306,7 +461,38 @@ abstract class ProviderWebSessionBase
   Future<void> setScreenShareEnabled(bool enabled) async {
     _ensureActive();
     _requireCapability(capabilities.canScreenShare, 'screen sharing');
-    await _command('setScreenShareEnabled', {'enabled': enabled});
+    final args = <String, Object?>{'enabled': enabled};
+    var acquiredAuxiliary = false;
+    if (enabled &&
+        providerId == 'ivs' &&
+        _auxiliaryTokenCallback != null &&
+        _supportsAuxiliaryScreenToken) {
+      try {
+        final result = await _auxiliaryTokenCallback!(action: 'acquire');
+        final token = result['token']?.toString().trim();
+        if (token != null && token.isNotEmpty) {
+          args['auxiliaryToken'] = token;
+          acquiredAuxiliary = true;
+        }
+      } catch (_) {
+        // Fall back to single-token screen-replace-camera when unavailable.
+      }
+    }
+    try {
+      await _command('setScreenShareEnabled', args);
+    } catch (_) {
+      if (acquiredAuxiliary) {
+        try {
+          await _auxiliaryTokenCallback?.call(action: 'revoke');
+        } catch (_) {}
+      }
+      rethrow;
+    }
+    if (enabled) {
+      _auxiliaryScreenShareActive = acquiredAuxiliary;
+    } else {
+      await _revokeAuxiliaryScreenTokenIfNeeded();
+    }
   }
 
   Future<void> switchCamera(MediaCameraPosition position) async {
@@ -494,10 +680,16 @@ abstract class ProviderWebSessionBase
     _tracks
       ..clear()
       ..addAll(update.tracks);
+    final wasScreenSharing = _snapshot.localScreenShareEnabled;
     for (final change in update.events) {
       _emit(change);
     }
     _updateSnapshot(update.snapshot);
+    if (_auxiliaryScreenShareActive &&
+        wasScreenSharing &&
+        !update.snapshot.localScreenShareEnabled) {
+      unawaited(_revokeAuxiliaryScreenTokenIfNeeded());
+    }
   }
 
   void _updateStats(Map<String, dynamic> event) {

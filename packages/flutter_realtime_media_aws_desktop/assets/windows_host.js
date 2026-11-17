@@ -14,8 +14,18 @@
 
   host.addEventListener('message', async function (event) {
     const request = event.data;
-    if (!request || request.channel !== channel ||
-        !Number.isSafeInteger(request.id) || request.id < 1) return;
+    if (!request || request.channel !== channel) return;
+    if (request.kind === 'processedFrame') {
+      if (typeof global.AwsDesktopRuntime.pushProcessedFrameData === 'function') {
+        global.AwsDesktopRuntime.pushProcessedFrameData(
+          String(request.sourceId || ''),
+          request.data,
+          request.timestampNs,
+        );
+      }
+      return;
+    }
+    if (!Number.isSafeInteger(request.id) || request.id < 1) return;
     try {
       let value;
       if (request.operation === 'invoke') {
@@ -26,6 +36,30 @@
         value = await global.AwsDesktopRuntime.invoke(
           request.providerId, request.sessionId, request.name,
           request.payload || {});
+      } else if (request.operation === 'attachProcessedVideo') {
+        if (request.providerId !== providerId ||
+            request.sessionId !== sessionId) {
+          throw new Error('Cross-provider Windows session access is forbidden.');
+        }
+        const payload = request.payload || {};
+        value = await global.AwsDesktopRuntime.attachProcessedVideo(
+          request.providerId,
+          request.sessionId,
+          String(payload.sourceId || ''),
+          payload.generation,
+        );
+      } else if (request.operation === 'detachProcessedVideo') {
+        if (request.providerId !== providerId ||
+            request.sessionId !== sessionId) {
+          throw new Error('Cross-provider Windows session access is forbidden.');
+        }
+        const payload = request.payload || {};
+        value = await global.AwsDesktopRuntime.detachProcessedVideo(
+          request.providerId,
+          request.sessionId,
+          String(payload.sourceId || ''),
+          payload.generation,
+        );
       } else if (request.operation === 'bind') {
         let trackId = String(request.trackId || '');
         const snapshot = global.AwsDesktopRuntime.snapshot(sessionId);

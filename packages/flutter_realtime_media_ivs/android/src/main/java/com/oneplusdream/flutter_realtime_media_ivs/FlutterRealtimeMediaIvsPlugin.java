@@ -4,6 +4,9 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.Manifest;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
@@ -34,6 +37,7 @@ import com.amazonaws.ivs.broadcast.StageRenderer;
 import com.amazonaws.ivs.broadcast.StageStream;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +63,8 @@ public final class FlutterRealtimeMediaIvsPlugin
     private static final String VIEW_TYPE =
             "com.oneplusdream.flutter_realtime_media_ivs/video";
     private static final String LOCAL_VIEW_KEY = "__local__";
+    private static final String LOCAL_SCREEN_KEY = "__local_screen__";
+    private static final String CONTENT_SUFFIX = "#content";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final List<LocalStageStream> publishStreams = new ArrayList<>();
@@ -73,8 +79,11 @@ public final class FlutterRealtimeMediaIvsPlugin
     private EventChannel.EventSink eventSink;
     private DeviceDiscovery deviceDiscovery;
     private Stage stage;
+    private Stage contentStage;
     private ImageLocalStageStream cameraStream;
     private ProcessedIvsVideoSink processedVideoSink;
+    private ImageLocalStageStream androidScreenStream;
+    private ProcessedIvsVideoSink androidScreenSink;
     private AudioLocalStageStream microphoneStream;
     private boolean shouldPublish;
     private boolean videoEnabled;
@@ -146,14 +155,31 @@ public final class FlutterRealtimeMediaIvsPlugin
                     detachProcessedVideoSource();
                     result.success(null);
                     return;
+                case "attachAndroidScreenCaptureSource":
+                    attachAndroidScreenCaptureSource(
+                            requireString(call, "sourceId"),
+                            call.argument("auxiliaryToken"));
+                    result.success(null);
+                    return;
+                case "detachAndroidScreenCaptureSource":
+                    detachAndroidScreenCaptureSource();
+                    result.success(null);
+                    return;
                 case "probeDevices":
                     result.success(probeDevices());
+                    return;
+                case "listAudioDevices":
+                    result.success(listAudioDevices());
+                    return;
+                case "selectAudioDevice":
+                    selectAudioDevice(requireString(call, "id"));
+                    result.success(null);
                     return;
                 case "join":
                     join(call, result);
                     return;
                 case "exchangeToken":
-                    requireStage().exchangeToken(requireString(call, "token"));
+                    exchangeToken(call);
                     result.success(null);
                     return;
                 case "leave":
@@ -229,6 +255,12 @@ public final class FlutterRealtimeMediaIvsPlugin
             public List<LocalStageStream> stageStreamsToPublishForParticipant(
                     @NonNull Stage stage,
                     @NonNull ParticipantInfo participantInfo) {
+                if (androidScreenStream != null && contentStage == null) {
+                    final List<LocalStageStream> screenStreams = new ArrayList<>();
+                    screenStreams.add(androidScreenStream);
+                    if (microphoneStream != null) screenStreams.add(microphoneStream);
+                    return screenStreams;
+                }
                 return new ArrayList<>(publishStreams);
             }
 
@@ -272,6 +304,7 @@ public final class FlutterRealtimeMediaIvsPlugin
     }
 
     private void prepareLocalStreams() {
+        detachAndroidScreenCaptureSource();
         publishStreams.clear();
         cameraStream = null;
         microphoneStream = null;
@@ -381,6 +414,238 @@ public final class FlutterRealtimeMediaIvsPlugin
         if (stage != null) stage.refreshStrategy();
         updateLocalPreviewHolders(null);
         sink.dispose();
+    }
+
+    private void exchangeToken(MethodCall call) {
+        final Stage activeStage = requireStage();
+        final String token = requireString(call, "token");
+        final Object rawRole = call.argument("role");
+        final String nextRole = rawRole == null ? "" : rawRole.toString().trim();
+        if (!nextRole.isEmpty()) {
+            final boolean nextPublish = !"viewer".equals(nextRole);
+            if (nextPublish != shouldPublish) {
+                shouldPublish = nextPublish;
+                ensurePublishPermissions();
+                if (!nextPublish) {
+                    detachAndroidScreenCaptureSource();
+                    detachProcessedVideoSource();
+                }
+                prepareLocalStreams();
+            }
+        }
+        activeStage.exchangeToken(token);
+        activeStage.refreshStrategy();
+    }
+
+    private List<Map<String, Object>> listAudioDevices() {
+        final AudioManager manager =
+                (AudioManager) requireContext().getSystemService(Context.AUDIO_SERVICE);
+        if (manager == null) return Collections.emptyList();
+        final List<Map<String, Object>> items = new ArrayList<>();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            for (AudioDeviceInfo info : manager.getAvailableCommunicationDevices()) {
+                items.add(audioDeviceEntry(info));
+            }
+            return items;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            final java.util.Set<Integer> seenTypes = new java.util.HashSet<>();
+            for (AudioDeviceInfo info : manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                final int type = info.getType();
+                if (!isSelectableOutputType(type) || !seenTypes.add(type)) continue;
+                items.add(audioDeviceEntry(info));
+            }
+        }
+        return items;
+    }
+
+    private void selectAudioDevice(String id) {
+        final AudioManager manager =
+                (AudioManager) requireContext().getSystemService(Context.AUDIO_SERVICE);
+        if (manager == null) {
+            throw new IllegalStateException("Android AudioManager is unavailable.");
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            for (AudioDeviceInfo info : manager.getAvailableCommunicationDevices()) {
+                if (String.valueOf(info.getId()).equals(id)) {
+                    if (!manager.setCommunicationDevice(info)) {
+                        throw new IllegalStateException("Unable to route audio to device " + id);
+                    }
+                    return;
+                }
+            }
+            throw new IllegalArgumentException("Unknown audio output device id: " + id);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            for (AudioDeviceInfo info : manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                if (!String.valueOf(info.getId()).equals(id)) continue;
+                final int type = info.getType();
+                manager.setSpeakerphoneOn(type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER);
+                if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
+                    manager.startBluetoothSco();
+                    manager.setBluetoothScoOn(true);
+                } else if (manager.isBluetoothScoOn()) {
+                    manager.setBluetoothScoOn(false);
+                    manager.stopBluetoothSco();
+                }
+                return;
+            }
+        }
+        throw new IllegalArgumentException("Unknown audio output device id: " + id);
+    }
+
+    private static boolean isSelectableOutputType(int type) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false;
+        switch (type) {
+            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER:
+            case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE:
+            case AudioDeviceInfo.TYPE_WIRED_HEADSET:
+            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
+            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
+            case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
+            case AudioDeviceInfo.TYPE_USB_DEVICE:
+            case AudioDeviceInfo.TYPE_USB_HEADSET:
+                return true;
+            default:
+                return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                        && (type == AudioDeviceInfo.TYPE_BLE_HEADSET
+                                || type == AudioDeviceInfo.TYPE_BLE_SPEAKER);
+        }
+    }
+
+    private static Map<String, Object> audioDeviceEntry(AudioDeviceInfo info) {
+        final Map<String, Object> entry = new HashMap<>();
+        entry.put("id", String.valueOf(info.getId()));
+        entry.put("label", audioDeviceLabel(info));
+        return entry;
+    }
+
+    private static String audioDeviceLabel(AudioDeviceInfo info) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return "Speaker";
+        final CharSequence product = info.getProductName();
+        final String productLabel = product == null ? "" : product.toString().trim();
+        switch (info.getType()) {
+            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER:
+                return "Speakerphone";
+            case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE:
+                return "Earpiece";
+            case AudioDeviceInfo.TYPE_WIRED_HEADSET:
+            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
+                return productLabel.isEmpty() ? "Wired Headset" : productLabel;
+            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
+            case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
+                return productLabel.isEmpty() ? "Bluetooth Audio" : productLabel;
+            case AudioDeviceInfo.TYPE_USB_DEVICE:
+            case AudioDeviceInfo.TYPE_USB_HEADSET:
+                return productLabel.isEmpty() ? "USB Audio" : productLabel;
+            default:
+                return productLabel.isEmpty() ? "Audio Output" : productLabel;
+        }
+    }
+
+    private void attachAndroidScreenCaptureSource(
+            String sourceId,
+            @Nullable String auxiliaryToken) {
+        final Stage activeStage = requireStage();
+        if (!shouldPublish) {
+            throw new IllegalStateException("A viewer cannot share screen.");
+        }
+        detachAndroidScreenCaptureSource();
+        final CustomImageSource input = requireDeviceDiscovery().createImageInputSource(
+                new BroadcastConfiguration.Vec2(1280, 720));
+        if (input == null) {
+            throw new IllegalStateException("IVS could not create a custom screen input.");
+        }
+        final ImageLocalStageStream stream = new ImageLocalStageStream(input);
+        stream.setMuted(false);
+        Stage auxStage = null;
+        try {
+            androidScreenStream = stream;
+            if (auxiliaryToken != null && !auxiliaryToken.trim().isEmpty()) {
+                final Stage.Strategy auxStrategy = new Stage.Strategy() {
+                    @NonNull
+                    @Override
+                    public List<LocalStageStream> stageStreamsToPublishForParticipant(
+                            @NonNull Stage stage,
+                            @NonNull ParticipantInfo participantInfo) {
+                        return Collections.singletonList(stream);
+                    }
+
+                    @Override
+                    public boolean shouldPublishFromParticipant(
+                            @NonNull Stage stage,
+                            @NonNull ParticipantInfo participantInfo) {
+                        return true;
+                    }
+
+                    @NonNull
+                    @Override
+                    public Stage.SubscribeType shouldSubscribeToParticipant(
+                            @NonNull Stage stage,
+                            @NonNull ParticipantInfo participantInfo) {
+                        return Stage.SubscribeType.NONE;
+                    }
+                };
+                auxStage = new Stage(requireContext(), auxiliaryToken.trim(), auxStrategy);
+                contentStage = auxStage;
+                auxStage.addRenderer(new EmptyStageRenderer());
+            } else {
+                observeStream(stream);
+            }
+            androidScreenSink = new ProcessedIvsVideoSink(sourceId, input, failure -> mainHandler.post(() -> {
+                if (androidScreenSink == null || androidScreenSink.source != input) return;
+                detachAndroidScreenCaptureSource();
+                final Map<String, Object> event = typeOnly("error");
+                event.put("code", -1);
+                event.put("message", failure.getMessage());
+                emit(event);
+            }));
+            if (auxStage != null) {
+                auxStage.join();
+            } else {
+                activeStage.refreshStrategy();
+            }
+            updatePreviewHolders(LOCAL_SCREEN_KEY, stream.getPreviewSurfaceView());
+        } catch (Throwable failure) {
+            if (auxStage != null) {
+                try {
+                    auxStage.leave();
+                    auxStage.release();
+                } catch (Throwable ignored) {}
+            }
+            contentStage = null;
+            observedStreams.remove(stream);
+            androidScreenStream = null;
+            input.release();
+            throw failure;
+        }
+    }
+
+    private void detachAndroidScreenCaptureSource() {
+        final ProcessedIvsVideoSink sink = androidScreenSink;
+        final ImageLocalStageStream stream = androidScreenStream;
+        final Stage auxStage = contentStage;
+        if (sink == null && stream == null && auxStage == null) return;
+        androidScreenSink = null;
+        androidScreenStream = null;
+        contentStage = null;
+        if (auxStage != null) {
+            try {
+                auxStage.leave();
+                auxStage.release();
+            } catch (Throwable ignored) {}
+        }
+        if (stream != null) {
+            stream.setMuted(true);
+            observedStreams.remove(stream);
+        }
+        if (stage != null) {
+            stage.refreshStrategy();
+        }
+        updatePreviewHolders(LOCAL_SCREEN_KEY, null);
+        if (sink != null) {
+            sink.dispose();
+        }
     }
 
     private void switchCamera(String position) {
@@ -494,6 +759,7 @@ public final class FlutterRealtimeMediaIvsPlugin
     }
 
     private void leaveNative() {
+        detachAndroidScreenCaptureSource();
         detachProcessedVideoSource();
         final Stage current = stage;
         if (current == null) return;
@@ -558,8 +824,18 @@ public final class FlutterRealtimeMediaIvsPlugin
         return value == null || value.trim().isEmpty() ? participant.userId : value;
     }
 
+    private static boolean isContentUserId(@Nullable String userId) {
+        return userId != null && userId.endsWith(CONTENT_SUFFIX);
+    }
+
+    private static String stripContentSuffix(String userId) {
+        return isContentUserId(userId)
+                ? userId.substring(0, userId.length() - CONTENT_SUFFIX.length())
+                : userId;
+    }
+
     private void emitParticipant(String type, ParticipantInfo participant) {
-        if (participant.isLocal) return;
+        if (participant.isLocal || isContentUserId(participant.userId)) return;
         final Map<String, Object> event = new HashMap<>();
         event.put("type", type);
         event.put("userId", participant.userId);
@@ -572,6 +848,16 @@ public final class FlutterRealtimeMediaIvsPlugin
             StageStream stream,
             boolean available) {
         if (participant.isLocal) return;
+        if (isContentUserId(participant.userId)) {
+            if (stream.getStreamType() != StageStream.Type.VIDEO) return;
+            final Map<String, Object> event = new HashMap<>();
+            event.put("type", "screenShareChanged");
+            event.put("userId", stripContentSuffix(participant.userId));
+            event.put("trackUserId", participant.userId);
+            event.put("available", available && !stream.getMuted());
+            emit(event);
+            return;
+        }
         final Map<String, Object> event = new HashMap<>();
         event.put(
                 "type",
@@ -638,6 +924,15 @@ public final class FlutterRealtimeMediaIvsPlugin
         if (!participantInfo.isLocal) {
             remoteVideoStreams.remove(participantInfo.userId);
             updateRemotePreviewHolders(participantInfo.userId, null);
+            if (isContentUserId(participantInfo.userId)) {
+                final Map<String, Object> event = new HashMap<>();
+                event.put("type", "screenShareChanged");
+                event.put("userId", stripContentSuffix(participantInfo.userId));
+                event.put("trackUserId", participantInfo.userId);
+                event.put("available", false);
+                emit(event);
+                return;
+            }
         }
         emitParticipant("participantLeft", participantInfo);
     }
@@ -747,22 +1042,24 @@ public final class FlutterRealtimeMediaIvsPlugin
     }
 
     private void updateLocalPreviewHolders(@Nullable ImageLocalStageStream stream) {
-        final List<FrameLayout> holders = previewHolders.get(LOCAL_VIEW_KEY);
-        if (holders == null) return;
-        final ImagePreviewSurfaceView preview =
-                stream == null ? null : stream.getPreviewSurfaceView();
-        for (FrameLayout holder : new ArrayList<>(holders)) {
-            attachPreview(holder, preview);
-        }
+        updatePreviewHolders(
+                LOCAL_VIEW_KEY,
+                stream == null ? null : stream.getPreviewSurfaceView());
     }
 
     private void updateRemotePreviewHolders(
             String key,
             @Nullable ImageStageStream stream) {
+        updatePreviewHolders(
+                key,
+                stream == null ? null : stream.getPreviewSurfaceView());
+    }
+
+    private void updatePreviewHolders(
+            String key,
+            @Nullable ImagePreviewSurfaceView preview) {
         final List<FrameLayout> holders = previewHolders.get(key);
         if (holders == null) return;
-        final ImagePreviewSurfaceView preview =
-                stream == null ? null : stream.getPreviewSurfaceView();
         for (FrameLayout holder : new ArrayList<>(holders)) {
             attachPreview(holder, preview);
         }
@@ -776,13 +1073,21 @@ public final class FlutterRealtimeMediaIvsPlugin
         });
     }
 
-    void attachPlatformView(FrameLayout holder, String userId, boolean isLocal) {
-        final String key = isLocal ? LOCAL_VIEW_KEY : userId;
+    void attachPlatformView(
+            FrameLayout holder,
+            String userId,
+            boolean isLocal,
+            boolean isScreenShare) {
+        final String key = isLocal
+                ? (isScreenShare ? LOCAL_SCREEN_KEY : LOCAL_VIEW_KEY)
+                : userId;
         previewHolders.computeIfAbsent(key, ignored -> new ArrayList<>()).add(holder);
         if (isLocal) {
+            final ImageLocalStageStream localStream =
+                    isScreenShare ? androidScreenStream : cameraStream;
             attachPreview(
                     holder,
-                    cameraStream == null ? null : cameraStream.getPreviewSurfaceView());
+                    localStream == null ? null : localStream.getPreviewSurfaceView());
         } else {
             final ImageStageStream remoteStream = remoteVideoStreams.get(userId);
             attachPreview(
@@ -791,8 +1096,14 @@ public final class FlutterRealtimeMediaIvsPlugin
         }
     }
 
-    void detachPlatformView(FrameLayout holder, String userId, boolean isLocal) {
-        final String key = isLocal ? LOCAL_VIEW_KEY : userId;
+    void detachPlatformView(
+            FrameLayout holder,
+            String userId,
+            boolean isLocal,
+            boolean isScreenShare) {
+        final String key = isLocal
+                ? (isScreenShare ? LOCAL_SCREEN_KEY : LOCAL_VIEW_KEY)
+                : userId;
         final List<FrameLayout> holders = previewHolders.get(key);
         if (holders == null) return;
         holders.remove(holder);
@@ -816,7 +1127,8 @@ public final class FlutterRealtimeMediaIvsPlugin
             final Map<?, ?> params = args instanceof Map ? (Map<?, ?>) args : new HashMap<>();
             final String userId = String.valueOf(params.get("userId"));
             final boolean isLocal = Boolean.TRUE.equals(params.get("isLocal"));
-            return new IvsVideoPlatformView(context, plugin, userId, isLocal);
+            final boolean isScreenShare = Boolean.TRUE.equals(params.get("isScreenShare"));
+            return new IvsVideoPlatformView(context, plugin, userId, isLocal, isScreenShare);
         }
     }
 
@@ -825,17 +1137,20 @@ public final class FlutterRealtimeMediaIvsPlugin
         private final FlutterRealtimeMediaIvsPlugin plugin;
         private final String userId;
         private final boolean isLocal;
+        private final boolean isScreenShare;
 
         IvsVideoPlatformView(
                 Context context,
                 FlutterRealtimeMediaIvsPlugin plugin,
                 String userId,
-                boolean isLocal) {
+                boolean isLocal,
+                boolean isScreenShare) {
             this.holder = new FrameLayout(context);
             this.plugin = plugin;
             this.userId = userId;
             this.isLocal = isLocal;
-            plugin.attachPlatformView(holder, userId, isLocal);
+            this.isScreenShare = isScreenShare;
+            plugin.attachPlatformView(holder, userId, isLocal, isScreenShare);
         }
 
         @Override
@@ -845,7 +1160,92 @@ public final class FlutterRealtimeMediaIvsPlugin
 
         @Override
         public void dispose() {
-            plugin.detachPlatformView(holder, userId, isLocal);
+            plugin.detachPlatformView(holder, userId, isLocal, isScreenShare);
         }
+    }
+
+    private final class EmptyStageRenderer implements StageRenderer {
+        @Override
+        public void onConnectionStateChanged(
+                @NonNull Stage stage,
+                @NonNull Stage.ConnectionState state,
+                @Nullable BroadcastException exception) {}
+
+        @Override
+        public void onError(@NonNull BroadcastException exception) {
+            final Map<String, Object> event = typeOnly("error");
+            event.put("code", -1);
+            event.put("message", exception.getMessage() == null
+                    ? "Amazon IVS content stage reported an error."
+                    : exception.getMessage());
+            emit(event);
+        }
+
+        @Override
+        public void onParticipantJoined(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo) {}
+
+        @Override
+        public void onParticipantLeft(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo) {}
+
+        @Override
+        public void onParticipantPublishStateChanged(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo,
+                @NonNull Stage.PublishState publishState) {}
+
+        @Override
+        public void onParticipantSubscribeStateChanged(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo,
+                @NonNull Stage.SubscribeState subscribeState) {}
+
+        @Override
+        public void onParticipantMetadataUpdated(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo) {}
+
+        @Override
+        public void onStreamsAdded(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo,
+                @NonNull List<StageStream> streams) {}
+
+        @Override
+        public void onStreamsRemoved(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo,
+                @NonNull List<StageStream> streams) {}
+
+        @Override
+        public void onStreamsMutedChanged(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo,
+                @NonNull List<StageStream> streams) {}
+
+        @Override
+        public void onStreamAdaptionChanged(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo,
+                @NonNull RemoteStageStream stream,
+                boolean hasAdaption) {}
+
+        @Override
+        public void onStreamLayersChanged(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo,
+                @NonNull RemoteStageStream stream,
+                @NonNull List<RemoteStageStream.Layer> layers) {}
+
+        @Override
+        public void onStreamLayerSelected(
+                @NonNull Stage stage,
+                @NonNull ParticipantInfo participantInfo,
+                @NonNull RemoteStageStream stream,
+                @Nullable RemoteStageStream.Layer layer,
+                @NonNull RemoteStageStream.LayerSelectedReason reason) {}
     }
 }
