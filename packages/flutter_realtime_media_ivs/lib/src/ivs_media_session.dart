@@ -8,6 +8,7 @@ import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 import 'ivs_engine.dart';
 import 'ivs_join_info.dart';
 import 'ivs_media_track.dart';
+import 'ivs_windows_webview2.dart';
 
 part 'ivs_publishing.dart';
 part 'ivs_credential_refresh.dart';
@@ -64,6 +65,7 @@ abstract class _IvsMediaSession
   @override
   MediaCapabilities get capabilities {
     final publisher = role != MediaRole.viewer;
+    final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     return MediaCapabilities(
       canPublishAudio: publisher,
       canPublishVideo: publisher,
@@ -75,8 +77,12 @@ abstract class _IvsMediaSession
           defaultTargetPlatform != TargetPlatform.windows,
       canBlurBackground: publisher && _publishing._effectsPlatform,
       canReplaceBackgroundImage: publisher && _publishing._effectsPlatform,
-      canEnumerateCameras: publisher && _publishing._effectsPlatform,
-      canSelectCamera: publisher && _publishing._effectsPlatform,
+      canEnumerateCameras:
+          publisher && (_publishing._effectsPlatform || isWindows),
+      canSelectCamera:
+          publisher && (_publishing._effectsPlatform || isWindows),
+      canEnumerateMicrophones: publisher && isWindows,
+      canSelectMicrophone: publisher && isWindows,
       canSubscribeVideo: true,
       canReportNetworkStats: true,
       canListParticipants: role == MediaRole.host,

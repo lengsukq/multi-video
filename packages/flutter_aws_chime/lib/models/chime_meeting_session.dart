@@ -283,6 +283,36 @@ class ChimeMeetingSession {
     _replaceSnapshot(_snapshot.copyWith(selectedAudioDevice: device));
   }
 
+  /// Enumerates desktop camera, microphone, and audio-output devices when the
+  /// underlying desktop bridge exposes them (macOS WebKit / Windows WebView2).
+  Future<List<Map<String, dynamic>>> listDesktopMediaDevices() async {
+    _ensureActive();
+    final value = await _channel.invoke('listMediaDevices');
+    if (value is! List) return const <Map<String, dynamic>>[];
+    return value
+        .whereType<Map<Object?, Object?>>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  /// Selects a desktop camera or microphone input device by ID and label.
+  Future<void> selectDesktopMediaDevice({
+    required String id,
+    required String label,
+    required String kind,
+  }) async {
+    _ensureActive();
+    if (id.trim().isEmpty) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.invalidArgument,
+        message: 'Media device id must not be empty.',
+      );
+    }
+    await _channel.invoke('selectDevice', {
+      'device': {'id': id, 'label': label, 'kind': kind},
+    });
+  }
+
   Future<void> sendMessage(
     String message, {
     String topic = _chatTopic,

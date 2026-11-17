@@ -58,8 +58,6 @@
     return source;
   }
 
-  // This runtime never performs segmentation or opens a camera. Every image is
-  // an encoded view of the shared native processor's output pixel buffer.
   function createProcessedSource(sourceId) {
     const sourceKey = processedSourceKey(sourceId);
     const existing = processedSources.get(sourceKey);
@@ -105,7 +103,6 @@
             track.requestFrame();
             source.renderedTimestamp = timestamp;
           }
-          // Decode the newest pending frame immediately, without a second FPS timer.
           if (source.pendingTimestamp !== timestamp) loadFrame();
         } catch (error) {
           failProcessedSource(source, error);
@@ -156,6 +153,20 @@
 
   function post(value) {
     if (native) native.postMessage(value);
+  }
+
+  function encodeBlobDataUrl(blob) {
+    if (!blob) return Promise.resolve(null);
+    if (typeof blob.dataUrl === 'string') return Promise.resolve(blob.dataUrl);
+    if (typeof global.FileReader === 'function') {
+      return new Promise(function(resolve, reject) {
+        const reader = new global.FileReader();
+        reader.onloadend = function() { resolve(reader.result); };
+        reader.onerror = function() { reject(reader.error || new Error('Blob read failed.')); };
+        reader.readAsDataURL(blob);
+      });
+    }
+    return Promise.resolve(null);
   }
 
   global.__flutterMediaProviderOnEvent = function(sessionId, serializedEvent) {
@@ -237,14 +248,40 @@
     }
   }
 
+  function resolveTrackId(providerId, sessionId, trackId) {
+    const raw = String(trackId || '');
+    if (providerId !== 'ivs') return raw;
+    const isLocalLookup = raw.startsWith('ivs:local-participant:');
+    const isRemoteLookup = raw.startsWith('ivs:participant:');
+    if (!isLocalLookup && !isRemoteLookup) return raw;
+    const participantId = raw.slice(
+      isLocalLookup ? 'ivs:local-participant:'.length : 'ivs:participant:'.length,
+    );
+    const snapshot = snapshots.get(sessionId);
+    const tracks = Array.isArray(snapshot && snapshot.tracks) ? snapshot.tracks : [];
+    const matched = tracks.find(function(item) {
+      return (
+        String(item.participantId || '') === participantId &&
+        !item.isScreenShare &&
+        (isLocalLookup ? Boolean(item.isLocal) : !item.isLocal)
+      );
+    });
+    return matched && matched.id ? String(matched.id) : raw;
+  }
+
   async function bindTrack(providerId, sessionId, trackId, viewKey) {
     unbindTrack(viewKey);
+    const resolvedTrackId = resolveTrackId(providerId, sessionId, trackId);
     const container = document.createElement('div');
     container.className = 'capture';
     container.id = 'aws-desktop-' + String(viewKey).replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (container.style) {
+      container.style.cssText =
+        'position:fixed;left:0;top:0;width:64px;height:64px;opacity:0.01;pointer-events:none;overflow:hidden;';
+    }
     document.body.appendChild(container);
     try {
-      await requireBridge().attachVideo(providerId, sessionId, trackId, container.id);
+      await requireBridge().attachVideo(providerId, sessionId, resolvedTrackId, container.id);
       if (!container.querySelector('video')) {
         throw new Error('AWS video track disappeared before the video element was attached.');
       }
@@ -254,32 +291,89 @@
     }
 
     const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d', { alpha: false });
-    const binding = { providerId: providerId, sessionId: sessionId, trackId: trackId,
-      container: container, frameHandle: null, video: null, closed: false,
-      usesVideoCallback: false, nextFrameAt: 0, lastMediaTime: null };
+    const context =
+      canvas.getContext('2d', { alpha: false, desynchronized: true }) ||
+      canvas.getContext('2d', { alpha: false });
+    const binding = {
+      providerId: providerId,
+      sessionId: sessionId,
+      trackId: resolvedTrackId,
+      container: container,
+      frameHandle: null,
+      video: null,
+      closed: false,
+      usesVideoCallback: false,
+      nextFrameAt: 0,
+      lastFrameSignature: null,
+      busy: false,
+      busyUntil: 0,
+    };
     bindings.set(viewKey, binding);
 
-    function render(now, mediaTime) {
+    function frameSignature(metadata, video) {
+      if (metadata && metadata.presentedFrames != null) {
+        return String(metadata.presentedFrames) + ':' + String(metadata.mediaTime);
+      }
+      if (metadata && metadata.mediaTime != null) return metadata.mediaTime;
+      return video ? video.currentTime : null;
+    }
+
+    function render(now, signature) {
       if (binding.closed) return;
       const video = container.querySelector('video');
       if (video && video.readyState >= 2 && video.videoWidth && video.videoHeight &&
-          (mediaTime == null || mediaTime !== binding.lastMediaTime) &&
+          !(binding.busy && now < binding.busyUntil) &&
+          (signature == null || signature !== binding.lastFrameSignature) &&
           (!binding.nextFrameAt || now + 1 >= binding.nextFrameAt)) {
         try {
-          const scale = Math.min(1, 960 / video.videoWidth);
+          const longestEdge = Math.max(video.videoWidth, video.videoHeight);
+          const scale = Math.min(1, 960 / longestEdge);
           const width = Math.max(1, Math.round(video.videoWidth * scale));
           const height = Math.max(1, Math.round(video.videoHeight * scale));
           if (canvas.width !== width || canvas.height !== height) {
-            canvas.width = width; canvas.height = height;
+            canvas.width = width;
+            canvas.height = height;
           }
           context.drawImage(video, 0, 0, width, height);
-          post({ kind: 'frame', viewKey: viewKey,
-            data: canvas.toDataURL('image/jpeg', 0.72), width: width, height: height });
-          binding.lastMediaTime = mediaTime;
+          binding.lastFrameSignature = signature;
           binding.nextFrameAt = !binding.nextFrameAt || now - binding.nextFrameAt > 1000 / 30
-            ? now + 1000 / 30 : binding.nextFrameAt + 1000 / 30;
-        } catch (_) {}
+            ? now + 1000 / 30
+            : binding.nextFrameAt + 1000 / 30;
+          if (typeof canvas.toBlob === 'function') {
+            binding.busy = true;
+            binding.busyUntil = now + 250;
+            canvas.toBlob(function(blob) {
+              if (binding.closed || !blob) {
+                binding.busy = false;
+                return;
+              }
+              encodeBlobDataUrl(blob).then(function(dataUrl) {
+                if (!binding.closed && typeof dataUrl === 'string' && dataUrl) {
+                  post({
+                    kind: 'frame',
+                    viewKey: viewKey,
+                    data: dataUrl,
+                    width: width,
+                    height: height,
+                  });
+                }
+                binding.busy = false;
+              }).catch(function() {
+                binding.busy = false;
+              });
+            }, 'image/jpeg', 0.68);
+          } else {
+            post({
+              kind: 'frame',
+              viewKey: viewKey,
+              data: canvas.toDataURL('image/jpeg', 0.68),
+              width: width,
+              height: height,
+            });
+          }
+        } catch (_) {
+          binding.busy = false;
+        }
       }
       schedule();
     }
@@ -290,7 +384,7 @@
       binding.video = video;
       binding.usesVideoCallback = Boolean(video && typeof video.requestVideoFrameCallback === 'function');
       binding.frameHandle = binding.usesVideoCallback
-        ? video.requestVideoFrameCallback((now, metadata) => render(now, metadata.mediaTime))
+        ? video.requestVideoFrameCallback((now, metadata) => render(now, frameSignature(metadata, video)))
         : global.requestAnimationFrame(now => render(now, video && video.currentTime));
     }
     schedule();
@@ -300,6 +394,7 @@
     const binding = bindings.get(viewKey);
     if (!binding) return;
     binding.closed = true;
+    binding.busy = false;
     if (binding.usesVideoCallback) binding.video?.cancelVideoFrameCallback(binding.frameHandle);
     else global.cancelAnimationFrame(binding.frameHandle);
     try {

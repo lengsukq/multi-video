@@ -8,10 +8,23 @@ import WebKit
 /// Pixel buffers stay native; WebKit receives only a local encoded input.
 @objc(FlutterRealtimeAwsProcessedFrameFeed)
 final class AwsProcessedFrameFeed: NSObject {
+  static let sharedColorSpace = CGColorSpaceCreateDeviceRGB()
+  static let sharedCIContext = CIContext(options: [
+    .cacheIntermediates: false,
+    .priorityRequestLow: false,
+    .useSoftwareRenderer: false,
+  ])
+  private static let jpegOptions: [CIImageRepresentationOption: Any] = [
+    CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.78
+  ]
+
   let sourceId: String
   private let lock = NSLock()
-  private let encodeQueue = DispatchQueue(label: "flutter_realtime_aws.processed_frame")
-  private let context = CIContext(options: [.cacheIntermediates: false])
+  private let encodeQueue = DispatchQueue(
+    label: "flutter_realtime_aws.processed_frame",
+    qos: .userInteractive
+  )
+  private let context = AwsProcessedFrameFeed.sharedCIContext
   private var pendingFrame: NSObject?
   private var encoding = false
   private var disposed = false
@@ -83,11 +96,11 @@ final class AwsProcessedFrameFeed: NSObject {
         let buffer = Unmanaged<CVPixelBuffer>.fromOpaque(pointer).takeUnretainedValue()
         let timestamp = getTimestamp(frame, timestampSelector)
         let image = CIImage(cvPixelBuffer: buffer)
-        let options: [CIImageRepresentationOption: Any] = [
-          CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.9
-        ]
-        guard let data = context.jpegRepresentation(of: image,
-          colorSpace: CGColorSpaceCreateDeviceRGB(), options: options) else {
+        guard let data = context.jpegRepresentation(
+          of: image,
+          colorSpace: Self.sharedColorSpace,
+          options: Self.jpegOptions
+        ) else {
           reportFailure("Could not encode a native processed video frame as JPEG.")
           return
         }
@@ -173,13 +186,13 @@ final class AwsProcessedFrameFeed: NSObject {
 final class AwsProcessedFrameSchemeHandler: NSObject, WKURLSchemeHandler {
   private let lock = NSLock()
   private var feeds: [String: AwsProcessedFrameFeed] = [:]
-  private static let probeImage: Data? = CIContext().pngRepresentation(
+  private static let probeImage: Data? = AwsProcessedFrameFeed.sharedCIContext.pngRepresentation(
     of: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 1, height: 1)),
-    format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB()
+    format: .RGBA8, colorSpace: AwsProcessedFrameFeed.sharedColorSpace
   )
-  private static let emptyFrame: Data? = CIContext().jpegRepresentation(
+  private static let emptyFrame: Data? = AwsProcessedFrameFeed.sharedCIContext.jpegRepresentation(
     of: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 1280, height: 720)),
-    colorSpace: CGColorSpaceCreateDeviceRGB(), options: [:]
+    colorSpace: AwsProcessedFrameFeed.sharedColorSpace, options: [:]
   )
 
   func add(_ feed: AwsProcessedFrameFeed) {

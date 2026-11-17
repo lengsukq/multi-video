@@ -5,11 +5,13 @@ class IvsMediaVideoTrack extends MediaVideoTrack {
     required this.userId,
     required this.local,
     this.generation = 0,
+    this.processedSource,
   });
 
   final String userId;
   final bool local;
   final int generation;
+  final ProcessedVideoSource? processedSource;
 
   @override
   String get id => 'ivs:$userId:camera:$generation';
@@ -20,7 +22,7 @@ class IvsMediaVideoTrack extends MediaVideoTrack {
   @override
   bool get isScreenShare => false;
   @override
-  int get width => 0;
+  int get width => processedSource?.width ?? 0;
   @override
-  int get height => 0;
+  int get height => processedSource?.height ?? 0;
 }

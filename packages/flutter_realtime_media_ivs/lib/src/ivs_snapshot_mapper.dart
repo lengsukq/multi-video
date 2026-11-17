@@ -48,6 +48,19 @@ class _IvsSnapshotMapper {
           _session._setState(MediaSessionState.connected);
         }
       },
+      onDisconnected: () {
+        if (!currentLease()) return;
+        _session._setSnapshot(
+          _session._snapshot.copyWith(
+            participants: const [],
+            clearLocalParticipantId: true,
+            localMuted: true,
+            localVideoEnabled: false,
+            clearContentShareTrack: true,
+          ),
+        );
+        _session._setState(MediaSessionState.ended);
+      },
       onStats: (values) {
         if (currentLease()) _session._statistics._onStats(values);
       },

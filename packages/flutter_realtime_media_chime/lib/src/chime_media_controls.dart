@@ -70,6 +70,8 @@ class _ChimeMediaControls {
           (defaultTargetPlatform == TargetPlatform.android
               ? ProcessedVideoPlatform.android
               : ProcessedVideoPlatform.macos);
+  MediaDevice? _selectedCameraDevice;
+
   Future<void> attachProcessedVideoSource(ProcessedVideoSource source) async {
     _session._ensureActive();
     if (!supportsProcessedVideoSource(source)) {
@@ -81,30 +83,86 @@ class _ChimeMediaControls {
       );
     }
     await _processedSink.attach(source);
+    if (_selectedCameraDevice != null) {
+      await _processedSink.selectCamera(_selectedCameraDevice!.id);
+    }
+    _session._mapper._onProviderSnapshot(_session._session.snapshot);
   }
 
-  Future<void> detachProcessedVideoSource() => _processedSink.detach();
+  Future<void> detachProcessedVideoSource() async {
+    await _processedSink.detach();
+    if (!_session._disposed) {
+      _session._mapper._onProviderSnapshot(_session._session.snapshot);
+    }
+  }
 
   Future<List<MediaDevice>> listMediaDevices({
     Set<MediaDeviceKind>? kinds,
   }) async {
     final requested = kinds ?? MediaDeviceKind.values.toSet();
     _session._ensureActive();
-    final cameras =
-        capabilities.canEnumerateCameras &&
-            requested.contains(MediaDeviceKind.camera)
-        ? await ProcessedVideoBridge().listCameras()
-        : const <ProcessedVideoCameraDevice>[];
+    final isWindows =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final isDesktopBridge =
+        isWindows || (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS);
+    final desktopDevices =
+        isDesktopBridge &&
+            (requested.contains(MediaDeviceKind.microphone) ||
+                (isWindows && requested.contains(MediaDeviceKind.camera)))
+        ? await _session._session.listDesktopMediaDevices()
+        : const <Map<String, dynamic>>[];
+    final cameras = <MediaDevice>[];
+    if (capabilities.canEnumerateCameras &&
+        requested.contains(MediaDeviceKind.camera)) {
+      if (isWindows) {
+        for (final item in desktopDevices) {
+          if (item['kind'] == 'camera') {
+            final id = item['id']?.toString() ?? '';
+            if (id.isEmpty) continue;
+            cameras.add(
+              MediaDevice(
+                id: id,
+                label: item['label']?.toString() ?? id,
+                kind: MediaDeviceKind.camera,
+              ),
+            );
+          }
+        }
+      } else {
+        for (final camera in await ProcessedVideoBridge().listCameras()) {
+          cameras.add(
+            MediaDevice(
+              id: camera.id,
+              label: camera.label,
+              kind: MediaDeviceKind.camera,
+            ),
+          );
+        }
+      }
+    }
+    final microphones = <MediaDevice>[];
+    if (capabilities.canEnumerateMicrophones &&
+        requested.contains(MediaDeviceKind.microphone)) {
+      for (final item in desktopDevices) {
+        if (item['kind'] == 'microphone') {
+          final id = item['id']?.toString() ?? '';
+          if (id.isEmpty) continue;
+          microphones.add(
+            MediaDevice(
+              id: id,
+              label: item['label']?.toString() ?? id,
+              kind: MediaDeviceKind.microphone,
+            ),
+          );
+        }
+      }
+    }
     final devices = requested.contains(MediaDeviceKind.audioOutput)
         ? await listAudioDevices()
         : const <MediaAudioDevice>[];
     return [
-      for (final camera in cameras)
-        MediaDevice(
-          id: camera.id,
-          label: camera.label,
-          kind: MediaDeviceKind.camera,
-        ),
+      ...cameras,
+      ...microphones,
       ...devices.map(
         (device) => MediaDevice(
           id: device.id ?? device.label,
@@ -118,20 +176,43 @@ class _ChimeMediaControls {
   Future<void> selectMediaDevice(MediaDevice device) async {
     _session._ensureActive();
     if (device.kind == MediaDeviceKind.camera && capabilities.canSelectCamera) {
-      if (_processedSink.source == null) {
-        throw RealtimeException(
-          code: RealtimeErrorCode.invalidState,
-          providerId: providerId,
-          message: 'Prepare the SDK video source before selecting a camera.',
-        );
+      _selectedCameraDevice = device;
+      if (_processedSink.source != null) {
+        await _processedSink.selectCamera(device.id);
+        return;
       }
-      await _processedSink.selectCamera(device.id);
+      if (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.macOS ||
+              defaultTargetPlatform == TargetPlatform.windows)) {
+        try {
+          await _session._session.selectDesktopMediaDevice(
+            id: device.id,
+            label: device.label,
+            kind: 'camera',
+          );
+        } on chime.RealtimeException catch (error, stack) {
+          throw _mapError(error, stage: 'selectDevice', stack: stack);
+        }
+      }
+      return;
+    }
+    if (device.kind == MediaDeviceKind.microphone &&
+        capabilities.canSelectMicrophone) {
+      try {
+        await _session._session.selectDesktopMediaDevice(
+          id: device.id,
+          label: device.label,
+          kind: 'microphone',
+        );
+      } on chime.RealtimeException catch (error, stack) {
+        throw _mapError(error, stage: 'selectDevice', stack: stack);
+      }
       return;
     }
     if (device.kind != MediaDeviceKind.audioOutput) {
       throw RealtimeException(
         code: RealtimeErrorCode.unsupportedFeature,
-        message: 'Chime only exposes audio output device selection.',
+        message: 'Chime does not support selecting ${device.kind.name}.',
         providerId: providerId,
       );
     }

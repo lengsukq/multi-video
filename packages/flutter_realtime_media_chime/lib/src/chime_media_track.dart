@@ -4,9 +4,10 @@ import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 /// Core video-track handle backed by an existing Chime native video tile.
 class ChimeMediaVideoTrack extends MediaVideoTrack
     implements MediaContentOwnerTrack {
-  const ChimeMediaVideoTrack(this.tile);
+  const ChimeMediaVideoTrack(this.tile, {this.processedSource});
 
   final chime.MeetingVideoTile tile;
+  final ProcessedVideoSource? processedSource;
 
   @override
   String get id => 'chime-tile-${tile.tileId}';
@@ -27,8 +28,9 @@ class ChimeMediaVideoTrack extends MediaVideoTrack
   bool get isScreenShare => tile.isContentShare;
 
   @override
-  int get width => tile.width;
+  int get width => tile.width > 0 ? tile.width : (processedSource?.width ?? 0);
 
   @override
-  int get height => tile.height;
+  int get height =>
+      tile.height > 0 ? tile.height : (processedSource?.height ?? 0);
 }

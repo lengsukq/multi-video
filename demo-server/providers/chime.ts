@@ -64,20 +64,72 @@ export function createChimeProvider({
   env = process.env,
   contractVersion,
   normalizeUserId,
-}: ProviderFactoryContext & { normalizeUserId: NormalizeName }): ProviderAdapter {
+  sendCommand,
+}: ProviderFactoryContext & {
+  normalizeUserId: NormalizeName;
+  sendCommand?: (command: unknown) => Promise<unknown>;
+}): ProviderAdapter {
   const controlRegion = env.AWS_REGION ?? 'us-east-1';
   const mediaRegion = env.CHIME_MEDIA_REGION ?? 'ap-southeast-1';
   const client = new ChimeSDKMeetingsClient({ region: controlRegion });
+  const send = sendCommand ?? ((command: unknown) => client.send(command as never));
+  const issuedExternalIds = new WeakMap<ChimeRoomEntry, Map<string, string>>();
 
-  async function addAttendee(entry: ChimeRoomEntry, rawName: unknown): Promise<ChimeAttendee> {
-    const safeId = normalizeUserId(rawName);
-    const created = await client.send(new CreateAttendeeCommand({
+  function allocateExternalUserId(
+    entry: ChimeRoomEntry,
+    rawName: unknown,
+    userId?: string,
+    deviceId?: string | null,
+  ): string {
+    let byIdentity = issuedExternalIds.get(entry);
+    if (!byIdentity) {
+      byIdentity = new Map<string, string>();
+      issuedExternalIds.set(entry, byIdentity);
+    }
+    const identityKey = (deviceId && deviceId.trim()) || (userId && userId.trim()) || `anon-${crypto.randomUUID()}`;
+    const existingForCaller = byIdentity.get(identityKey);
+    if (existingForCaller) return existingForCaller;
+
+    let base = normalizeUserId(rawName).trim();
+    if (!base) base = `user-${crypto.randomUUID().slice(0, 8)}`;
+    if (base.length < 2) base = `u-${base}`;
+    base = base.slice(0, 64).trim();
+    if (base.length < 2) base = `user-${crypto.randomUUID().slice(0, 8)}`;
+
+    const used = new Set<string>([
+      ...byIdentity.values(),
+      ...entry.attendees.map((attendee) => attendee.externalUserId),
+    ]);
+    let candidate = base;
+    let sequence = 2;
+    while (used.has(candidate)) {
+      const suffix = ` (${sequence})`;
+      const prefix = base.slice(0, Math.max(2, 64 - suffix.length)).trimEnd();
+      candidate = `${prefix}${suffix}`;
+      sequence += 1;
+    }
+    byIdentity.set(identityKey, candidate);
+    return candidate;
+  }
+
+  async function addAttendee(
+    entry: ChimeRoomEntry,
+    rawName: unknown,
+    userId?: string,
+    deviceId?: string | null,
+  ): Promise<ChimeAttendee> {
+    const safeId = allocateExternalUserId(entry, rawName, userId, deviceId);
+    const created = (await send(new CreateAttendeeCommand({
       MeetingId: entry.meeting.MeetingId,
       ExternalUserId: safeId,
-    }));
+    }))) as { Attendee?: RawAttendee };
     const attendee = pickAttendee(created.Attendee);
+    const displayName = String(rawName ?? '').trim().slice(0, 64) || attendee.ExternalUserId;
     entry.attendees.push({
-      attendeeId: attendee.AttendeeId, externalUserId: attendee.ExternalUserId, joinedAt: new Date().toISOString(),
+      attendeeId: attendee.AttendeeId,
+      externalUserId: attendee.ExternalUserId,
+      displayName,
+      joinedAt: new Date().toISOString(),
     });
     return attendee;
   }
@@ -85,11 +137,13 @@ export function createChimeProvider({
   function joinResponse(
     entry: ChimeRoomEntry,
     attendee: ChimeAttendee,
+    rawName: unknown,
     role: MediaRole = 'participant',
   ): ProviderJoinResponse {
+    const displayName = String(rawName ?? '').trim().slice(0, 64) || attendee.ExternalUserId;
     return {
       contractVersion, provider: 'chime', role, roomCode: entry.roomCode,
-      participantId: attendee.AttendeeId, displayName: attendee.ExternalUserId,
+      participantId: attendee.AttendeeId, displayName,
       meeting: entry.meeting, attendee,
     };
   }
@@ -103,11 +157,11 @@ export function createChimeProvider({
     role: MediaRole;
     externalMeetingId?: string | null;
   }): Promise<CreateRoomResult> {
-    const out = await client.send(new CreateMeetingCommand({
+    const out = (await send(new CreateMeetingCommand({
       ClientRequestToken: crypto.randomUUID(),
       MediaRegion: mediaRegion,
       ExternalMeetingId: externalMeetingId ?? `room-${roomCode}`,
-    }));
+    }))) as { Meeting?: RawMeeting };
     const meeting = pickMeeting(out.Meeting);
     const entry: ChimeRoomEntry = {
       provider: 'chime',
@@ -166,16 +220,16 @@ export function createChimeProvider({
       return entry.meeting?.MeetingId ? [entry.meeting.MeetingId] : [];
     },
     createRoom,
-    async joinRoom({ entry, rawName, role }) {
+    async joinRoom({ entry, rawName, role, userId, deviceId }) {
       const room = entry as ChimeRoomEntry;
-      const attendee = await addAttendee(room, rawName);
+      const attendee = await addAttendee(room, rawName, userId, deviceId);
       room.lastHeartbeatMs = Date.now();
-      return joinResponse(room, attendee, role);
+      return joinResponse(room, attendee, rawName, role);
     },
     async closeRoom({ entry }) {
       const room = entry as ChimeRoomEntry;
       try {
-        await client.send(new DeleteMeetingCommand({ MeetingId: room.meeting.MeetingId }));
+        await send(new DeleteMeetingCommand({ MeetingId: room.meeting.MeetingId }));
       } catch (error) {
         if (!(error instanceof Error) || error.name !== 'NotFoundException') throw error;
       }

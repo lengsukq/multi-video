@@ -173,3 +173,79 @@ test('Chime removes locally tracked attendee state on leave', () => {
   assert.equal(result?.removed, true);
   assert.equal(entry.attendees.length, 0);
 });
+
+test('Chime allocates collision-free 2-64 char ExternalUserIds for duplicate, short, and CJK names', async () => {
+  const sentExternalIds: string[] = [];
+  let seq = 0;
+  const provider = createChimeProvider({
+    env: {
+      AWS_REGION: 'us-east-1',
+      CHIME_MEDIA_REGION: 'us-east-1',
+    },
+    contractVersion: 1,
+    normalizeUserId: (raw: unknown) => {
+      const id = String(raw ?? '').trim();
+      const ascii = id.replace(/[^\x20-\x7E]/g, '').trim();
+      return ascii;
+    },
+    sendCommand: async (command: unknown) => {
+      const input = (command as { input: Record<string, string> }).input;
+      if ('MediaRegion' in input) {
+        return {
+          Meeting: {
+            MeetingId: 'meeting-multi-peer',
+            ExternalMeetingId: input.ExternalMeetingId,
+            MediaRegion: input.MediaRegion,
+            MediaPlacement: {},
+          },
+        };
+      }
+      sentExternalIds.push(input.ExternalUserId!);
+      seq += 1;
+      return {
+        Attendee: {
+          AttendeeId: `attendee-${seq}`,
+          ExternalUserId: input.ExternalUserId,
+          JoinToken: `token-${seq}`,
+        },
+      };
+    },
+  });
+
+  const { entry } = await provider.createRoom({
+    roomCode: 'awsroom1',
+    role: 'participant',
+  });
+
+  const host = await provider.joinRoom({
+    entry,
+    rawName: 'Leo',
+    role: 'participant',
+    userId: 'user-ios',
+    deviceId: 'device-ios-001',
+  });
+  const macPeer = await provider.joinRoom({
+    entry,
+    rawName: 'Leo',
+    role: 'participant',
+    userId: 'user-macos',
+    deviceId: 'device-macos-002',
+  });
+  const shortPeer = await provider.joinRoom({
+    entry,
+    rawName: '张 1',
+    role: 'participant',
+    userId: 'user-short',
+    deviceId: 'device-short-003',
+  });
+
+  assert.notEqual(host.participantId, macPeer.participantId);
+  assert.equal(host.displayName, 'Leo');
+  assert.equal(macPeer.displayName, 'Leo');
+  assert.equal(shortPeer.displayName, '张 1');
+  assert.equal(new Set(sentExternalIds).size, 3);
+  for (const externalId of sentExternalIds) {
+    assert.ok(externalId.length >= 2 && externalId.length <= 64, `invalid ExternalUserId length: ${externalId}`);
+  }
+});
+

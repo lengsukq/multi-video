@@ -4,6 +4,9 @@
   const native = global.webkit && global.webkit.messageHandlers
     ? global.webkit.messageHandlers.awsDesktop
     : null;
+  const frameReplyNative = global.webkit && global.webkit.messageHandlers
+    ? global.webkit.messageHandlers.awsDesktopFrame
+    : null;
   const bindings = new Map();
   const snapshots = new Map();
   const pendingChatTokens = new Map();
@@ -11,6 +14,12 @@
   const processedSources = new Map();
   const processedProviders = new Map();
   const processedProviderOperations = new Map();
+
+  function clampNumber(value, min, max, fallback) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(max, Math.max(min, parsed));
+  }
 
   function processedSourceKey(sourceId) {
     return String(sourceId).toLowerCase();
@@ -156,6 +165,20 @@
     if (native) native.postMessage(value);
   }
 
+  function encodeBlobDataUrl(blob) {
+    if (!blob) return Promise.resolve(null);
+    if (typeof blob.dataUrl === 'string') return Promise.resolve(blob.dataUrl);
+    if (typeof global.FileReader === 'function') {
+      return new Promise(function(resolve, reject) {
+        const reader = new global.FileReader();
+        reader.onloadend = function() { resolve(reader.result); };
+        reader.onerror = function() { reject(reader.error || new Error('Blob read failed.')); };
+        reader.readAsDataURL(blob);
+      });
+    }
+    return Promise.resolve(null);
+  }
+
   global.__flutterMediaProviderOnEvent = function(sessionId, serializedEvent) {
     let event;
     try {
@@ -235,19 +258,64 @@
     }
   }
 
-  async function bindTrack(providerId, sessionId, trackId, viewKey) {
+  function applyTrackOptions(binding, options) {
+    if (!binding || !options || typeof options !== 'object') return;
+    if (options.maxDimension != null) {
+      binding.maxDimension = clampNumber(options.maxDimension, 160, 1280, 960);
+    }
+    if (options.maxFps != null) {
+      binding.maxFps = clampNumber(options.maxFps, 5, 30, 30);
+    }
+    if (options.quality != null) {
+      binding.quality = clampNumber(options.quality, 0.4, 0.9, 0.68);
+    }
+    if (options.requireExplicitAck != null) {
+      binding.requireExplicitAck = Boolean(options.requireExplicitAck);
+    }
+  }
+
+  async function bindTrack(providerId, sessionId, trackId, viewKey, options) {
     unbindTrack(viewKey);
     const container = document.createElement('div');
     container.className = 'capture';
     container.id = 'aws-desktop-' + String(viewKey).replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (container.style) {
+      // Keep video elements inside the WebView viewport so macOS WebKit does
+      // not classify them as clipped/invisible and throttle frame callbacks.
+      container.style.cssText =
+        'position:fixed;left:0;top:0;width:64px;height:64px;opacity:0.01;pointer-events:none;overflow:hidden;';
+    }
     document.body.appendChild(container);
-    await requireBridge().attachVideo(providerId, sessionId, trackId, container.id);
+    try {
+      await requireBridge().attachVideo(providerId, sessionId, trackId, container.id);
+    } catch (error) {
+      container.remove();
+      throw error;
+    }
 
     const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d', { alpha: false });
-    const binding = { providerId: providerId, sessionId: sessionId, trackId: trackId,
-      container: container, frameHandle: null, video: null, closed: false,
-      usesVideoCallback: false, nextFrameAt: 0, lastFrameSignature: null };
+    const context =
+      canvas.getContext('2d', { alpha: false, desynchronized: true }) ||
+      canvas.getContext('2d', { alpha: false });
+    const binding = {
+      providerId: providerId,
+      sessionId: sessionId,
+      trackId: trackId,
+      container: container,
+      frameHandle: null,
+      video: null,
+      closed: false,
+      usesVideoCallback: false,
+      nextFrameAt: 0,
+      lastFrameSignature: null,
+      busy: false,
+      busyUntil: 0,
+      maxDimension: 960,
+      maxFps: 30,
+      quality: 0.68,
+      requireExplicitAck: false,
+    };
+    applyTrackOptions(binding, options);
     bindings.set(viewKey, binding);
 
     function frameSignature(metadata, video) {
@@ -260,26 +328,84 @@
       return video ? video.currentTime : null;
     }
 
+    function sendAsyncFrame(width, height, now) {
+      binding.busy = true;
+      binding.busyUntil = now + 250;
+      canvas.toBlob(function(blob) {
+        if (binding.closed || !blob) {
+          binding.busy = false;
+          return;
+        }
+        encodeBlobDataUrl(blob).then(function(dataUrl) {
+          if (binding.closed || typeof dataUrl !== 'string' || !dataUrl) {
+            binding.busy = false;
+            return;
+          }
+          if (frameReplyNative && typeof frameReplyNative.postMessage === 'function') {
+            Promise.resolve(
+              frameReplyNative.postMessage({
+                viewKey: viewKey,
+                data: dataUrl,
+                width: width,
+                height: height,
+              }),
+            ).catch(function() {}).finally(function() {
+              binding.busy = false;
+            });
+            return;
+          }
+          post({
+            kind: 'frame',
+            viewKey: viewKey,
+            data: dataUrl,
+            width: width,
+            height: height,
+          });
+          if (!binding.requireExplicitAck) {
+            binding.busy = false;
+          }
+        }).catch(function() {
+          binding.busy = false;
+        });
+      }, 'image/jpeg', binding.quality);
+    }
+
     function render(now, signature) {
       if (binding.closed) return;
+      const frameIntervalMs = 1000 / binding.maxFps;
       const video = container.querySelector('video');
       if (video && video.readyState >= 2 && video.videoWidth && video.videoHeight &&
+          !(binding.busy && now < binding.busyUntil) &&
           (signature == null || signature !== binding.lastFrameSignature) &&
           (!binding.nextFrameAt || now + 1 >= binding.nextFrameAt)) {
         try {
-          const scale = Math.min(1, 960 / video.videoWidth);
+          const longestEdge = Math.max(video.videoWidth, video.videoHeight);
+          const scale = Math.min(1, binding.maxDimension / longestEdge);
           const width = Math.max(1, Math.round(video.videoWidth * scale));
           const height = Math.max(1, Math.round(video.videoHeight * scale));
           if (canvas.width !== width || canvas.height !== height) {
-            canvas.width = width; canvas.height = height;
+            canvas.width = width;
+            canvas.height = height;
           }
           context.drawImage(video, 0, 0, width, height);
-          post({ kind: 'frame', viewKey: viewKey,
-            data: canvas.toDataURL('image/jpeg', 0.72), width: width, height: height });
           binding.lastFrameSignature = signature;
-          binding.nextFrameAt = !binding.nextFrameAt || now - binding.nextFrameAt > 1000 / 30
-            ? now + 1000 / 30 : binding.nextFrameAt + 1000 / 30;
-        } catch (_) {}
+          binding.nextFrameAt = !binding.nextFrameAt || now - binding.nextFrameAt > frameIntervalMs
+            ? now + frameIntervalMs
+            : binding.nextFrameAt + frameIntervalMs;
+          if (typeof canvas.toBlob === 'function') {
+            sendAsyncFrame(width, height, now);
+          } else {
+            post({
+              kind: 'frame',
+              viewKey: viewKey,
+              data: canvas.toDataURL('image/jpeg', binding.quality),
+              width: width,
+              height: height,
+            });
+          }
+        } catch (_) {
+          binding.busy = false;
+        }
       }
       schedule();
     }
@@ -296,10 +422,25 @@
     schedule();
   }
 
+  function configureTrackView(viewKey, options) {
+    const binding = bindings.get(viewKey);
+    if (!binding || binding.closed) return false;
+    applyTrackOptions(binding, options);
+    return true;
+  }
+
+  function ackFrame(viewKey) {
+    const binding = bindings.get(viewKey);
+    if (!binding) return false;
+    binding.busy = false;
+    return true;
+  }
+
   function unbindTrack(viewKey) {
     const binding = bindings.get(viewKey);
     if (!binding) return;
     binding.closed = true;
+    binding.busy = false;
     if (binding.usesVideoCallback) binding.video?.cancelVideoFrameCallback(binding.frameHandle);
     else global.cancelAnimationFrame(binding.frameHandle);
     try {
@@ -325,6 +466,8 @@
     },
     invoke: invoke,
     bindTrack: bindTrack,
+    configureTrackView: configureTrackView,
+    ackFrame: ackFrame,
     unbindTrack: unbindTrack,
     snapshot: function(sessionId) { return snapshots.get(sessionId) || null; },
     attachProcessedVideo: async function(providerId, sessionId, sourceId, generation) {

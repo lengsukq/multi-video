@@ -27,6 +27,24 @@ class AwsWindowsWebView2Runtime {
 
   static final instance = AwsWindowsWebView2Runtime._('chime');
   static final ivs = AwsWindowsWebView2Runtime._('ivs');
+  static Future<void>? _environmentInitialization;
+
+  static Future<void> _ensureWebViewEnvironment() {
+    return _environmentInitialization ??= WebviewController
+        .initializeEnvironment(
+          additionalArguments:
+              '--use-fake-ui-for-media-stream '
+              '--autoplay-policy=no-user-gesture-required',
+        )
+        .catchError((Object error) {
+          if (error is PlatformException &&
+              error.code == 'environment_already_initialized') {
+            return;
+          }
+          _environmentInitialization = null;
+        });
+  }
+
   final String providerId;
   String get _origin => 'https://aws-$providerId-local.invalid';
   String get _channel => 'aws-windows-$providerId-v1';
@@ -44,10 +62,28 @@ class AwsWindowsWebView2Runtime {
   final _pending = <int, Completer<dynamic>>{};
   final _events = StreamController<Map<String, dynamic>>.broadcast();
   final _frames = StreamController<Map<String, dynamic>>.broadcast();
+  final _viewFrames = <String, StreamController<Map<String, dynamic>>>{};
 
   Stream<Map<String, dynamic>> get events => _events.stream;
   Stream<Map<String, dynamic>> get frames => _frames.stream;
   bool get isReady => _ready;
+
+  /// Per-view frame stream avoiding O(N^2) broadcast fan-out across tiles.
+  Stream<Map<String, dynamic>> framesForView(String viewKey) {
+    final existing = _viewFrames[viewKey];
+    if (existing != null) return existing.stream;
+    late final StreamController<Map<String, dynamic>> controller;
+    controller = StreamController<Map<String, dynamic>>.broadcast(
+      onCancel: () {
+        if (!controller.hasListener) {
+          _viewFrames.remove(viewKey);
+          unawaited(controller.close());
+        }
+      },
+    );
+    _viewFrames[viewKey] = controller;
+    return controller.stream;
+  }
 
   void _diagnose(AwsWindowsRuntimeDiagnostic diagnostic) {
     lastDiagnostic = diagnostic;
@@ -81,11 +117,14 @@ class AwsWindowsWebView2Runtime {
         return false;
       }
       step = _AwsWindowsStartupStep.assets;
-      final files = await Directory.systemTemp.createTemp('aws-$providerId-wv2-');
+      final files = await Directory.systemTemp.createTemp(
+        'aws-$providerId-wv2-',
+      );
       _temporaryAssets = files;
 
       final sdkFile = providerId == 'ivs'
-          ? 'amazon-ivs-web-broadcast.js' : 'chime-sdk.js';
+          ? 'amazon-ivs-web-broadcast.js'
+          : 'chime-sdk.js';
       final resources = {
         sdkFile: 'packages/flutter_realtime_provider_aws/assets/$sdkFile',
         'media-provider-bridge.js':
@@ -97,14 +136,16 @@ class AwsWindowsWebView2Runtime {
       };
       for (final entry in resources.entries) {
         final source = await rootBundle.loadString(entry.value);
-        await File('${files.path}${Platform.pathSeparator}${entry.key}')
-            .writeAsString(source, flush: true);
+        await File(
+          '${files.path}${Platform.pathSeparator}${entry.key}',
+        ).writeAsString(source, flush: true);
       }
-      await File('${files.path}${Platform.pathSeparator}index.html')
-          .writeAsString('''
+      await File(
+        '${files.path}${Platform.pathSeparator}index.html',
+      ).writeAsString('''
 <!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy"
- content="default-src 'self' https: wss: data: blob:; script-src 'self' 'unsafe-eval' 'unsafe-inline' https:; connect-src 'self' https: wss:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; style-src 'self' 'unsafe-inline';">
+ content="default-src 'self' https: wss: data: blob:; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' 'unsafe-inline' blob: https:; worker-src 'self' blob:; connect-src 'self' https: wss: data: blob:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline';">
 </head><body><script>globalThis.global = globalThis;</script>
 <script src="windows_runtime.js"></script>
 <script src="$sdkFile"></script>
@@ -113,6 +154,7 @@ class AwsWindowsWebView2Runtime {
 ''', flush: true);
 
       step = _AwsWindowsStartupStep.browserInitialization;
+      await _ensureWebViewEnvironment();
       browser = WebviewController();
       await browser.initialize();
       await browser.setSize(const Size(960, 540));
@@ -191,7 +233,9 @@ class AwsWindowsWebView2Runtime {
         return true;
       }());
       if (browser != null) {
-        try { await browser.dispose(); } catch (_) {}
+        try {
+          await browser.dispose();
+        } catch (_) {}
       }
       await _subscription?.cancel();
       _subscription = null;
@@ -204,7 +248,8 @@ class AwsWindowsWebView2Runtime {
     }
   }
 
-  Future<dynamic> invoke(String operation, {
+  Future<dynamic> invoke(
+    String operation, {
     String name = '',
     Map<String, dynamic> payload = const {},
     String trackId = '',
@@ -214,25 +259,29 @@ class AwsWindowsWebView2Runtime {
     // to detach an already-gone tile.
     if (operation == 'unbind' && !_ready) return null;
     if (!await probe()) {
-      throw StateError(lastDiagnostic?.userMessage ??
-          'Windows WebView2 $providerId transport is unavailable.');
+      throw StateError(
+        lastDiagnostic?.userMessage ??
+            'Windows WebView2 $providerId transport is unavailable.',
+      );
     }
     final browser = _controller!;
     final id = ++_nextCallId;
     final completion = Completer<dynamic>();
     _pending[id] = completion;
     try {
-      await browser.postWebMessage(jsonEncode({
-        'channel': _channel,
-        'id': id,
-        'operation': operation,
-        'providerId': providerId,
-        'sessionId': _sessionId,
-        'name': name,
-        'payload': payload,
-        'trackId': trackId,
-        'viewKey': viewKey,
-      }));
+      await browser.postWebMessage(
+        jsonEncode({
+          'channel': _channel,
+          'id': id,
+          'operation': operation,
+          'providerId': providerId,
+          'sessionId': _sessionId,
+          'name': name,
+          'payload': payload,
+          'trackId': trackId,
+          'viewKey': viewKey,
+        }),
+      );
       return await completion.future.timeout(const Duration(seconds: 35));
     } finally {
       _pending.remove(id);
@@ -249,9 +298,12 @@ class AwsWindowsWebView2Runtime {
       if (body['success'] == true) {
         waiter.complete(body['value']);
       } else {
-        waiter.completeError(StateError(
-          body['message']?.toString() ?? '$providerId JavaScript bridge failed.',
-        ));
+        waiter.completeError(
+          StateError(
+            body['message']?.toString() ??
+                '$providerId JavaScript bridge failed.',
+          ),
+        );
       }
       return;
     }
@@ -260,18 +312,30 @@ class AwsWindowsWebView2Runtime {
         body['event'] is Map) {
       _events.add(Map<String, dynamic>.from(body['event'] as Map));
     } else if (body['kind'] == 'frame') {
-      _frames.add(body);
+      final viewKey = body['viewKey']?.toString();
+      if (viewKey != null) {
+        _viewFrames[viewKey]?.add(body);
+      }
+      if (_frames.hasListener) {
+        _frames.add(body);
+      }
     }
   }
 
   Future<void> dispose() async {
     _ready = false;
+    _initializing = null;
     for (final result in _pending.values) {
       if (!result.isCompleted) {
         result.completeError(StateError('$providerId WebView2 was disposed.'));
       }
     }
     _pending.clear();
+    final activeViewStreams = _viewFrames.values.toList(growable: false);
+    _viewFrames.clear();
+    for (final controller in activeViewStreams) {
+      await controller.close();
+    }
     await _subscription?.cancel();
     _subscription = null;
     await _controller?.dispose();

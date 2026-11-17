@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter_realtime_foundation/flutter_realtime_foundation.dart';
-import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show PlatformViewHitTestBehavior;
 import 'package:flutter/services.dart';
+import 'package:flutter_realtime_foundation/flutter_realtime_foundation.dart';
+import 'package:flutter_realtime_media_aws_desktop/aws_macos_texture_view.dart';
+import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
 
 import '../models/meeting_snapshot.dart';
 
@@ -48,6 +49,16 @@ class MeetingVideoTileView extends StatelessWidget {
       );
     }
 
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      return AwsMacosTextureView.chime(
+        key: ValueKey('macos-chime-${tile.tileId}'),
+        tileId: tile.tileId,
+        initialWidth: tile.width,
+        initialHeight: tile.height,
+        fit: fit,
+      );
+    }
+
     final fitMode = fit == BoxFit.cover ? 'cover' : 'contain';
     final creationParams = <String, Object?>{
       'tileId': tile.tileId,
@@ -57,15 +68,6 @@ class MeetingVideoTileView extends StatelessWidget {
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       return UiKitView(
         key: ValueKey('ios-chime-${tile.tileId}-$fitMode'),
-        viewType: 'videoTile',
-        creationParams: creationParams,
-        creationParamsCodec: const StandardMessageCodec(),
-      );
-    }
-
-    if (defaultTargetPlatform == TargetPlatform.macOS) {
-      return AppKitView(
-        key: ValueKey('macos-chime-${tile.tileId}-$fitMode'),
         viewType: 'videoTile',
         creationParams: creationParams,
         creationParamsCodec: const StandardMessageCodec(),
@@ -99,8 +101,9 @@ class MeetingVideoTileView extends StatelessWidget {
   }
 }
 
-/// Provisional frame renderer matching the macOS WebKit bridge's JPEG frame
-/// event contract. It is not a low-latency native GPU texture.
+/// Provisional frame renderer matching the desktop WebView2 JPEG frame event
+/// contract. Subscribes to per-viewKey frame routing rather than O(N^2) global
+/// broadcast filtering.
 class _WindowsChimeFrameView extends StatefulWidget {
   const _WindowsChimeFrameView({
     super.key,
@@ -120,31 +123,52 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
   late final String _viewKey =
       'aws-chime-${widget.tile.tileId}-${_nextViewId++}';
   StreamSubscription<Map<String, dynamic>>? _subscription;
+  StreamSubscription<Map<String, dynamic>>? _eventsSubscription;
   Uint8List? _frame;
+  bool _bound = false;
+  bool _binding = false;
+  bool _painting = false;
 
   @override
   void initState() {
     super.initState();
-    _subscription = _runtime.frames.listen((event) {
-      if (event['viewKey'] != _viewKey || !mounted) return;
-      final encoded = event['data'];
-      if (encoded is! String || !encoded.startsWith('data:image/jpeg;base64,')) {
-        return;
-      }
-      try {
-        final raw = encoded.substring('data:image/jpeg;base64,'.length);
-        // Bound frame copies to protect Flutter's image decoder.
-        if (raw.length > 1800000) return;
-        final bytes = base64Decode(raw);
-        if (mounted) setState(() => _frame = bytes);
-      } on FormatException {
-        // A damaged frame is discarded; the next frame can recover.
-      }
-    });
+    _subscription = _runtime.framesForView(_viewKey).listen(_onFrameEvent);
+    _eventsSubscription = _runtime.events.listen(_onRuntimeEvent);
     unawaited(_bind());
   }
 
+  void _onRuntimeEvent(Map<String, dynamic> event) {
+    if (!mounted || _bound || _binding) return;
+    if (event['type'] == 'snapshot') {
+      unawaited(_bind());
+    }
+  }
+
+  void _onFrameEvent(Map<String, dynamic> event) {
+    if (!mounted || _painting) return;
+    final encoded = event['data'];
+    if (encoded is! String || !encoded.startsWith('data:image/jpeg;base64,')) {
+      return;
+    }
+    try {
+      final raw = encoded.substring('data:image/jpeg;base64,'.length);
+      // Bound frame copies to protect Flutter's image decoder.
+      if (raw.length > 1800000) return;
+      final bytes = base64Decode(raw);
+      if (!mounted) return;
+      _painting = true;
+      setState(() => _frame = bytes);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _painting = false;
+      });
+    } on FormatException {
+      // A damaged frame is discarded; the next frame can recover.
+    }
+  }
+
   Future<void> _bind() async {
+    if (_bound || _binding || !mounted) return;
+    _binding = true;
     try {
       await _runtime.invoke(
         'bind',
@@ -153,9 +177,13 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
       );
       if (!mounted) {
         await _runtime.invoke('unbind', viewKey: _viewKey);
+        return;
       }
+      _bound = true;
     } catch (_) {
-      // Keep a black tile rather than misreport a successful remote frame.
+      // Retry automatically when the next snapshot event arrives.
+    } finally {
+      _binding = false;
     }
   }
 
@@ -163,9 +191,13 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
   void didUpdateWidget(covariant _WindowsChimeFrameView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tile.tileId != widget.tile.tileId) {
-      unawaited(_runtime.invoke('unbind', viewKey: _viewKey)
-          .catchError((Object _) => null));
+      _bound = false;
       _frame = null;
+      unawaited(
+        _runtime
+            .invoke('unbind', viewKey: _viewKey)
+            .catchError((Object _) => null),
+      );
       unawaited(_bind());
     }
   }
@@ -174,8 +206,13 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
   void dispose() {
     final subscription = _subscription;
     if (subscription != null) unawaited(subscription.cancel());
-    unawaited(_runtime.invoke('unbind', viewKey: _viewKey)
-        .catchError((Object _) => null));
+    final eventsSubscription = _eventsSubscription;
+    if (eventsSubscription != null) unawaited(eventsSubscription.cancel());
+    unawaited(
+      _runtime
+          .invoke('unbind', viewKey: _viewKey)
+          .catchError((Object _) => null),
+    );
     super.dispose();
   }
 

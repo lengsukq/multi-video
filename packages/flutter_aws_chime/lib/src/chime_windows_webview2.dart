@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
@@ -73,32 +74,44 @@ class ChimeWindowsWebview2Transport {
           });
           return _success();
         case 'listAudioDevices':
-          final raw = await _command('listDevices', const {});
+          final devices = await _fetchNormalizedDevices();
           _devices
             ..clear()
-            ..addAll(raw is List
-                ? raw.whereType<Map<Object?, Object?>>()
-                    .map((e) => Map<String, dynamic>.from(e))
-                : const <Map<String, dynamic>>[]);
+            ..addAll(devices);
           return _success(
-            _devices.where((d) => d['kind'] == 'audioOutput')
+            _devices
+                .where((d) => d['kind'] == 'audioOutput')
                 .map((d) => d['label']?.toString() ?? '')
                 .where((label) => label.isNotEmpty)
                 .toList(growable: false),
           );
+        case 'listMediaDevices':
+          final devices = await _fetchNormalizedDevices();
+          _devices
+            ..clear()
+            ..addAll(devices);
+          return _success(devices);
         case 'initialAudioSelection':
-          final first = _devices.where((d) => d['kind'] == 'audioOutput');
-          return _success(
-            first.isEmpty ? null : first.first['label']?.toString(),
-          );
+          final first = _devices
+              .where((d) => d['kind'] == 'audioOutput')
+              .map((d) => d['label']?.toString() ?? '')
+              .where((label) => label.isNotEmpty);
+          return _success(first.isEmpty ? null : first.first);
         case 'updateAudioDevice':
           final label = rawArguments?.toString() ?? '';
-          final candidates = _devices.where((d) =>
-              d['kind'] == 'audioOutput' && d['label'] == label);
+          if (_devices.isEmpty) {
+            _devices.addAll(await _fetchNormalizedDevices());
+          }
+          final candidates = _devices.where(
+            (d) => d['kind'] == 'audioOutput' && d['label'] == label,
+          );
           if (candidates.isEmpty) {
             return _failure('invalid_argument', 'Unknown Chime audio output.');
           }
           await _command('selectAudioOutput', candidates.first);
+          return _success();
+        case 'selectDevice':
+          await _command('selectDevice', args);
           return _success();
         case 'sendMessage':
           await _command('sendMessage', args);
@@ -106,34 +119,95 @@ class ChimeWindowsWebview2Transport {
         case 'setCameraPosition':
         case 'probeProcessedVideoInput':
         case 'attachProcessedVideoSource':
-          return _failure('method_not_implemented',
-              'Chime Windows WebView2 does not support this native feature.');
+          return _failure(
+            'method_not_implemented',
+            'Chime Windows WebView2 does not support this native feature.',
+          );
         default:
-          return _failure('method_not_implemented',
-              'Chime Windows does not implement $method.');
+          return _failure(
+            'method_not_implemented',
+            'Chime Windows does not implement $method.',
+          );
       }
     } catch (error) {
       return _failure('native_error', error.toString());
     }
   }
 
+  Future<List<Map<String, dynamic>>> _fetchNormalizedDevices() async {
+    final raw = await _command('listDevices', const {});
+    final decoded = raw is String
+        ? (raw.trim().isEmpty ? const <Object?>[] : _tryDecodeList(raw))
+        : (raw is List ? raw : const <Object?>[]);
+    final result = <Map<String, dynamic>>[];
+    final countsByKind = <String, int>{};
+    for (final item in decoded) {
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(item);
+      final kind = map['kind']?.toString() ?? '';
+      final id = map['id']?.toString() ?? '';
+      if (kind.isEmpty || id.isEmpty) continue;
+      final index = (countsByKind[kind] ?? 0) + 1;
+      countsByKind[kind] = index;
+      var label = map['label']?.toString().trim() ?? '';
+      if (label.isEmpty) {
+        label = switch (kind) {
+          'audioOutput' =>
+            id == 'default' || index == 1
+                ? 'System Default Speaker'
+                : 'Speaker $index',
+          'microphone' =>
+            id == 'default' || index == 1
+                ? 'System Default Microphone'
+                : 'Microphone $index',
+          'camera' => index == 1 ? 'Default Camera' : 'Camera $index',
+          _ => '$kind $index',
+        };
+      }
+      result.add({...map, 'id': id, 'label': label, 'kind': kind});
+    }
+    return result;
+  }
+
+  List<Object?> _tryDecodeList(String raw) {
+    try {
+      final parsed = jsonDecode(raw);
+      return parsed is List ? parsed : const <Object?>[];
+    } catch (_) {
+      return const <Object?>[];
+    }
+  }
+
   Future<dynamic> _command(String name, Map<String, dynamic> args) =>
-      _runtime.invoke('invoke', name: 'command',
-          payload: {'name': name, 'args': args});
+      _runtime.invoke(
+        'invoke',
+        name: 'command',
+        payload: {'name': name, 'args': args},
+      );
 
   Map<String, dynamic> _chimePayload(Map<String, dynamic> data) {
     const required = [
-      'MeetingId', 'ExternalMeetingId', 'MediaRegion',
-      'AudioHostUrl', 'AudioFallbackUrl', 'SignalingUrl',
-      'TurnControlUrl', 'ExternalUserId', 'AttendeeId', 'JoinToken',
+      'MeetingId',
+      'ExternalMeetingId',
+      'MediaRegion',
+      'AudioHostUrl',
+      'AudioFallbackUrl',
+      'SignalingUrl',
+      'TurnControlUrl',
+      'ExternalUserId',
+      'AttendeeId',
+      'JoinToken',
     ];
     if (required.any((field) => (data[field]?.toString() ?? '').isEmpty)) {
       throw const FormatException('Chime join credentials are incomplete.');
     }
+    final displayName = (data['DisplayName']?.toString().trim() ?? '');
     return {
       'provider': 'chime',
       'participantId': data['AttendeeId'],
-      'displayName': data['ExternalUserId'],
+      'displayName': displayName.isNotEmpty
+          ? displayName
+          : data['ExternalUserId'],
       'role': 'participant',
       'meeting': {
         'MeetingId': data['MeetingId'],
@@ -141,9 +215,12 @@ class ChimeWindowsWebview2Transport {
         'MediaRegion': data['MediaRegion'],
         'MediaPlacement': {
           for (final key in [
-            'AudioHostUrl', 'AudioFallbackUrl',
-            'SignalingUrl', 'TurnControlUrl',
-          ]) key: data[key],
+            'AudioHostUrl',
+            'AudioFallbackUrl',
+            'SignalingUrl',
+            'TurnControlUrl',
+          ])
+            key: data[key],
         },
       },
       'attendee': {
@@ -155,8 +232,7 @@ class ChimeWindowsWebview2Transport {
   }
 
   void _emit(String name, [Map<String, dynamic>? args]) {
-    unawaited(Future<void>.sync(() =>
-        onNativeCall(MethodCall(name, args))));
+    unawaited(Future<void>.sync(() => onNativeCall(MethodCall(name, args))));
   }
 
   void _onEvent(Map<String, dynamic> event) {
@@ -170,8 +246,7 @@ class ChimeWindowsWebview2Transport {
           _ => null,
         };
         if (name != null) _emit('meetingEvent', {'type': name});
-        if (event['state'] == 'ended' ||
-            event['state'] == 'disconnected') {
+        if (event['state'] == 'ended' || event['state'] == 'disconnected') {
           _emit('audioSessionDidStop');
         }
       case 'snapshot':
@@ -187,10 +262,15 @@ class ChimeWindowsWebview2Transport {
           'throttled': false,
         });
       case 'error':
-        _emit('meetingEvent', {
-          'type': 'audioSessionStopped',
-          'statusCode': 'native_error',
-        });
+        // Only treat pre-join signaling failures as session termination; live
+        // call feature errors (such as cancelled screen capture) must not drop
+        // an active meeting, while genuine disconnects emit state='ended'.
+        if (_participants.isEmpty) {
+          _emit('meetingEvent', {
+            'type': 'audioSessionStopped',
+            'statusCode': event['message']?.toString() ?? 'native_error',
+          });
+        }
     }
   }
 
@@ -228,8 +308,20 @@ class ChimeWindowsWebview2Transport {
 
     final tracks = _index(next['tracks']);
     for (final entry in tracks.entries) {
-      if (!_tracks.containsKey(entry.key)) {
+      final old = _tracks[entry.key];
+      if (old == null) {
         _emit('videoTileAdd', _tile(entry.key, entry.value));
+      } else {
+        final oldW = (old['width'] as num?)?.toInt() ?? 0;
+        final oldH = (old['height'] as num?)?.toInt() ?? 0;
+        final newW = (entry.value['width'] as num?)?.toInt() ?? 0;
+        final newH = (entry.value['height'] as num?)?.toInt() ?? 0;
+        if (oldW != newW || oldH != newH) {
+          _emit('meetingEvent', {
+            'type': 'videoTileSizeChanged',
+            'videoTile': _tile(entry.key, entry.value),
+          });
+        }
       }
     }
     for (final entry in _tracks.entries) {

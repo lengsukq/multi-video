@@ -115,6 +115,8 @@ class _IvsPublishing {
           (defaultTargetPlatform == TargetPlatform.android
               ? ProcessedVideoPlatform.android
               : ProcessedVideoPlatform.macos);
+  MediaDevice? _selectedCameraDevice;
+
   Future<void> attachProcessedVideoSource(ProcessedVideoSource source) async {
     _session._requireActive();
     if (!supportsProcessedVideoSource(source)) {
@@ -126,14 +128,47 @@ class _IvsPublishing {
       );
     }
     await _processedSink.attach(source);
+    if (_selectedCameraDevice != null) {
+      await _processedSink.selectCamera(_selectedCameraDevice!.id);
+    }
+    _syncLocalProcessedTrack();
   }
 
-  Future<void> detachProcessedVideoSource() => _processedSink.detach();
+  Future<void> detachProcessedVideoSource() async {
+    await _processedSink.detach();
+    if (!_session._disposed) _syncLocalProcessedTrack();
+  }
+
+  void _syncLocalProcessedTrack() {
+    final info = _session._joinInfo;
+    if (!_session._snapshot.localVideoEnabled || info == null) return;
+    final track = IvsMediaVideoTrack(
+      userId: info.participantId,
+      local: true,
+      generation: _session._mapper._trackGeneration,
+      processedSource: _processedSink.source,
+    );
+    _session._setSnapshot(
+      _session._snapshot.copyWith(
+        participants: _session._snapshot.participants
+            .map(
+              (item) => item.isLocal
+                  ? item.copyWith(videoTrack: track, isVideoEnabled: true)
+                  : item,
+            )
+            .toList(),
+      ),
+    );
+  }
 
   Future<List<MediaDevice>> listMediaDevices({
     Set<MediaDeviceKind>? kinds,
   }) async {
     _session._requireActive();
+    final engine = _session._engine;
+    if (engine is WindowsIvsWebView2Engine) {
+      return engine.listMediaDevices(kinds: kinds);
+    }
     if (!capabilities.canEnumerateCameras ||
         (kinds != null && !kinds.contains(MediaDeviceKind.camera))) {
       return const [];
@@ -150,6 +185,21 @@ class _IvsPublishing {
 
   Future<void> selectMediaDevice(MediaDevice device) async {
     _session._requireActive();
+    final engine = _session._engine;
+    if (engine is WindowsIvsWebView2Engine) {
+      if ((device.kind == MediaDeviceKind.camera &&
+              capabilities.canSelectCamera) ||
+          (device.kind == MediaDeviceKind.microphone &&
+              capabilities.canSelectMicrophone)) {
+        await engine.selectMediaDevice(device);
+        return;
+      }
+      throw RealtimeException(
+        code: RealtimeErrorCode.unsupportedFeature,
+        providerId: providerId,
+        message: 'This media device cannot be selected.',
+      );
+    }
     if (device.kind != MediaDeviceKind.camera ||
         !capabilities.canSelectCamera) {
       throw RealtimeException(
@@ -158,14 +208,20 @@ class _IvsPublishing {
         message: 'This media device cannot be selected.',
       );
     }
-    if (_processedSink.source == null) {
-      throw RealtimeException(
-        code: RealtimeErrorCode.invalidState,
-        providerId: providerId,
-        message: 'Prepare the SDK video source before selecting a camera.',
-      );
+    _selectedCameraDevice = device;
+    if (_processedSink.source != null) {
+      await _processedSink.selectCamera(device.id);
+      return;
     }
-    await _processedSink.selectCamera(device.id);
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS) {
+      await _iosChannel.invokeMethod<void>('selectDevice', {
+        'device': {
+          'id': device.id,
+          'label': device.label,
+          'kind': 'camera',
+        },
+      });
+    }
   }
 
   Future<void> _setMuted(bool muted) async {
@@ -193,6 +249,7 @@ class _IvsPublishing {
             userId: info.participantId,
             local: true,
             generation: _session._mapper._trackGeneration,
+            processedSource: _processedSink.source,
           )
         : null;
     _session._setSnapshot(
@@ -247,6 +304,7 @@ class _IvsPublishing {
         userId: info.participantId,
         local: true,
         generation: _session._mapper._trackGeneration,
+        processedSource: _processedSink.source,
       );
       _session._setSnapshot(
         _session._snapshot.copyWith(

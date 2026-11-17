@@ -44,7 +44,13 @@ class _ChimeSnapshotMapper {
             isSpeaking: _speakingParticipantIds.contains(attendee.attendeeId),
             videoTrack: attendee.videoTile == null
                 ? null
-                : ChimeMediaVideoTrack(attendee.videoTile!),
+                : ChimeMediaVideoTrack(
+                    attendee.videoTile!,
+                    processedSource:
+                        attendee.isLocal && !attendee.videoTile!.isContentShare
+                        ? _session._controls._processedSink.source
+                        : null,
+                  ),
             joinedAt: attendee.joinedAt,
           ),
         )

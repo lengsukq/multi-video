@@ -286,13 +286,11 @@ test('reports native image decoding failures and stops the captured track', asyn
   assert.equal(tracks[1].readyState, 'ended');
 });
 
-
 test('native frame notifications replace fixed polling and coalesce decode backlog', async () => {
   const h = createVideoRuntime();
   const runtime = h.context.AwsDesktopRuntime;
   await runtime.attachProcessedVideo('chime', 'meeting', 'shared-frames', 1);
   await waitFor(() => h.frameRequestCount === 1, 'initial native frame');
-  // Idle camera: no recurring requests or duplicate encoded frames.
   await new Promise(resolve => setTimeout(resolve, 60));
   assert.equal(h.frameRequestCount, 1);
   runtime.notifyProcessedFrame('shared-frames', '100000001');
@@ -318,7 +316,6 @@ test('native frame notifications replace fixed polling and coalesce decode backl
   assert.equal(h.frameRequestCount, 4);
 });
 
-
 test('desktop video display follows decoded frames up to 30 fps and cancels on detach', async () => {
   const h = createRuntime();
   const video = {readyState:2, videoWidth:1280, videoHeight:720,
@@ -335,7 +332,6 @@ test('desktop video display follows decoded frames up to 30 fps and cancels on d
   for(let index=0;index<30;index++) video.callback(index*1000/30,{mediaTime:index/30});
   assert.equal(h.messages.filter(value=>value.kind==='frame').length,30);
   assert.equal(canvas.width,960); assert.equal(canvas.height,540);
-  // Repeated decoded frame must not generate another JPEG or platform update.
   video.callback(1100,{mediaTime:29/30});
   assert.equal(h.messages.filter(value=>value.kind==='frame').length,30);
   const staleCallback=video.callback;
@@ -373,8 +369,212 @@ test('desktop video display advances on presentedFrames when WebKit keeps mediaT
     video.callback(index * 1000 / 30, { mediaTime: 0, presentedFrames: index });
   }
   assert.equal(h.messages.filter((value) => value.kind === 'frame').length, 5);
-  // Same presentedFrames + mediaTime must still be deduplicated.
   video.callback(400, { mediaTime: 0, presentedFrames: 5 });
   assert.equal(h.messages.filter((value) => value.kind === 'frame').length, 5);
   runtime.unbindTrack('view');
 });
+
+test('async toBlob + awsDesktopFrame reply enforces single-frame backpressure and dynamic target sizing', async () => {
+  const messages = [];
+  const framePosts = [];
+  let pendingReplyResolve = null;
+  const context = {
+    webkit: {
+      messageHandlers: {
+        awsDesktop: { postMessage: (msg) => messages.push(msg) },
+        awsDesktopFrame: {
+          postMessage: (msg) => {
+            framePosts.push(msg);
+            return new Promise((resolve) => {
+              pendingReplyResolve = resolve;
+            });
+          },
+        },
+      },
+    },
+    setTimeout,
+    clearTimeout,
+  };
+  context.globalThis = context;
+  vm.runInNewContext(runtimeSource, context);
+
+  let drawCount = 0;
+  const video = {
+    readyState: 2,
+    videoWidth: 1920,
+    videoHeight: 1080,
+    requestVideoFrameCallback(callback) { this.callback = callback; return 1; },
+    cancelVideoFrameCallback() { this.callback = null; },
+  };
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext() { return { drawImage() { drawCount += 1; } }; },
+    toBlob(callback) {
+      callback({ dataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==' });
+    },
+  };
+  const container = { style: {}, querySelector() { return video; }, remove() {} };
+  context.document = {
+    body: { appendChild() {} },
+    createElement(name) { return name === 'canvas' ? canvas : container; },
+  };
+  context.MediaProviderBridge = { async attachVideo() {}, detachVideo() {} };
+
+  await context.AwsDesktopRuntime.bindTrack('chime', 'session', 'remote', 'tile-1', {
+    maxDimension: 480,
+  });
+  video.callback(40, { mediaTime: 0, presentedFrames: 1 });
+  await waitFor(() => framePosts.length === 1, 'first async frame post');
+  assert.equal(canvas.width, 480);
+  assert.equal(canvas.height, 270);
+  assert.equal(drawCount, 1);
+
+  // While native decode has not replied yet, incoming frames must skip GPU readback.
+  video.callback(80, { mediaTime: 0, presentedFrames: 2 });
+  video.callback(120, { mediaTime: 0, presentedFrames: 3 });
+  assert.equal(drawCount, 1);
+  assert.equal(framePosts.length, 1);
+
+  // Resolve native reply and dynamically upgrade target bucket to 1280p.
+  assert.equal(
+    context.AwsDesktopRuntime.configureTrackView('tile-1', { maxDimension: 1280 }),
+    true,
+  );
+  pendingReplyResolve(true);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  video.callback(160, { mediaTime: 0, presentedFrames: 4 });
+  await waitFor(() => framePosts.length === 2, 'second async frame after ack');
+  assert.equal(canvas.width, 1280);
+  assert.equal(canvas.height, 720);
+  assert.equal(drawCount, 2);
+
+  pendingReplyResolve(true);
+  context.AwsDesktopRuntime.unbindTrack('tile-1');
+});
+
+test('Windows WebView2 host binds both local and remote IVS participant tracks without collision', async () => {
+  const windowsRuntimeSource = await readFile(
+    new URL('../assets/windows_runtime.js', import.meta.url),
+    'utf8',
+  );
+  const windowsHostSource = await readFile(
+    new URL('../assets/windows_host.js', import.meta.url),
+    'utf8',
+  );
+  const posted = [];
+  let messageHandler = null;
+  const boundTrackIds = [];
+
+  const video = {
+    readyState: 2,
+    videoWidth: 1280,
+    videoHeight: 720,
+    requestVideoFrameCallback() { return 1; },
+    cancelVideoFrameCallback() {},
+  };
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext() { return { drawImage() {} }; },
+    toDataURL() { return 'data:image/jpeg;base64,AA=='; },
+  };
+  const makeContainer = () => ({
+    id: '',
+    style: {},
+    querySelector() { return video; },
+    remove() {},
+  });
+
+  const context = {
+    chrome: {
+      webview: {
+        postMessage: (msg) => posted.push(msg),
+        addEventListener: (event, fn) => {
+          if (event === 'message') messageHandler = fn;
+        },
+      },
+    },
+    location: { hostname: 'aws-ivs-local.invalid' },
+    navigator: {
+      mediaDevices: {
+        enumerateDevices: async () => [
+          { kind: 'audioinput', deviceId: 'mic-1', label: 'Mic 1' },
+          { kind: 'videoinput', deviceId: 'cam-1', label: 'Cam 1' },
+        ],
+      },
+    },
+    document: {
+      body: { appendChild() {} },
+      createElement(name) { return name === 'canvas' ? canvas : makeContainer(); },
+    },
+    MediaProviderBridge: {
+      async attachVideo(_providerId, _sessionId, trackId) {
+        boundTrackIds.push(trackId);
+      },
+      detachVideo() {},
+    },
+    setTimeout,
+    clearTimeout,
+  };
+  context.globalThis = context;
+
+  vm.runInNewContext(windowsRuntimeSource, context, { filename: 'windows_runtime.js' });
+  vm.runInNewContext(windowsHostSource, context, { filename: 'windows_host.js' });
+  assert.equal(context.__awsWindowsHostChannel, 'aws-windows-ivs-v1');
+
+  context.__flutterMediaProviderOnEvent(
+    'aws-desktop-ivs',
+    JSON.stringify({
+      type: 'snapshot',
+      tracks: [
+        { id: 'ivs:local:stream-self', participantId: 'host-user', isLocal: true, isScreenShare: false },
+        { id: 'ivs:remote-user:stream-peer', participantId: 'remote-user', isLocal: false, isScreenShare: false },
+      ],
+    }),
+  );
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 1,
+      operation: 'bind',
+      trackId: 'ivs:local-participant:host-user',
+      viewKey: 'ivs-view-local',
+    },
+  });
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 2,
+      operation: 'bind',
+      trackId: 'ivs:participant:remote-user',
+      viewKey: 'ivs-view-remote',
+    },
+  });
+
+  const results = posted.filter((m) => m.kind === 'result');
+  assert.equal(results.length, 2);
+  assert.equal(results[0].success, true, results[0].message);
+  assert.equal(results[1].success, true, results[1].message);
+  assert.deepEqual(boundTrackIds, ['ivs:local:stream-self', 'ivs:remote-user:stream-peer']);
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 3,
+      operation: 'unbind',
+      viewKey: 'ivs-view-local',
+    },
+  });
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 4,
+      operation: 'unbind',
+      viewKey: 'ivs-view-remote',
+    },
+  });
+});
+

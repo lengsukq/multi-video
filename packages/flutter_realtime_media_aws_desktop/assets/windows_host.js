@@ -29,10 +29,17 @@
       } else if (request.operation === 'bind') {
         let trackId = String(request.trackId || '');
         const snapshot = global.AwsDesktopRuntime.snapshot(sessionId);
-        if (providerId === 'ivs' && trackId.startsWith('ivs:participant:')) {
-          const participantId = trackId.substring('ivs:participant:'.length);
-          const found = snapshot?.tracks?.find(track => track.participantId === participantId &&
-            !track.isScreenShare);
+        if (providerId === 'ivs' &&
+            (trackId.startsWith('ivs:local-participant:') ||
+             trackId.startsWith('ivs:participant:'))) {
+          const isLocalLookup = trackId.startsWith('ivs:local-participant:');
+          const participantId = trackId.substring(
+            isLocalLookup ? 'ivs:local-participant:'.length : 'ivs:participant:'.length,
+          );
+          const found = snapshot?.tracks?.find(track =>
+            String(track.participantId || '') === participantId &&
+            !track.isScreenShare &&
+            (isLocalLookup ? Boolean(track.isLocal) : !track.isLocal));
           if (!found) throw new Error('IVS participant does not have a published video track yet.');
           trackId = found.id;
         }

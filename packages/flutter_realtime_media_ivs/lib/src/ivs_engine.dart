@@ -63,6 +63,7 @@ class IvsEngineEvents {
     this.onRemoteAudioChanged,
     this.onReconnecting,
     this.onRecovered,
+    this.onDisconnected,
     this.onStats,
   });
 
@@ -73,6 +74,7 @@ class IvsEngineEvents {
   final void Function(String userId, bool available)? onRemoteAudioChanged;
   final void Function()? onReconnecting;
   final void Function()? onRecovered;
+  final void Function()? onDisconnected;
   final void Function(Map<String, Object?> values)? onStats;
 }
 
@@ -219,6 +221,9 @@ class _NativeIvsEngine implements IvsEngine {
         return;
       case 'recovered':
         _handlers.onRecovered?.call();
+        return;
+      case 'disconnected':
+        _handlers.onDisconnected?.call();
         return;
       case 'stats':
         _handlers.onStats?.call(event);

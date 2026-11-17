@@ -1,6 +1,9 @@
 import AppKit
 import AVFoundation
+import CoreGraphics
+import CoreVideo
 import FlutterMacOS
+import ImageIO
 import WebKit
 
 public final class FlutterRealtimeMediaAwsDesktopPlugin: NSObject, FlutterPlugin {
@@ -41,6 +44,14 @@ public final class FlutterRealtimeMediaAwsDesktopPlugin: NSObject, FlutterPlugin
     let ivsChatStreamHandler = AwsDesktopIvsChatStreamHandler(runtime: runtime)
     ivsChatEvents.setStreamHandler(ivsChatStreamHandler)
 
+    let texturesChannel = FlutterMethodChannel(
+      name: "com.oneplusdream.aws.desktop.textures",
+      binaryMessenger: registrar.messenger
+    )
+    runtime.texturesChannel = texturesChannel
+    let texturesHandler = AwsDesktopTextureMethodHandler(runtime: runtime)
+    registrar.addMethodCallDelegate(texturesHandler, channel: texturesChannel)
+
     registrar.register(
       AwsDesktopVideoViewFactory(runtime: runtime, provider: .chime),
       withId: "videoTile"
@@ -54,6 +65,7 @@ public final class FlutterRealtimeMediaAwsDesktopPlugin: NSObject, FlutterPlugin
     runtime.retain(ivsHandler)
     runtime.retain(ivsChatHandler)
     runtime.retain(ivsChatStreamHandler)
+    runtime.retain(texturesHandler)
   }
 }
 
@@ -104,6 +116,22 @@ private final class AwsDesktopIvsChatMethodHandler: NSObject, FlutterPlugin {
   }
 }
 
+private final class AwsDesktopTextureMethodHandler: NSObject, FlutterPlugin {
+  static func register(with registrar: FlutterPluginRegistrar) {
+    // Registered by FlutterRealtimeMediaAwsDesktopPlugin for GPU texture views.
+  }
+
+  let runtime: AwsDesktopRuntime
+
+  init(runtime: AwsDesktopRuntime) {
+    self.runtime = runtime
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    runtime.handleTexture(call, result: result)
+  }
+}
+
 private final class AwsDesktopIvsChatStreamHandler: NSObject, FlutterStreamHandler {
   let runtime: AwsDesktopRuntime
 
@@ -126,11 +154,16 @@ private final class AwsDesktopIvsChatStreamHandler: NSObject, FlutterStreamHandl
 }
 
 private final class AwsDesktopRuntime: NSObject,
-  FlutterStreamHandler, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate
+  FlutterStreamHandler,
+  WKScriptMessageHandler,
+  WKScriptMessageHandlerWithReply,
+  WKNavigationDelegate,
+  WKUIDelegate
 {
   let registrar: FlutterPluginRegistrar
   var chimeChannel: FlutterMethodChannel?
   var ivsChatChannel: FlutterMethodChannel?
+  var texturesChannel: FlutterMethodChannel?
   var ivsSink: FlutterEventSink?
   var ivsChatSink: FlutterEventSink?
   var webView: WKWebView?
@@ -141,6 +174,8 @@ private final class AwsDesktopRuntime: NSObject,
   private var readyWaiters: [(Error?) -> Void] = []
   private var retainedHandlers: [AnyObject] = []
   private var ivsChatSessionId: String?
+  private var ivsJoined = false
+  private var exchangingIvsToken = false
   private var loadedPackageScripts: Set<String> = []
   private var loadingPackageScripts: Set<String> = []
   private var packageScriptWaiters: [String: [(Error?) -> Void]] = [:]
@@ -155,6 +190,8 @@ private final class AwsDesktopRuntime: NSObject,
   private var processedFeedReferenceCounts: [String: Int] = [:]
   private var processedAttachGenerations: [AwsDesktopProvider: Int] = [:]
   private var reportedProcessedFailures: Set<String> = []
+  private var nextTextureSequence: Int64 = 0
+  private var textures: [String: AwsDesktopVideoTexture] = [:]
   private let views = NSMapTable<NSString, AwsDesktopVideoView>(
     keyOptions: .strongMemory,
     valueOptions: .weakMemory
@@ -180,6 +217,91 @@ private final class AwsDesktopRuntime: NSObject,
   func onCancel(withArguments arguments: Any?) -> FlutterError? {
     ivsSink = nil
     return nil
+  }
+
+  func handleTexture(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    let arguments = call.arguments as? [String: Any] ?? [:]
+    switch call.method {
+    case "createTexture":
+      guard let rawProvider = arguments["provider"] as? String,
+        let provider = AwsDesktopProvider(rawValue: rawProvider)
+      else {
+        result(FlutterError(
+          code: "invalid_argument",
+          message: "Unsupported AWS desktop video provider.",
+          details: nil
+        ))
+        return
+      }
+      nextTextureSequence += 1
+      let viewKey = "tex-\(provider.rawValue)-\(nextTextureSequence)"
+      let maxDimension = max(160, min(1280, (arguments["maxDimension"] as? NSNumber)?.intValue ?? 960))
+      let fixedTrackId: String?
+      let participantId: String
+      let isLocal: Bool
+      switch provider {
+      case .chime:
+        let tileId = (arguments["tileId"] as? NSNumber)?.intValue ?? 0
+        fixedTrackId = "chime:tile:" + String(tileId)
+        participantId = ""
+        isLocal = false
+      case .ivs:
+        fixedTrackId = nil
+        participantId = arguments["userId"] as? String ?? ""
+        isLocal = arguments["isLocal"] as? Bool ?? false
+      }
+      let texture = AwsDesktopVideoTexture(
+        viewKey: viewKey,
+        provider: provider,
+        participantId: participantId,
+        isLocal: isLocal,
+        fixedTrackId: fixedTrackId,
+        maxDimension: maxDimension,
+        textureRegistry: registrar.textures
+      ) { [weak self] key, width, height in
+        DispatchQueue.main.async {
+          self?.texturesChannel?.invokeMethod(
+            "onTextureSizeChanged",
+            arguments: [
+              "viewKey": key,
+              "width": width,
+              "height": height,
+            ]
+          )
+        }
+      }
+      textures[viewKey] = texture
+      refreshTexture(texture)
+      result([
+        "textureId": texture.textureId,
+        "viewKey": viewKey,
+      ])
+    case "updateTextureTarget":
+      guard let viewKey = arguments["viewKey"] as? String,
+        let texture = textures[viewKey]
+      else {
+        result(nil)
+        return
+      }
+      let maxDimension = max(160, min(1280, (arguments["maxDimension"] as? NSNumber)?.intValue ?? 960))
+      if texture.maxDimension != maxDimension {
+        texture.maxDimension = maxDimension
+        if texture.currentTrackId != nil {
+          configureTrackView(viewKey: viewKey, maxDimension: maxDimension)
+        }
+      }
+      result(nil)
+    case "disposeTexture":
+      if let viewKey = arguments["viewKey"] as? String,
+        let texture = textures.removeValue(forKey: viewKey)
+      {
+        unbind(viewKey: viewKey)
+        texture.dispose()
+      }
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
   }
 
   func handleChime(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -250,16 +372,28 @@ private final class AwsDesktopRuntime: NSObject,
           self.chimeFailure(result, code: "native_error", message: error!)
           return
         }
-        let devices = self.decodeArray(value)
+        let devices = self.normalizeChimeDevices(self.decodeArray(value))
         self.chimeDevices = devices
         let labels = devices
           .filter { ($0["kind"] as? String) == "audioOutput" }
           .compactMap { $0["label"] as? String }
+          .filter { !$0.isEmpty }
         self.chimeSuccess(result, data: labels)
+      }
+    case "listMediaDevices":
+      command(.chime, name: "listDevices", args: [:]) { value, error in
+        guard error == nil else {
+          self.chimeFailure(result, code: "native_error", message: error!)
+          return
+        }
+        let devices = self.normalizeChimeDevices(self.decodeArray(value))
+        self.chimeDevices = devices
+        self.chimeSuccess(result, data: devices)
       }
     case "initialAudioSelection":
       let label = chimeDevices.first(where: {
-        ($0["kind"] as? String) == "audioOutput"
+        ($0["kind"] as? String) == "audioOutput" &&
+          (($0["label"] as? String)?.isEmpty == false)
       })?["label"] as? String
       chimeSuccess(result, data: label)
     case "updateAudioDevice":
@@ -272,6 +406,10 @@ private final class AwsDesktopRuntime: NSObject,
         return
       }
       command(.chime, name: "selectAudioOutput", args: device) { _, error in
+        error == nil ? self.chimeSuccess(result) : self.chimeFailure(result, code: "native_error", message: error!)
+      }
+    case "selectDevice":
+      command(.chime, name: "selectDevice", args: arguments) { _, error in
         error == nil ? self.chimeSuccess(result) : self.chimeFailure(result, code: "native_error", message: error!)
       }
     case "sendMessage":
@@ -306,8 +444,14 @@ private final class AwsDesktopRuntime: NSObject,
     case "join":
       let payload = ivsPayload(arguments)
       payloads[.ivs] = payload
+      ivsJoined = false
       createAndJoin(.ivs, payload: payload) { error in
-        error == nil ? result(nil) : result(self.flutterError(error!))
+        if error == nil {
+          self.ivsJoined = true
+          result(nil)
+        } else {
+          result(self.flutterError(error!))
+        }
       }
     case "exchangeToken":
       guard var payload = payloads[.ivs],
@@ -321,12 +465,21 @@ private final class AwsDesktopRuntime: NSObject,
       ivs["token"] = token
       payload["ivs"] = ivs
       payloads[.ivs] = payload
+      exchangingIvsToken = true
       leaveAndDispose(.ivs) { _ in
         self.createAndJoin(.ivs, payload: payload) { error in
-          error == nil ? result(nil) : result(self.flutterError(error!))
+          self.exchangingIvsToken = false
+          if error == nil {
+            self.ivsJoined = true
+            result(nil)
+          } else {
+            self.ivsJoined = false
+            result(self.flutterError(error!))
+          }
         }
       }
     case "leave":
+      ivsJoined = false
       leaveAndDispose(.ivs) { error in
         error == nil ? result(nil) : result(self.flutterError(error!))
       }
@@ -338,6 +491,10 @@ private final class AwsDesktopRuntime: NSObject,
       command(.ivs, name: "setVideoEnabled", args: arguments) { _, error in
         error == nil ? result(nil) : result(self.flutterError(error!))
       }
+    case "selectDevice":
+      command(.ivs, name: "selectDevice", args: arguments) { _, error in
+        error == nil ? result(nil) : result(self.flutterError(error!))
+      }
     case "switchCamera":
       result(FlutterError(
         code: "unsupported_feature",
@@ -347,6 +504,7 @@ private final class AwsDesktopRuntime: NSObject,
     case "requestStats":
       result(nil)
     case "dispose":
+      ivsJoined = false
       leaveAndDispose(.ivs) { _ in result(nil) }
     default:
       result(FlutterMethodNotImplemented)
@@ -516,10 +674,11 @@ private final class AwsDesktopRuntime: NSObject,
     guard required.allSatisfy({
       (value[$0] as? String)?.isEmpty == false
     }) else { return nil }
+    let displayName = nonEmptyString(value["DisplayName"]) ?? (value["ExternalUserId"] as? String ?? "")
     return [
       "provider": "chime",
       "participantId": value["AttendeeId"]!,
-      "displayName": value["ExternalUserId"]!,
+      "displayName": displayName,
       "role": "participant",
       "meeting": [
         "MeetingId": value["MeetingId"]!,
@@ -1091,23 +1250,40 @@ private final class AwsDesktopRuntime: NSObject,
   private func bind(
     provider: AwsDesktopProvider,
     trackId: String,
-    viewKey: String
+    viewKey: String,
+    maxDimension: Int = 960
   ) {
     ensureMediaProviderBridge(provider) { _ in
       guard let webView = self.webView else { return }
       Task { @MainActor in
         _ = try? await webView.callAsyncJavaScript(
-          "return await AwsDesktopRuntime.bindTrack(providerId, sessionId, trackId, viewKey)",
+          "return await AwsDesktopRuntime.bindTrack(providerId, sessionId, trackId, viewKey, options)",
           arguments: [
             "providerId": provider.rawValue,
             "sessionId": provider.sessionId,
             "trackId": trackId,
             "viewKey": viewKey,
+            "options": ["maxDimension": maxDimension],
           ],
           in: nil,
           contentWorld: .page
         )
       }
+    }
+  }
+
+  private func configureTrackView(viewKey: String, maxDimension: Int) {
+    guard let webView, bridgeReady else { return }
+    Task { @MainActor in
+      _ = try? await webView.callAsyncJavaScript(
+        "return AwsDesktopRuntime.configureTrackView(viewKey, options)",
+        arguments: [
+          "viewKey": viewKey,
+          "options": ["maxDimension": maxDimension],
+        ],
+        in: nil,
+        contentWorld: .page
+      )
     }
   }
 
@@ -1136,19 +1312,34 @@ private final class AwsDesktopRuntime: NSObject,
       let configuration = WKWebViewConfiguration()
       let controller = WKUserContentController()
       controller.add(WeakScriptMessageHandler(target: self), name: "awsDesktop")
+      controller.addScriptMessageHandler(
+        WeakScriptMessageReplyHandler(target: self),
+        contentWorld: .page,
+        name: "awsDesktopFrame"
+      )
       configuration.userContentController = controller
       configuration.setURLSchemeHandler(processedFrameHandler, forURLScheme: "realtime-video")
       configuration.mediaTypesRequiringUserActionForPlayback = []
+      // Use a standard 320x240 non-interactive viewport so macOS WebKit keeps
+      // requestVideoFrameCallback unthrottled for bound WebRTC video elements.
       let view = PassiveBridgeWebView(
-        frame: NSRect(x: 0, y: 0, width: 16, height: 16),
+        frame: NSRect(x: 0, y: 0, width: 320, height: 240),
         configuration: configuration
       )
+      view.wantsLayer = true
       view.navigationDelegate = self
       view.uiDelegate = self
-      view.alphaValue = 0.01
+      view.alphaValue = 0.015
       registrar.view?.addSubview(view)
       webView = view
-      view.loadHTMLString(try runtimeHTML(), baseURL: Bundle.main.bundleURL)
+      // Load under http://localhost so WebKit treats the bridge page as a W3C
+      // Secure Context (exposing navigator.mediaDevices for Chime/IVS WebRTC
+      // signaling and device APIs) without HTTPS mixed-content blocking on
+      // custom realtime-video:// processed-frame URLs.
+      view.loadHTMLString(
+        try runtimeHTML(),
+        baseURL: URL(string: "http://localhost")
+      )
       let timeout = DispatchWorkItem { [weak self] in
         guard let self, !self.bridgeReady else { return }
         self.finishReady(AwsDesktopError.runtimeInitialization(
@@ -1291,6 +1482,24 @@ private final class AwsDesktopRuntime: NSObject,
 
   func userContentController(
     _ userContentController: WKUserContentController,
+    didReceive message: WKScriptMessage,
+    replyHandler: @escaping (Any?, String?) -> Void
+  ) {
+    guard message.name == "awsDesktopFrame",
+      let body = message.body as? [String: Any],
+      let viewKey = body["viewKey"] as? String,
+      let encoded = body["data"] as? String
+    else {
+      replyHandler(false, nil)
+      return
+    }
+    dispatchFrame(viewKey: viewKey, encodedDataURL: encoded) {
+      replyHandler(true, nil)
+    }
+  }
+
+  func userContentController(
+    _ userContentController: WKUserContentController,
     didReceive message: WKScriptMessage
   ) {
     guard let body = message.body as? [String: Any],
@@ -1324,7 +1533,7 @@ private final class AwsDesktopRuntime: NSObject,
       guard let viewKey = body["viewKey"] as? String,
         let encoded = body["data"] as? String
       else { return }
-      views.object(forKey: viewKey as NSString)?.updateFrame(encoded)
+      dispatchFrame(viewKey: viewKey, encodedDataURL: encoded, completion: nil)
     case "processedVideoError":
       guard let sourceId = body["sourceId"] as? String else { return }
       let errorMessage = body["message"] as? String ?? "Native processed video input failed."
@@ -1334,10 +1543,31 @@ private final class AwsDesktopRuntime: NSObject,
     }
   }
 
+  private func dispatchFrame(
+    viewKey: String,
+    encodedDataURL: String,
+    completion: (() -> Void)?
+  ) {
+    if let texture = textures[viewKey] {
+      texture.updateFrame(encodedDataURL, completion: completion)
+      return
+    }
+    if let view = views.object(forKey: viewKey as NSString) {
+      view.updateFrame(encodedDataURL, completion: completion)
+      return
+    }
+    completion?()
+  }
+
   deinit {
     readyTimeout?.cancel()
     processedFeedPool.values.forEach { $0.dispose() }
+    textures.values.forEach { $0.dispose() }
     webView?.configuration.userContentController.removeScriptMessageHandler(forName: "awsDesktop")
+    webView?.configuration.userContentController.removeScriptMessageHandler(
+      forName: "awsDesktopFrame",
+      contentWorld: .page
+    )
     webView?.removeFromSuperview()
   }
 
@@ -1370,10 +1600,13 @@ private final class AwsDesktopRuntime: NSObject,
         "throttled": false,
       ])
     case "error":
-      chimeChannel?.invokeMethod("meetingEvent", arguments: [
-        "type": "audioSessionStopped",
-        "statusCode": event["message"] as? String ?? "native_error",
-      ])
+      let activeParticipants = indexed(snapshots[.chime]?["participants"], key: "id")
+      if activeParticipants.isEmpty {
+        chimeChannel?.invokeMethod("meetingEvent", arguments: [
+          "type": "audioSessionStopped",
+          "statusCode": event["message"] as? String ?? "native_error",
+        ])
+      }
     default:
       break
     }
@@ -1447,6 +1680,9 @@ private final class AwsDesktopRuntime: NSObject,
         ivsSink?(["type": "reconnecting"])
       } else if state == "connected" {
         ivsSink?(["type": "recovered"])
+      } else if (state == "ended" || state == "disconnected") && ivsJoined && !exchangingIvsToken {
+        ivsJoined = false
+        ivsSink?(["type": "disconnected"])
       }
     case "snapshot":
       translateIvsSnapshot(event)
@@ -1525,30 +1761,94 @@ private final class AwsDesktopRuntime: NSObject,
   }
 
   private func refreshViews(_ provider: AwsDesktopProvider, snapshot: [String: Any]?) {
+    if snapshot == nil {
+      for texture in textures.values where texture.provider == provider {
+        if texture.currentTrackId != nil {
+          unbind(viewKey: texture.viewKey)
+          texture.currentTrackId = nil
+        }
+      }
+      let enumerator = views.objectEnumerator()
+      while let view = enumerator?.nextObject() as? AwsDesktopVideoView {
+        if view.provider == provider, view.currentTrackId != nil {
+          unbind(viewKey: view.viewKey)
+          view.currentTrackId = nil
+        }
+      }
+      return
+    }
+    for texture in textures.values where texture.provider == provider {
+      refreshTexture(texture)
+    }
     let enumerator = views.objectEnumerator()
     while let view = enumerator?.nextObject() as? AwsDesktopVideoView {
       if view.provider == provider { refreshView(view) }
     }
   }
 
-  private func refreshView(_ view: AwsDesktopVideoView) {
-    guard let snapshot = snapshots[view.provider],
+  private func resolveTrackId(
+    provider: AwsDesktopProvider,
+    fixedTrackId: String?,
+    participantId: String,
+    isLocal: Bool
+  ) -> String? {
+    guard let snapshot = snapshots[provider],
       let tracks = snapshot["tracks"] as? [[String: Any]]
-    else { return }
+    else { return nil }
     let trackId: String?
-    switch view.provider {
+    switch provider {
     case .chime:
-      trackId = view.fixedTrackId
+      trackId = fixedTrackId
     case .ivs:
       trackId = tracks.first(where: {
-        ($0["participantId"] as? String) == view.participantId &&
-          (($0["isLocal"] as? Bool) ?? false) == view.isLocal &&
+        ($0["participantId"] as? String) == participantId &&
+          (($0["isLocal"] as? Bool) ?? false) == isLocal &&
           !(($0["isScreenShare"] as? Bool) ?? false)
       })?["id"] as? String
     }
     guard let trackId,
       tracks.contains(where: { ($0["id"] as? String) == trackId })
-    else { return }
+    else { return nil }
+    return trackId
+  }
+
+  private func refreshTexture(_ texture: AwsDesktopVideoTexture) {
+    guard let trackId = resolveTrackId(
+      provider: texture.provider,
+      fixedTrackId: texture.fixedTrackId,
+      participantId: texture.participantId,
+      isLocal: texture.isLocal
+    ) else {
+      if texture.currentTrackId != nil {
+        unbind(viewKey: texture.viewKey)
+        texture.currentTrackId = nil
+      }
+      return
+    }
+    if texture.currentTrackId == trackId { return }
+    if texture.currentTrackId != nil { unbind(viewKey: texture.viewKey) }
+    texture.currentTrackId = trackId
+    bind(
+      provider: texture.provider,
+      trackId: trackId,
+      viewKey: texture.viewKey,
+      maxDimension: texture.maxDimension
+    )
+  }
+
+  private func refreshView(_ view: AwsDesktopVideoView) {
+    guard let trackId = resolveTrackId(
+      provider: view.provider,
+      fixedTrackId: view.fixedTrackId,
+      participantId: view.participantId,
+      isLocal: view.isLocal
+    ) else {
+      if view.currentTrackId != nil {
+        unbind(viewKey: view.viewKey)
+        view.currentTrackId = nil
+      }
+      return
+    }
     if view.currentTrackId == trackId { return }
     if view.currentTrackId != nil { unbind(viewKey: view.viewKey) }
     view.currentTrackId = trackId
@@ -1606,6 +1906,34 @@ private final class AwsDesktopRuntime: NSObject,
     return []
   }
 
+  private func normalizeChimeDevices(_ devices: [[String: Any]]) -> [[String: Any]] {
+    var counts: [String: Int] = [:]
+    return devices.compactMap { raw in
+      guard let kind = raw["kind"] as? String, !kind.isEmpty,
+        let id = raw["id"] as? String, !id.isEmpty
+      else { return nil }
+      let index = (counts[kind] ?? 0) + 1
+      counts[kind] = index
+      var entry = raw
+      let trimmed = (raw["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      if trimmed.isEmpty {
+        switch kind {
+        case "audioOutput":
+          entry["label"] = (id == "default" || index == 1) ? "System Default Speaker" : "Speaker \(index)"
+        case "microphone":
+          entry["label"] = (id == "default" || index == 1) ? "System Default Microphone" : "Microphone \(index)"
+        case "camera":
+          entry["label"] = index == 1 ? "Default Camera" : "Camera \(index)"
+        default:
+          entry["label"] = "\(kind) \(index)"
+        }
+      } else {
+        entry["label"] = trimmed
+      }
+      return entry
+    }
+  }
+
   private func flutterError(_ message: String) -> FlutterError {
     FlutterError(code: "native_error", message: message, details: nil)
   }
@@ -1619,6 +1947,214 @@ private final class AwsDesktopRuntime: NSObject,
   }
 }
 
+private enum AwsDesktopFrameDecoder {
+  static let colorSpace = CGColorSpaceCreateDeviceRGB()
+  private static let sourceOptions: CFDictionary = [
+    kCGImageSourceShouldCache: false,
+  ] as CFDictionary
+  private static let imageOptions: CFDictionary = [
+    kCGImageSourceShouldCacheImmediately: true,
+  ] as CFDictionary
+
+  static func decodeCGImage(fromDataURL dataURL: String) -> CGImage? {
+    guard let comma = dataURL.firstIndex(of: ","),
+      let data = Data(
+        base64Encoded: String(dataURL[dataURL.index(after: comma)...]),
+        options: .ignoreUnknownCharacters
+      ),
+      let source = CGImageSourceCreateWithData(data as CFData, sourceOptions)
+    else { return nil }
+    return CGImageSourceCreateImageAtIndex(source, 0, imageOptions)
+  }
+}
+
+private final class AwsDesktopVideoTexture: NSObject, FlutterTexture {
+  let viewKey: String
+  let provider: AwsDesktopProvider
+  let participantId: String
+  let isLocal: Bool
+  let fixedTrackId: String?
+  var maxDimension: Int
+  var currentTrackId: String?
+  private(set) var textureId: Int64 = -1
+
+  private weak var textureRegistry: FlutterTextureRegistry?
+  private let onSizeChanged: (String, Int, Int) -> Void
+  private let decodeQueue: DispatchQueue
+  private let pixelLock = NSLock()
+  private var latestPixelBuffer: CVPixelBuffer?
+  private var disposed = false
+  private var pixelBufferPool: CVPixelBufferPool?
+  private var poolWidth = 0
+  private var poolHeight = 0
+  private var reportedWidth = 0
+  private var reportedHeight = 0
+
+  init(
+    viewKey: String,
+    provider: AwsDesktopProvider,
+    participantId: String,
+    isLocal: Bool,
+    fixedTrackId: String?,
+    maxDimension: Int,
+    textureRegistry: FlutterTextureRegistry,
+    onSizeChanged: @escaping (String, Int, Int) -> Void
+  ) {
+    self.viewKey = viewKey
+    self.provider = provider
+    self.participantId = participantId
+    self.isLocal = isLocal
+    self.fixedTrackId = fixedTrackId
+    self.maxDimension = maxDimension
+    self.textureRegistry = textureRegistry
+    self.onSizeChanged = onSizeChanged
+    self.decodeQueue = DispatchQueue(
+      label: "flutter_realtime_aws.texture.\(viewKey)",
+      qos: .userInteractive
+    )
+    super.init()
+    self.textureId = textureRegistry.register(self)
+  }
+
+  func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
+    pixelLock.lock()
+    guard !disposed, let buffer = latestPixelBuffer else {
+      pixelLock.unlock()
+      return nil
+    }
+    let retained = Unmanaged.passRetained(buffer)
+    pixelLock.unlock()
+    return retained
+  }
+
+  func updateFrame(_ dataURL: String, completion: (() -> Void)?) {
+    decodeQueue.async { [weak self] in
+      defer { completion?() }
+      guard let self else { return }
+      self.pixelLock.lock()
+      let isDisposed = self.disposed
+      self.pixelLock.unlock()
+      guard !isDisposed else { return }
+
+      autoreleasepool {
+        guard let cgImage = AwsDesktopFrameDecoder.decodeCGImage(fromDataURL: dataURL) else {
+          return
+        }
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0,
+          let pixelBuffer = self.acquirePixelBuffer(width: width, height: height)
+        else { return }
+
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        let drawn: Bool
+        if let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer),
+          let context = CGContext(
+            data: baseAddress,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
+            space: AwsDesktopFrameDecoder.colorSpace,
+            bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue |
+              CGImageAlphaInfo.noneSkipFirst.rawValue
+          )
+        {
+          context.interpolationQuality = .low
+          context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+          drawn = true
+        } else {
+          drawn = false
+        }
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+        guard drawn else { return }
+
+        var shouldNotifySize = false
+        self.pixelLock.lock()
+        guard !self.disposed else {
+          self.pixelLock.unlock()
+          return
+        }
+        self.latestPixelBuffer = pixelBuffer
+        if width != self.reportedWidth || height != self.reportedHeight {
+          self.reportedWidth = width
+          self.reportedHeight = height
+          shouldNotifySize = true
+        }
+        let id = self.textureId
+        self.pixelLock.unlock()
+
+        if shouldNotifySize {
+          self.onSizeChanged(self.viewKey, width, height)
+        }
+        DispatchQueue.main.async { [weak self] in
+          guard let self, let registry = self.textureRegistry else { return }
+          self.pixelLock.lock()
+          let active = !self.disposed && self.textureId == id && id >= 0
+          self.pixelLock.unlock()
+          if active {
+            registry.textureFrameAvailable(id)
+          }
+        }
+      }
+    }
+  }
+
+  private func acquirePixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
+    if pixelBufferPool == nil || poolWidth != width || poolHeight != height {
+      var newPool: CVPixelBufferPool?
+      let poolAttrs: [CFString: Any] = [
+        kCVPixelBufferPoolMinimumBufferCountKey: 3,
+      ]
+      let bufferAttrs: [CFString: Any] = [
+        kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferWidthKey: width,
+        kCVPixelBufferHeightKey: height,
+        kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+        kCVPixelBufferMetalCompatibilityKey: true,
+        kCVPixelBufferCGImageCompatibilityKey: true,
+        kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+      ]
+      let status = CVPixelBufferPoolCreate(
+        kCFAllocatorDefault,
+        poolAttrs as CFDictionary,
+        bufferAttrs as CFDictionary,
+        &newPool
+      )
+      guard status == kCVReturnSuccess, let created = newPool else { return nil }
+      pixelBufferPool = created
+      poolWidth = width
+      poolHeight = height
+    }
+    guard let pool = pixelBufferPool else { return nil }
+    var pixelBuffer: CVPixelBuffer?
+    let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
+    return status == kCVReturnSuccess ? pixelBuffer : nil
+  }
+
+  func dispose() {
+    pixelLock.lock()
+    if disposed {
+      pixelLock.unlock()
+      return
+    }
+    disposed = true
+    latestPixelBuffer = nil
+    let id = textureId
+    textureId = -1
+    pixelLock.unlock()
+
+    decodeQueue.async { [weak self] in
+      self?.pixelBufferPool = nil
+    }
+    if id >= 0 {
+      DispatchQueue.main.async { [weak registry = textureRegistry] in
+        registry?.unregisterTexture(id)
+      }
+    }
+  }
+}
+
 private final class AwsDesktopVideoView: NSView {
   let viewKey: String
   let provider: AwsDesktopProvider
@@ -1627,11 +2163,7 @@ private final class AwsDesktopVideoView: NSView {
   let fixedTrackId: String?
   weak var runtime: AwsDesktopRuntime?
   var currentTrackId: String?
-  var image: NSImage? {
-    didSet {
-      layer?.contents = image
-    }
-  }
+  private let decodeQueue: DispatchQueue
 
   init(
     viewKey: String,
@@ -1648,6 +2180,10 @@ private final class AwsDesktopVideoView: NSView {
     self.isLocal = isLocal
     self.fixedTrackId = fixedTrackId
     self.runtime = runtime
+    self.decodeQueue = DispatchQueue(
+      label: "flutter_realtime_aws.view.\(viewKey)",
+      qos: .userInteractive
+    )
     super.init(frame: .zero)
     wantsLayer = true
     layer?.backgroundColor = NSColor.black.cgColor
@@ -1660,12 +2196,16 @@ private final class AwsDesktopVideoView: NSView {
     fatalError("init(coder:) has not been implemented")
   }
 
-  func updateFrame(_ dataURL: String) {
-    guard let comma = dataURL.firstIndex(of: ","),
-      let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])),
-      let image = NSImage(data: data)
-    else { return }
-    DispatchQueue.main.async { self.image = image }
+  func updateFrame(_ dataURL: String, completion: (() -> Void)? = nil) {
+    decodeQueue.async { [weak self] in
+      defer { completion?() }
+      guard let self,
+        let cgImage = AwsDesktopFrameDecoder.decodeCGImage(fromDataURL: dataURL)
+      else { return }
+      DispatchQueue.main.async { [weak self] in
+        self?.layer?.contents = cgImage
+      }
+    }
   }
 
   deinit {
@@ -1737,6 +2277,30 @@ private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
     didReceive message: WKScriptMessage
   ) {
     target?.userContentController(userContentController, didReceive: message)
+  }
+}
+
+private final class WeakScriptMessageReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
+  weak var target: WKScriptMessageHandlerWithReply?
+
+  init(target: WKScriptMessageHandlerWithReply) {
+    self.target = target
+  }
+
+  func userContentController(
+    _ userContentController: WKUserContentController,
+    didReceive message: WKScriptMessage,
+    replyHandler: @escaping (Any?, String?) -> Void
+  ) {
+    guard let target else {
+      replyHandler(false, nil)
+      return
+    }
+    target.userContentController(
+      userContentController,
+      didReceive: message,
+      replyHandler: replyHandler
+    )
   }
 }
 

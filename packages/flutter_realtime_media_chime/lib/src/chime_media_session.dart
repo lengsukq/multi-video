@@ -76,14 +76,24 @@ class ChimeMediaSession
   MediaRole get role => MediaRole.participant;
 
   @override
-  MediaCapabilities get capabilities => _chimeCapabilities.copyWith(
-    canBlurBackground:
-        _chimeCapabilities.canPublishVideo && _controls._effectsPlatform,
-    canReplaceBackgroundImage:
-        _chimeCapabilities.canPublishVideo && _controls._effectsPlatform,
-    canEnumerateCameras: _controls._effectsPlatform,
-    canSelectCamera: _controls._effectsPlatform,
-  );
+  MediaCapabilities get capabilities {
+    final isDesktopBridge =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+    final canDesktopCamera =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    return _chimeCapabilities.copyWith(
+      canBlurBackground:
+          _chimeCapabilities.canPublishVideo && _controls._effectsPlatform,
+      canReplaceBackgroundImage:
+          _chimeCapabilities.canPublishVideo && _controls._effectsPlatform,
+      canEnumerateCameras: _controls._effectsPlatform || canDesktopCamera,
+      canSelectCamera: _controls._effectsPlatform || canDesktopCamera,
+      canEnumerateMicrophones: isDesktopBridge,
+      canSelectMicrophone: isDesktopBridge,
+    );
+  }
 
   @override
   MediaSessionState get state => _snapshot.state;
