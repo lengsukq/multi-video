@@ -78,8 +78,11 @@ void main() {
       expect(state.showsScreen(10), isTrue);
       expect(state.showsCamera(10), isFalse);
       state.onVideo(10, available: false);
-      expect(state.showsScreen(10), isTrue,
-          reason: 'Camera stopped does not imply screen stream ended');
+      expect(
+        state.showsScreen(10),
+        isTrue,
+        reason: 'Camera stopped does not imply screen stream ended',
+      );
 
       // Switching camera off as screen capture starts must never remove
       // the independently published screen video.

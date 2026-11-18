@@ -7,10 +7,8 @@ import 'package:flutter_realtime_chat_core/flutter_realtime_chat_core.dart';
 import 'ivs_chat_engine.dart';
 import 'ivs_chat_join_info.dart';
 
-typedef IvsChatSocketConnector = Future<WebSocket> Function(
-  Uri endpoint,
-  String token,
-);
+typedef IvsChatSocketConnector =
+    Future<WebSocket> Function(Uri endpoint, String token);
 
 Future<WebSocket> _connectIvsChatSocket(Uri endpoint, String token) =>
     WebSocket.connect(endpoint.toString(), protocols: [token]);
@@ -19,7 +17,7 @@ Future<WebSocket> _connectIvsChatSocket(Uri endpoint, String token) =>
 /// API. It is separate from IVS Real-Time broadcast and needs no WebView2.
 class WindowsIvsChatEngine implements IvsChatEngine {
   WindowsIvsChatEngine({IvsChatSocketConnector? connector})
-      : _connector = connector ?? _connectIvsChatSocket;
+    : _connector = connector ?? _connectIvsChatSocket;
 
   final IvsChatSocketConnector _connector;
   IvsChatJoinInfo? _info;
@@ -50,7 +48,9 @@ class WindowsIvsChatEngine implements IvsChatEngine {
     IvsChatTokenProvider? tokenProvider,
   }) async {
     if (_disposed || _active) {
-      throw StateError('IVS Chat Windows engine is disposed or already active.');
+      throw StateError(
+        'IVS Chat Windows engine is disposed or already active.',
+      );
     }
     _active = true;
     _info = info;
@@ -79,8 +79,10 @@ class WindowsIvsChatEngine implements IvsChatEngine {
       throw StateError('The IVS Chat connection token has expired.');
     }
     _events.onConnecting?.call(reconnecting);
-    final socket = await _connector(endpointForRegion(info.region), info.token)
-        .timeout(const Duration(seconds: 20));
+    final socket = await _connector(
+      endpointForRegion(info.region),
+      info.token,
+    ).timeout(const Duration(seconds: 20));
     if (!_active || _disposed || generation != _generation) {
       await socket.close();
       throw StateError('IVS Chat connection was cancelled.');
@@ -116,7 +118,8 @@ class WindowsIvsChatEngine implements IvsChatEngine {
           if (!_active || _disposed || generation != _generation) return;
           final fresh = await provider();
           if (!_active || _disposed || generation != _generation) return;
-          if (fresh.roomArn != _info?.roomArn || fresh.region != _info?.region) {
+          if (fresh.roomArn != _info?.roomArn ||
+              fresh.region != _info?.region) {
             throw StateError('Refreshed IVS Chat token changed chat room.');
           }
           await _closeSocket();
@@ -162,8 +165,10 @@ class WindowsIvsChatEngine implements IvsChatEngine {
               'userId': attr['userId']?.toString() ?? userId,
               'displayName': attr['displayName']?.toString() ?? userId,
               'message': event['Content']?.toString() ?? '',
-              'timestampMs': DateTime.tryParse(
-                  event['SendTime']?.toString() ?? '')?.millisecondsSinceEpoch ??
+              'timestampMs':
+                  DateTime.tryParse(
+                    event['SendTime']?.toString() ?? '',
+                  )?.millisecondsSinceEpoch ??
                   DateTime.now().millisecondsSinceEpoch,
               'attributes': {
                 'providerUserId': userId,
@@ -182,7 +187,9 @@ class WindowsIvsChatEngine implements IvsChatEngine {
           switch (event['EventName']) {
             case 'DELETE_MESSAGE':
               final messageId = attributes['MessageID']?.toString() ?? '';
-              if (messageId.isNotEmpty) _events.onMessageDeleted?.call(messageId);
+              if (messageId.isNotEmpty) {
+                _events.onMessageDeleted?.call(messageId);
+              }
             case 'DISCONNECT_USER':
               final userId = attributes['UserId']?.toString() ?? '';
               if (userId.isNotEmpty) _events.onUserDisconnected?.call(userId);
@@ -192,13 +199,17 @@ class WindowsIvsChatEngine implements IvsChatEngine {
           final code = (event['ErrorCode'] as num?)?.toInt() ?? -1;
           final pending = _pending.remove(requestId);
           if (pending != null && !pending.isCompleted) {
-            pending.completeError(RealtimeException(
-              code: code == 403 ? RealtimeErrorCode.forbidden :
-                    code == 401 ? RealtimeErrorCode.unauthorized :
-                    RealtimeErrorCode.providerError,
-              message: 'IVS Chat rejected the requested operation ($code).',
-              providerId: IvsChatJoinInfo.providerIdValue,
-            ));
+            pending.completeError(
+              RealtimeException(
+                code: code == 403
+                    ? RealtimeErrorCode.forbidden
+                    : code == 401
+                    ? RealtimeErrorCode.unauthorized
+                    : RealtimeErrorCode.providerError,
+                message: 'IVS Chat rejected the requested operation ($code).',
+                providerId: IvsChatJoinInfo.providerIdValue,
+              ),
+            );
           } else {
             _events.onError?.call(code, 'IVS Chat reported an error ($code).');
           }
@@ -218,7 +229,8 @@ class WindowsIvsChatEngine implements IvsChatEngine {
     if (!_active || !_connected || socket == null) {
       throw StateError('IVS Chat Windows engine is not connected.');
     }
-    final id = 'chat-${DateTime.now().microsecondsSinceEpoch}-${++_nextRequestId}';
+    final id =
+        'chat-${DateTime.now().microsecondsSinceEpoch}-${++_nextRequestId}';
     final pending = Completer<void>();
     _pending[id] = pending;
     try {
@@ -255,8 +267,10 @@ class WindowsIvsChatEngine implements IvsChatEngine {
       _send('DELETE_MESSAGE', {'Id': messageId, 'Reason': 'Moderator action'});
 
   @override
-  Future<void> disconnectUser(String userId) =>
-      _send('DISCONNECT_USER', {'UserId': userId, 'Reason': 'Moderator action'});
+  Future<void> disconnectUser(String userId) => _send('DISCONNECT_USER', {
+    'UserId': userId,
+    'Reason': 'Moderator action',
+  });
 
   void _failPending(Object error) {
     for (final value in _pending.values) {

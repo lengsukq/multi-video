@@ -24,29 +24,31 @@ TrtcJoinInfo joinInfo({MediaRole role = MediaRole.participant}) => TrtcJoinInfo(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   for (final platform in [TargetPlatform.windows, TargetPlatform.macOS]) {
-    test('TRTC $platform selects desktop window instead of the primary screen',
-        () async {
-      debugDefaultTargetPlatformOverride = platform;
-      addTearDown(() => debugDefaultTargetPlatformOverride = null);
-      final engine = _FakeTrtcEngine();
-      final info = joinInfo();
-      final session = TrtcSessionFactory(
-        engineFactory: () async => engine,
-      ).createSession(info);
-      addTearDown(session.dispose);
-      await session.join(info);
-      final selector = session as MediaScreenShareSourceSelector;
-      final sources = await selector.listScreenShareSources();
-      expect(sources.map((item) => item.kind), [
-        MediaScreenShareSourceKind.display,
-        MediaScreenShareSourceKind.window,
-      ]);
-      await selector.selectScreenShareSource(sources.last);
-      expect(engine.selectedDesktopSource?.id, '199');
-      await (session as InteractiveMediaSession).setScreenShareEnabled(true);
-      expect(engine.calls, contains('screen:start'));
-      expect(session.snapshot.localScreenShareEnabled, isTrue);
-    });
+    test(
+      'TRTC $platform selects desktop window instead of the primary screen',
+      () async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final engine = _FakeTrtcEngine();
+        final info = joinInfo();
+        final session = TrtcSessionFactory(
+          engineFactory: () async => engine,
+        ).createSession(info);
+        addTearDown(session.dispose);
+        await session.join(info);
+        final selector = session as MediaScreenShareSourceSelector;
+        final sources = await selector.listScreenShareSources();
+        expect(sources.map((item) => item.kind), [
+          MediaScreenShareSourceKind.display,
+          MediaScreenShareSourceKind.window,
+        ]);
+        await selector.selectScreenShareSource(sources.last);
+        expect(engine.selectedDesktopSource?.id, '199');
+        await (session as InteractiveMediaSession).setScreenShareEnabled(true);
+        expect(engine.calls, contains('screen:start'));
+        expect(session.snapshot.localScreenShareEnabled, isTrue);
+      },
+    );
   }
   for (final disposing in [false, true]) {
     test(
@@ -530,12 +532,14 @@ class _FakeTrtcEngine implements TrtcEngine, TrtcDesktopScreenCapture {
   @override
   List<MediaScreenShareSource> listDesktopScreenSources() => const [
     MediaScreenShareSource(
-      id: '1', name: 'Display',
+      id: '1',
+      name: 'Display',
       kind: MediaScreenShareSourceKind.display,
       primary: true,
     ),
     MediaScreenShareSource(
-      id: '199', name: 'Editor window',
+      id: '199',
+      name: 'Editor window',
       kind: MediaScreenShareSourceKind.window,
     ),
   ];
@@ -544,6 +548,7 @@ class _FakeTrtcEngine implements TrtcEngine, TrtcDesktopScreenCapture {
   void selectDesktopScreenSource(MediaScreenShareSource source) {
     selectedDesktopSource = source;
   }
+
   final List<int> enterResults = [];
   Future<int>? pendingEnter;
   final List<TrtcJoinInfo> enteredRooms = [];

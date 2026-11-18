@@ -36,11 +36,11 @@ bool screenShareOwnedByAnother(
 class SharedContentController {
   SharedContentController({
     required this.media,
-    Future<void> Function(bool enabled)? setScreenShare,
+    this._setScreenShare,
     this.classroom,
     SharedContentRepository? repository,
     Duration? pollInterval = const Duration(seconds: 2),
-  }) : _setScreenShare = setScreenShare {
+  }) {
     assert(classroom != null || repository != null);
     _contentSession = SharedContentSession(
       repository ??
@@ -187,6 +187,7 @@ class SharedContentController {
       );
     }
   }
+
   Future<void> startSystemAnnotations({
     SystemAnnotationViewport viewport = const SystemAnnotationViewport(),
     String languageCode = 'en',

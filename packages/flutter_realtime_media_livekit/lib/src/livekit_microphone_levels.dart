@@ -71,7 +71,9 @@ class _LiveKitMicrophoneLevels {
       });
       await meter.start();
     } catch (error) {
-      debugPrint('[realtime/livekit] microphone visualizer unavailable: $error');
+      debugPrint(
+        '[realtime/livekit] microphone visualizer unavailable: $error',
+      );
       await _stop();
     }
   }

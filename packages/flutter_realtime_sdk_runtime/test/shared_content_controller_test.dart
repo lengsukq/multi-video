@@ -124,42 +124,62 @@ void main() {
     return (media, repo, classroom, controller);
   }
 
-  test('a presenter cannot take over an existing remote screen share',
-      () async {
-    final (media, repo, _, controller) = await fixture();
-    repo.mode = SharedContentMode.screen;
-    repo.screenOwner = 'remote-uid';
-    await expectLater(
-      controller.selectMode(SharedContentMode.screen),
-      throwsA(isA<RealtimeException>()
-          .having((error) => error.code, 'code',
-              RealtimeErrorCode.roomConflict)
-          .having((error) => error.suggestedAction, 'action',
-              'wait-for-screen-sharing-to-end')),
-    );
-    expect(controller.anotherParticipantSharing, isTrue);
-    expect(media.calls, isEmpty,
-        reason: 'A second participant must not open OS capture');
-    expect(repo.calls, isEmpty);
-  });
+  test(
+    'a presenter cannot take over an existing remote screen share',
+    () async {
+      final (media, repo, _, controller) = await fixture();
+      repo.mode = SharedContentMode.screen;
+      repo.screenOwner = 'remote-uid';
+      await expectLater(
+        controller.selectMode(SharedContentMode.screen),
+        throwsA(
+          isA<RealtimeException>()
+              .having(
+                (error) => error.code,
+                'code',
+                RealtimeErrorCode.roomConflict,
+              )
+              .having(
+                (error) => error.suggestedAction,
+                'action',
+                'wait-for-screen-sharing-to-end',
+              ),
+        ),
+      );
+      expect(controller.anotherParticipantSharing, isTrue);
+      expect(
+        media.calls,
+        isEmpty,
+        reason: 'A second participant must not open OS capture',
+      );
+      expect(repo.calls, isEmpty);
+    },
+  );
 
-  test('a concurrent presenter winning CAS forces capture rollback',
-      () async {
+  test('a concurrent presenter winning CAS forces capture rollback', () async {
     final (media, repo, _, controller) = await fixture();
     repo.revisionConflictOnce = true;
     repo.otherSharerWinsDuringConflict = true;
     await expectLater(
       controller.selectMode(SharedContentMode.screen),
-      throwsA(isA<RealtimeException>().having(
-        (error) => error.code, 'code', RealtimeErrorCode.roomConflict)),
+      throwsA(
+        isA<RealtimeException>().having(
+          (error) => error.code,
+          'code',
+          RealtimeErrorCode.roomConflict,
+        ),
+      ),
     );
-    expect(media.calls, [true, false],
-        reason: 'Losing a simultaneous share race must stop local capture');
+    expect(media.calls, [
+      true,
+      false,
+    ], reason: 'Losing a simultaneous share race must stop local capture');
     expect(media.snapshot.localScreenShareEnabled, isFalse);
     expect(repo.mode, SharedContentMode.screen);
     expect(repo.screenOwner, 'remote-uid');
-    expect(repo.calls, ['tool.content.mode'],
-        reason: '409 retry must not overwrite the winning presenter');
+    expect(repo.calls, [
+      'tool.content.mode',
+    ], reason: '409 retry must not overwrite the winning presenter');
   });
 
   test(

@@ -59,8 +59,9 @@ class _LiveKitScreenShare {
 
   Future<void> selectSource(MediaScreenShareSource source) async {
     final available = await listSources();
-    if (!available.any((item) =>
-        item.id == source.id && item.kind == source.kind)) {
+    if (!available.any(
+      (item) => item.id == source.id && item.kind == source.kind,
+    )) {
       throw RealtimeException(
         code: RealtimeErrorCode.invalidArgument,
         providerId: _session.providerId,
@@ -69,6 +70,7 @@ class _LiveKitScreenShare {
     }
     selectedSource = source;
   }
+
   bool _androidScreenShareServiceStarted = false;
   lk.LocalVideoTrack? _screenCaptureKitTrack;
   ProcessedVideoSource? _screenCaptureKitSource;

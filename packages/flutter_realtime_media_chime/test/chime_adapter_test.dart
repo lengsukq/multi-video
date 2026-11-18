@@ -13,131 +13,173 @@ import 'support/fake_chime_session.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('Windows Chime defaults on but fails closed when runtime is missing', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    // Windows WebView2 is enabled without an explicit dart-define, but
-    // readiness must still depend on loading the real runtime.
-    expect(const bool.fromEnvironment(
-      'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL',
-      defaultValue: true,
-    ), isTrue);
-    expect(await probeNativeChimeAvailability(), isFalse);
-    final factory = ChimeSessionFactory();
-    final report = await factory.runPreJoinProbe(
-      const MediaPreJoinProbeRequest(
-        providerId: 'chime',
-        role: MediaRole.participant,
-        requirements: MediaPreJoinRequirements(),
-      ),
-    );
-    expect(report.checks.single.type, MediaPreJoinCheckType.provider);
-    expect(report.checks.single.isBlocking, isTrue);
-    // Keep injected probes testable without loading a real desktop browser.
-    final ready = await ChimeSessionFactory(
-      availabilityProbe: () async => true,
-    ).runPreJoinProbe(
-      const MediaPreJoinProbeRequest(
-        providerId: 'chime',
-        role: MediaRole.participant,
-        requirements: MediaPreJoinRequirements(),
-      ),
-    );
-    expect(
-      ready.checks.where((check) => check.type == MediaPreJoinCheckType.provider),
-      isEmpty,
-    );
-  });
-
-  test('Windows Chime reports SDK load failure rather than absent WebView2', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final report = await ChimeSessionFactory(
-      availabilityProbe: () async => false,
-      windowsDiagnosticProbe: () =>
-          AwsWindowsRuntimeDiagnostic.providerSdkUnavailable('chime'),
-    ).runPreJoinProbe(const MediaPreJoinProbeRequest(
-      providerId: 'chime',
-      role: MediaRole.participant,
-      requirements: MediaPreJoinRequirements(),
-    ));
-    final check = report.checks.single;
-    expect(check.status, MediaPreJoinStatus.failed);
-    expect(check.message, contains('JavaScript SDK did not initialize'));
-    expect(check.message, isNot(contains('not installed')));
-    expect(check.details,
-        {'diagnosticCode': 'providerSdkUnavailable'});
-  });
-
-  test('Windows Chime distinguishes an inaccessible camera from WebView2', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final report = await ChimeSessionFactory(
-      availabilityProbe: () async => true,
-      windowsDeviceProbe: () async => (microphones: 1, cameras: 0),
-    ).runPreJoinProbe(const MediaPreJoinProbeRequest(
-      providerId: 'chime',
-      role: MediaRole.participant,
-      requirements: MediaPreJoinRequirements(
-        microphone: MediaPreJoinRequirement.required,
-        camera: MediaPreJoinRequirement.required,
-      ),
-    ));
-    final camera = report.checks.singleWhere(
-      (check) => check.type == MediaPreJoinCheckType.cameraDevice);
-    expect(camera.status, MediaPreJoinStatus.failed);
-    expect(camera.message, contains('Windows Settings'));
-    expect(camera.message, isNot(contains('WebView2 Runtime was not detected')));
-  });
-
-  test('Windows Chime prejoin uses actual browser device enumeration', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final factory = ChimeSessionFactory(
-      availabilityProbe: () async => true,
-      windowsDeviceProbe: () async => (microphones: 2, cameras: 1),
-    );
-    final report = await factory.runPreJoinProbe(
-      const MediaPreJoinProbeRequest(
-        providerId: 'chime',
-        role: MediaRole.participant,
-        requirements: MediaPreJoinRequirements(
-          microphone: MediaPreJoinRequirement.required,
-          camera: MediaPreJoinRequirement.required,
+  test(
+    'Windows Chime defaults on but fails closed when runtime is missing',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      // Windows WebView2 is enabled without an explicit dart-define, but
+      // readiness must still depend on loading the real runtime.
+      expect(
+        const bool.fromEnvironment(
+          'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL',
+          defaultValue: true,
         ),
-      ),
-    );
-    final deviceChecks = report.checks.where((check) =>
-        check.type == MediaPreJoinCheckType.microphoneDevice ||
-        check.type == MediaPreJoinCheckType.cameraDevice);
-    expect(deviceChecks, hasLength(2));
-    expect(deviceChecks.every((check) =>
-        check.status == MediaPreJoinStatus.passed), isTrue);
-    expect(report.checks.singleWhere((check) =>
-        check.type == MediaPreJoinCheckType.providerNetwork).isBlocking, isFalse);
-  });
-
-  test('Chime pre-join still reports device and network limitations on iOS', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final report = await ChimeSessionFactory().runPreJoinProbe(
-      const MediaPreJoinProbeRequest(
-        providerId: 'chime',
-        role: MediaRole.participant,
-        requirements: MediaPreJoinRequirements(
-          microphone: MediaPreJoinRequirement.required,
-          camera: MediaPreJoinRequirement.recommended,
-          network: MediaPreJoinRequirement.recommended,
+        isTrue,
+      );
+      expect(await probeNativeChimeAvailability(), isFalse);
+      final factory = ChimeSessionFactory();
+      final report = await factory.runPreJoinProbe(
+        const MediaPreJoinProbeRequest(
+          providerId: 'chime',
+          role: MediaRole.participant,
+          requirements: MediaPreJoinRequirements(),
         ),
-      ),
-    );
-    expect(report.checks, hasLength(3));
-    final mic = report.checks.singleWhere(
-      (check) => check.type == MediaPreJoinCheckType.microphoneDevice,
-    );
-    expect(mic.status, MediaPreJoinStatus.unsupported);
-    expect(mic.isBlocking, isTrue);
-  });
+      );
+      expect(report.checks.single.type, MediaPreJoinCheckType.provider);
+      expect(report.checks.single.isBlocking, isTrue);
+      // Keep injected probes testable without loading a real desktop browser.
+      final ready =
+          await ChimeSessionFactory(
+            availabilityProbe: () async => true,
+          ).runPreJoinProbe(
+            const MediaPreJoinProbeRequest(
+              providerId: 'chime',
+              role: MediaRole.participant,
+              requirements: MediaPreJoinRequirements(),
+            ),
+          );
+      expect(
+        ready.checks.where(
+          (check) => check.type == MediaPreJoinCheckType.provider,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'Windows Chime reports SDK load failure rather than absent WebView2',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final report =
+          await ChimeSessionFactory(
+            availabilityProbe: () async => false,
+            windowsDiagnosticProbe: () =>
+                AwsWindowsRuntimeDiagnostic.providerSdkUnavailable('chime'),
+          ).runPreJoinProbe(
+            const MediaPreJoinProbeRequest(
+              providerId: 'chime',
+              role: MediaRole.participant,
+              requirements: MediaPreJoinRequirements(),
+            ),
+          );
+      final check = report.checks.single;
+      expect(check.status, MediaPreJoinStatus.failed);
+      expect(check.message, contains('JavaScript SDK did not initialize'));
+      expect(check.message, isNot(contains('not installed')));
+      expect(check.details, {'diagnosticCode': 'providerSdkUnavailable'});
+    },
+  );
+
+  test(
+    'Windows Chime distinguishes an inaccessible camera from WebView2',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final report =
+          await ChimeSessionFactory(
+            availabilityProbe: () async => true,
+            windowsDeviceProbe: () async => (microphones: 1, cameras: 0),
+          ).runPreJoinProbe(
+            const MediaPreJoinProbeRequest(
+              providerId: 'chime',
+              role: MediaRole.participant,
+              requirements: MediaPreJoinRequirements(
+                microphone: MediaPreJoinRequirement.required,
+                camera: MediaPreJoinRequirement.required,
+              ),
+            ),
+          );
+      final camera = report.checks.singleWhere(
+        (check) => check.type == MediaPreJoinCheckType.cameraDevice,
+      );
+      expect(camera.status, MediaPreJoinStatus.failed);
+      expect(camera.message, contains('Windows Settings'));
+      expect(
+        camera.message,
+        isNot(contains('WebView2 Runtime was not detected')),
+      );
+    },
+  );
+
+  test(
+    'Windows Chime prejoin uses actual browser device enumeration',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final factory = ChimeSessionFactory(
+        availabilityProbe: () async => true,
+        windowsDeviceProbe: () async => (microphones: 2, cameras: 1),
+      );
+      final report = await factory.runPreJoinProbe(
+        const MediaPreJoinProbeRequest(
+          providerId: 'chime',
+          role: MediaRole.participant,
+          requirements: MediaPreJoinRequirements(
+            microphone: MediaPreJoinRequirement.required,
+            camera: MediaPreJoinRequirement.required,
+          ),
+        ),
+      );
+      final deviceChecks = report.checks.where(
+        (check) =>
+            check.type == MediaPreJoinCheckType.microphoneDevice ||
+            check.type == MediaPreJoinCheckType.cameraDevice,
+      );
+      expect(deviceChecks, hasLength(2));
+      expect(
+        deviceChecks.every(
+          (check) => check.status == MediaPreJoinStatus.passed,
+        ),
+        isTrue,
+      );
+      expect(
+        report.checks
+            .singleWhere(
+              (check) => check.type == MediaPreJoinCheckType.providerNetwork,
+            )
+            .isBlocking,
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'Chime pre-join still reports device and network limitations on iOS',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final report = await ChimeSessionFactory().runPreJoinProbe(
+        const MediaPreJoinProbeRequest(
+          providerId: 'chime',
+          role: MediaRole.participant,
+          requirements: MediaPreJoinRequirements(
+            microphone: MediaPreJoinRequirement.required,
+            camera: MediaPreJoinRequirement.recommended,
+            network: MediaPreJoinRequirement.recommended,
+          ),
+        ),
+      );
+      expect(report.checks, hasLength(3));
+      final mic = report.checks.singleWhere(
+        (check) => check.type == MediaPreJoinCheckType.microphoneDevice,
+      );
+      expect(mic.status, MediaPreJoinStatus.unsupported);
+      expect(mic.isBlocking, isTrue);
+    },
+  );
   Map<String, dynamic> backendJson({String role = 'participant'}) => {
     'contractVersion': 1,
     'provider': 'chime',
@@ -621,50 +663,55 @@ void main() {
     },
   );
 
-  test('Android screen capture delegates content sharing to native Chime', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    const capture = MethodChannel(
-      'flutter_realtime_processed_video/android_system_screen_capture',
-    );
-    const chimeChannel = MethodChannel('com.oneplusdream.aws.chime.methodChannel');
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    final calls = <String>[];
-    messenger.setMockMethodCallHandler(capture, (call) async {
-      calls.add(call.method);
-      if (call.method == 'androidScreenCaptureAvailable') return true;
-      if (call.method == 'androidScreenCaptureStart') {
-        return {
-          'id': 'android-screen-1',
-          'kind': 'nativeFrameHub',
-          'platform': 'android',
-          'width': 720,
-          'height': 1280,
-          'frameRate': 15.0,
-        };
-      }
-      return null;
-    });
-    messenger.setMockMethodCallHandler(chimeChannel, (call) async {
-      calls.add(call.method);
-      return {'success': true, 'data': null};
-    });
-    addTearDown(() {
-      messenger.setMockMethodCallHandler(capture, null);
-      messenger.setMockMethodCallHandler(chimeChannel, null);
-    });
-    final adapter = ChimeMediaSession(session: FakeChimeMeetingSession());
-    await adapter.join(ChimeJoinInfo.fromBackendResponse(backendJson()));
-    expect(adapter.capabilities.canScreenShare, isTrue);
-    await adapter.setScreenShareEnabled(true);
-    expect(adapter.snapshot.localScreenShareEnabled, isTrue);
-    expect(calls, contains('attachAndroidScreenCaptureSource'));
-    await adapter.setScreenShareEnabled(false);
-    expect(adapter.snapshot.localScreenShareEnabled, isFalse);
-    expect(calls, contains('detachAndroidScreenCaptureSource'));
-    await adapter.dispose();
-  });
+  test(
+    'Android screen capture delegates content sharing to native Chime',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const capture = MethodChannel(
+        'flutter_realtime_processed_video/android_system_screen_capture',
+      );
+      const chimeChannel = MethodChannel(
+        'com.oneplusdream.aws.chime.methodChannel',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final calls = <String>[];
+      messenger.setMockMethodCallHandler(capture, (call) async {
+        calls.add(call.method);
+        if (call.method == 'androidScreenCaptureAvailable') return true;
+        if (call.method == 'androidScreenCaptureStart') {
+          return {
+            'id': 'android-screen-1',
+            'kind': 'nativeFrameHub',
+            'platform': 'android',
+            'width': 720,
+            'height': 1280,
+            'frameRate': 15.0,
+          };
+        }
+        return null;
+      });
+      messenger.setMockMethodCallHandler(chimeChannel, (call) async {
+        calls.add(call.method);
+        return {'success': true, 'data': null};
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(capture, null);
+        messenger.setMockMethodCallHandler(chimeChannel, null);
+      });
+      final adapter = ChimeMediaSession(session: FakeChimeMeetingSession());
+      await adapter.join(ChimeJoinInfo.fromBackendResponse(backendJson()));
+      expect(adapter.capabilities.canScreenShare, isTrue);
+      await adapter.setScreenShareEnabled(true);
+      expect(adapter.snapshot.localScreenShareEnabled, isTrue);
+      expect(calls, contains('attachAndroidScreenCaptureSource'));
+      await adapter.setScreenShareEnabled(false);
+      expect(adapter.snapshot.localScreenShareEnabled, isFalse);
+      expect(calls, contains('detachAndroidScreenCaptureSource'));
+      await adapter.dispose();
+    },
+  );
 
   test(
     'macOS Chime enumerates and selects desktop cameras without video effects',
@@ -696,10 +743,7 @@ void main() {
       );
       expect(cameras.map((d) => d.id), ['cam-builtin', 'cam-usb']);
       await adapter.selectMediaDevice(cameras.last);
-      expect(
-        fake.actions,
-        contains('selectDesktopMediaDevice:camera:cam-usb'),
-      );
+      expect(fake.actions, contains('selectDesktopMediaDevice:camera:cam-usb'));
     },
   );
 
@@ -758,10 +802,7 @@ void main() {
       );
       expect(cameras.map((d) => d.id), ['cam-builtin', 'cam-usb']);
       await adapter.selectMediaDevice(cameras.last);
-      expect(
-        fake.actions,
-        contains('selectDesktopMediaDevice:camera:cam-usb'),
-      );
+      expect(fake.actions, contains('selectDesktopMediaDevice:camera:cam-usb'));
 
       const source = ProcessedVideoSource(
         id: 'macos-blur-source',
@@ -808,9 +849,7 @@ void main() {
         'chime',
         probeOverride: () async => true,
         postWebMessageOverride: (encoded) async {
-          final decoded = Map<String, dynamic>.from(
-            jsonDecode(encoded) as Map,
-          );
+          final decoded = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
           webMessages.add(decoded);
           if (decoded['id'] != null) {
             testRuntime.debugHandleWebMessage({

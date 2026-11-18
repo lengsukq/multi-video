@@ -109,328 +109,342 @@ class RealtimeLiveDesktopStage extends StatelessWidget {
             )
             .toList(growable: false);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final wide = RealtimeBreakpoints.isWide(context, width);
-        final compact = width < RealtimeBreakpoints.compactMaxWidth;
-        final liveEnabled =
-            showLiveInteractions && room.liveInteractions != null;
-        final hasChat = showChat && room.chat != null;
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final wide = RealtimeBreakpoints.isWide(context, width);
+            final compact = width < RealtimeBreakpoints.compactMaxWidth;
+            final liveEnabled =
+                showLiveInteractions && room.liveInteractions != null;
+            final hasChat = showChat && room.chat != null;
 
-        final actions = <RealtimeMeetingRailItem>[
-          if (hasChat)
-            RealtimeMeetingRailItem(
-              icon: Icons.chat_bubble_outline_rounded,
-              tooltip: strings.chat,
-              active: initialTab == 0,
-              onPressed: wide ? () => onSelectedTab?.call(0) : onOpenChat,
-            ),
-          RealtimeMeetingRailItem(
-            icon: Icons.people_outline_rounded,
-            tooltip: strings.participants,
-            active: initialTab == 1,
-            badgeCount: participants.length,
-            onPressed: wide ? () => onSelectedTab?.call(1) : onViewAudience,
-          ),
-          if (onToggleVideoFit != null ||
-              onToggleCleanScreen != null ||
-              (isHost && onOpenHostTools != null))
-            const RealtimeMeetingRailItem.divider(),
-          if (onToggleVideoFit != null)
-            RealtimeMeetingRailItem(
-              icon: videoFit == BoxFit.contain
-                  ? Icons.crop_free_rounded
-                  : Icons.fit_screen_rounded,
-              tooltip: videoFit == BoxFit.contain
-                  ? strings.fillLiveScreen
-                  : strings.showFullVideo,
-              onPressed: onToggleVideoFit,
-            ),
-          if (onToggleCleanScreen != null)
-            RealtimeMeetingRailItem(
-              icon: Icons.fullscreen_rounded,
-              tooltip: strings.isZh ? '清屏' : 'Hide controls',
-              onPressed: onToggleCleanScreen,
-            ),
-          if (isHost && onOpenHostTools != null)
-            RealtimeMeetingRailItem(
-              icon: Icons.tune_rounded,
-              tooltip: strings.isZh ? '主播工具' : 'Host tools',
-              onPressed: onOpenHostTools,
-            ),
-          if (onToggleVideoFit == null &&
-              onToggleCleanScreen == null &&
-              onOpenHostTools == null &&
-              onOpenDisplayOptions != null)
-            RealtimeMeetingRailItem(
-              icon: Icons.tune_rounded,
-              tooltip: strings.isZh ? '显示设置' : 'Display settings',
-              onPressed: onOpenDisplayOptions,
-            ),
-        ];
-
-        final header = RealtimeMeetingTopBar(
-          title: room.media.roomCode,
-          subtitle: host?.displayName.isNotEmpty == true
-              ? host!.displayName
-              : strings.liveRoom,
-          compact: !wide,
-          statusWidgets: [
-            RealtimeStatusPill(
-              label: strings.liveStatus,
-              tone: RealtimeStatusTone.live,
-              showDot: true,
-              blink: true,
-            ),
-            if (startedAt != null)
-              RealtimeMeetingTimerBadge(
-                startedAt: startedAt!,
-                live: true,
-                active: !controller.snapshot.state.isTerminal,
-              )
-            else if (liveDuration != null)
-              RealtimeStatusPill(
-                label: _formatDuration(liveDuration!),
-                tone: RealtimeStatusTone.live,
-              ),
-            RealtimeRecordingBadge(room: room, compact: true),
-            if (wide) const RealtimeConnectionIndicator(),
-          ],
-          audienceNames: wide
-              ? participants
-                    .map((p) => p.displayName.isEmpty ? p.id : p.displayName)
-                    .toList(growable: false)
-              : const [],
-          audienceCount: wide ? participants.length : null,
-          trailingActions: [
-            if (wide && onViewAudience != null)
-              IconButton.outlined(
+            final actions = <RealtimeMeetingRailItem>[
+              if (hasChat)
+                RealtimeMeetingRailItem(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  tooltip: strings.chat,
+                  active: initialTab == 0,
+                  onPressed: wide ? () => onSelectedTab?.call(0) : onOpenChat,
+                ),
+              RealtimeMeetingRailItem(
+                icon: Icons.people_outline_rounded,
                 tooltip: strings.participants,
-                onPressed: onViewAudience,
-                icon: const Icon(Icons.people_outline_rounded, size: 19),
+                active: initialTab == 1,
+                badgeCount: participants.length,
+                onPressed: wide ? () => onSelectedTab?.call(1) : onViewAudience,
               ),
-            ...?topTrailingActions,
-            if (exitAction != null)
-              exitAction!
-            else if (onExit != null)
-              IconButton.filled(
-                tooltip: strings.leave,
-                onPressed: onExit,
-                icon: const Icon(Icons.call_end_rounded),
-              ),
-          ],
-        );
+              if (onToggleVideoFit != null ||
+                  onToggleCleanScreen != null ||
+                  (isHost && onOpenHostTools != null))
+                const RealtimeMeetingRailItem.divider(),
+              if (onToggleVideoFit != null)
+                RealtimeMeetingRailItem(
+                  icon: videoFit == BoxFit.contain
+                      ? Icons.crop_free_rounded
+                      : Icons.fit_screen_rounded,
+                  tooltip: videoFit == BoxFit.contain
+                      ? strings.fillLiveScreen
+                      : strings.showFullVideo,
+                  onPressed: onToggleVideoFit,
+                ),
+              if (onToggleCleanScreen != null)
+                RealtimeMeetingRailItem(
+                  icon: Icons.fullscreen_rounded,
+                  tooltip: strings.isZh ? '清屏' : 'Hide controls',
+                  onPressed: onToggleCleanScreen,
+                ),
+              if (isHost && onOpenHostTools != null)
+                RealtimeMeetingRailItem(
+                  icon: Icons.tune_rounded,
+                  tooltip: strings.isZh ? '主播工具' : 'Host tools',
+                  onPressed: onOpenHostTools,
+                ),
+              if (onToggleVideoFit == null &&
+                  onToggleCleanScreen == null &&
+                  onOpenHostTools == null &&
+                  onOpenDisplayOptions != null)
+                RealtimeMeetingRailItem(
+                  icon: Icons.tune_rounded,
+                  tooltip: strings.isZh ? '显示设置' : 'Display settings',
+                  onPressed: onOpenDisplayOptions,
+                ),
+            ];
 
-        final stage = Padding(
-          padding: EdgeInsets.fromLTRB(
-            compact ? 8 : 12,
-            8,
-            compact ? 8 : 12,
-            8,
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(RealtimeUiTokens.stageRadius),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: style.tile,
-                border: Border.all(color: style.border),
+            final header = RealtimeMeetingTopBar(
+              title: room.media.roomCode,
+              subtitle: host?.displayName.isNotEmpty == true
+                  ? host!.displayName
+                  : strings.liveRoom,
+              compact: !wide,
+              statusWidgets: [
+                RealtimeStatusPill(
+                  label: strings.liveStatus,
+                  tone: RealtimeStatusTone.live,
+                  showDot: true,
+                  blink: true,
+                ),
+                if (startedAt != null)
+                  RealtimeMeetingTimerBadge(
+                    startedAt: startedAt!,
+                    live: true,
+                    active: !controller.snapshot.state.isTerminal,
+                  )
+                else if (liveDuration != null)
+                  RealtimeStatusPill(
+                    label: _formatDuration(liveDuration!),
+                    tone: RealtimeStatusTone.live,
+                  ),
+                RealtimeRecordingBadge(room: room, compact: true),
+                if (wide) const RealtimeConnectionIndicator(),
+              ],
+              audienceNames: wide
+                  ? participants
+                        .map(
+                          (p) => p.displayName.isEmpty ? p.id : p.displayName,
+                        )
+                        .toList(growable: false)
+                  : const [],
+              audienceCount: wide ? participants.length : null,
+              trailingActions: [
+                if (wide && onViewAudience != null)
+                  IconButton.outlined(
+                    tooltip: strings.participants,
+                    onPressed: onViewAudience,
+                    icon: const Icon(Icons.people_outline_rounded, size: 19),
+                  ),
+                ...?topTrailingActions,
+                if (exitAction != null)
+                  exitAction!
+                else if (onExit != null)
+                  IconButton.filled(
+                    tooltip: strings.leave,
+                    onPressed: onExit,
+                    icon: const Icon(Icons.call_end_rounded),
+                  ),
+              ],
+            );
+
+            final stage = Padding(
+              padding: EdgeInsets.fromLTRB(
+                compact ? 8 : 12,
+                8,
+                compact ? 8 : 12,
+                8,
+              ),
+              child: ClipRRect(
                 borderRadius: BorderRadius.circular(
                   RealtimeUiTokens.stageRadius,
                 ),
-              ),
-              child: StreamBuilder<void>(
-                stream: sharedContentUpdates ?? room.sharedContent?.stageUpdates,
-                builder: (context, _) => ListenableBuilder(
-                  listenable: controller,
-                  builder: (context, _) {
-                    final shared = MeetingSharedContent(
-                      room: room,
-                      snapshot: controller.snapshot,
-                      showClassroom: false,
-                    );
-                    final isSharedMode =
-                        shared.mode == SharedContentMode.whiteboard ||
-                        shared.mode == SharedContentMode.screen;
-                    final canEditWhiteboard =
-                        shared.mode == SharedContentMode.whiteboard &&
-                        room.sharedContent?.whiteboard.state?.canEdit == true &&
-                        whiteboardToolsController != null;
-                    return Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (isSharedMode)
-                          shared.buildMain(
-                            context,
-                            withAnnotations: true,
-                            whiteboardToolsController: whiteboardToolsController,
-                          )
-                        else
-                          GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onDoubleTap: !liveEnabled
-                                ? null
-                                : () {
-                                    for (var i = 0; i < 2; i++) {
-                                      unawaited(
-                                        controller.sendLiveLike().catchError(
-                                          controller.reportActionError,
-                                        ),
-                                      );
-                                    }
-                                  },
-                            child: RealtimeLiveVideoStage(fit: videoFit),
-                          ),
-                        if (isSharedMode && !compact)
-                          Positioned(
-                            top: 12,
-                            right: 12,
-                            width: 148,
-                            height: 92,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(
-                                RealtimeUiTokens.compactRadius,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: style.tile,
+                    border: Border.all(color: style.border),
+                    borderRadius: BorderRadius.circular(
+                      RealtimeUiTokens.stageRadius,
+                    ),
+                  ),
+                  child: StreamBuilder<void>(
+                    stream:
+                        sharedContentUpdates ??
+                        room.sharedContent?.stageUpdates,
+                    builder: (context, _) => ListenableBuilder(
+                      listenable: controller,
+                      builder: (context, _) {
+                        final shared = MeetingSharedContent(
+                          room: room,
+                          snapshot: controller.snapshot,
+                          showClassroom: false,
+                        );
+                        final isSharedMode =
+                            shared.mode == SharedContentMode.whiteboard ||
+                            shared.mode == SharedContentMode.screen;
+                        final canEditWhiteboard =
+                            shared.mode == SharedContentMode.whiteboard &&
+                            room.sharedContent?.whiteboard.state?.canEdit ==
+                                true &&
+                            whiteboardToolsController != null;
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (isSharedMode)
+                              shared.buildMain(
+                                context,
+                                withAnnotations: true,
+                                whiteboardToolsController:
+                                    whiteboardToolsController,
+                              )
+                            else
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onDoubleTap: !liveEnabled
+                                    ? null
+                                    : () {
+                                        for (var i = 0; i < 2; i++) {
+                                          unawaited(
+                                            controller
+                                                .sendLiveLike()
+                                                .catchError(
+                                                  controller.reportActionError,
+                                                ),
+                                          );
+                                        }
+                                      },
+                                child: RealtimeLiveVideoStage(fit: videoFit),
                               ),
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.25),
+                            if (isSharedMode && !compact)
+                              Positioned(
+                                top: 12,
+                                right: 12,
+                                width: 148,
+                                height: 92,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(
+                                    RealtimeUiTokens.compactRadius,
+                                  ),
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.25,
+                                        ),
+                                      ),
+                                    ),
+                                    child: const RealtimeLiveVideoStage(
+                                      fit: BoxFit.cover,
+                                      showNameTag: true,
+                                    ),
                                   ),
                                 ),
-                                child: const RealtimeLiveVideoStage(
-                                  fit: BoxFit.cover,
-                                  showNameTag: true,
+                              ),
+                            if (canEditWhiteboard)
+                              Positioned(
+                                top: 16,
+                                left: 12,
+                                child: WhiteboardToolRail(
+                                  session: room.sharedContent!.whiteboard,
+                                  controller: whiteboardToolsController!,
                                 ),
                               ),
-                            ),
-                          ),
-                        if (canEditWhiteboard)
-                          Positioned(
-                            top: 16,
-                            left: 12,
-                            child: WhiteboardToolRail(
-                              session: room.sharedContent!.whiteboard,
-                              controller: whiteboardToolsController!,
-                            ),
-                          ),
-                        if (liveEnabled) ...[
-                          const Positioned(
-                            right: 16,
-                            bottom: 12,
-                            width: 120,
-                            height: 210,
-                            child: IgnorePointer(
-                              child: RealtimeLiveHeartsOverlay(),
-                            ),
-                          ),
-                          const Positioned(
-                            left: 16,
-                            right: 16,
-                            bottom: 16,
-                            child: IgnorePointer(
-                              child: Align(
-                                alignment: Alignment.bottomLeft,
-                                child: RealtimeLiveGiftBanner(),
+                            if (liveEnabled) ...[
+                              const Positioned(
+                                right: 16,
+                                bottom: 12,
+                                width: 120,
+                                height: 210,
+                                child: IgnorePointer(
+                                  child: RealtimeLiveHeartsOverlay(),
+                                ),
                               ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    );
-                  },
+                              const Positioned(
+                                left: 16,
+                                right: 16,
+                                bottom: 16,
+                                child: IgnorePointer(
+                                  child: Align(
+                                    alignment: Alignment.bottomLeft,
+                                    child: RealtimeLiveGiftBanner(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-        );
+            );
 
-        final dock = Padding(
-          padding: EdgeInsets.fromLTRB(
-            compact ? 8 : 12,
-            0,
-            compact ? 8 : 12,
-            compact ? 8 : 10,
-          ),
-          child: RealtimeMeetingDock(
-            showLabels: false,
-            mediaGroup: [
-              if (canPublishMedia && controller.canUseMicrophone)
-                const RealtimeDockMicrophoneButton(showLabel: false),
-              if (canPublishMedia && controller.canUseCamera)
-                const RealtimeDockCameraButton(showLabel: false),
-            ],
-            collaborationGroup: [
-              if (controller.canRequestCohost)
-                RealtimeLiveCohostButton(compact: compact),
-              if (liveEnabled && !wide) ...[
-                if (customGiftPanel != null)
-                  customGiftPanel!
-                else
-                  const RealtimeLiveGiftButton(),
-                const RealtimeLiveLikeButton(iconOnly: true),
-              ],
-            ],
-          ),
-        );
+            final dock = Padding(
+              padding: EdgeInsets.fromLTRB(
+                compact ? 8 : 12,
+                0,
+                compact ? 8 : 12,
+                compact ? 8 : 10,
+              ),
+              child: RealtimeMeetingDock(
+                showLabels: false,
+                mediaGroup: [
+                  if (canPublishMedia && controller.canUseMicrophone)
+                    const RealtimeDockMicrophoneButton(showLabel: false),
+                  if (canPublishMedia && controller.canUseCamera)
+                    const RealtimeDockCameraButton(showLabel: false),
+                ],
+                collaborationGroup: [
+                  if (controller.canRequestCohost)
+                    RealtimeLiveCohostButton(compact: compact),
+                  if (liveEnabled && !wide) ...[
+                    if (customGiftPanel != null)
+                      customGiftPanel!
+                    else
+                      const RealtimeLiveGiftButton(),
+                    const RealtimeLiveLikeButton(iconOnly: true),
+                  ],
+                ],
+              ),
+            );
 
-        return RealtimeRoomShell(
-          compact: compact,
-          header: header,
-          tabletRail: !wide
-              ? RealtimeMeetingRail(horizontal: true, items: actions)
-              : null,
-          desktopRail: wide ? RealtimeMeetingRail(items: actions) : null,
-          stage: stage,
-          dock: dock,
-          sidebar: wide
-              ? DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: style.surface,
-                    border: Border(left: BorderSide(color: style.border)),
-                  ),
-                  child: RealtimeMeetingSidebar(
-                    members: members,
-                    showChat: hasChat,
-                    initialTab: hasChat ? initialTab : 1,
-                    onTabChanged: onSelectedTab,
-                    chatWidget:
-                        customChatPanel ??
-                        Column(
-                          children: [
-                            Expanded(
-                              child: hasChat
-                                  ? const RealtimeChatPanel(timelineStyle: true)
-                                  : const SizedBox.shrink(),
+            return RealtimeRoomShell(
+              compact: compact,
+              header: header,
+              tabletRail: !wide
+                  ? RealtimeMeetingRail(horizontal: true, items: actions)
+                  : null,
+              desktopRail: wide ? RealtimeMeetingRail(items: actions) : null,
+              stage: stage,
+              dock: dock,
+              sidebar: wide
+                  ? DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: style.surface,
+                        border: Border(left: BorderSide(color: style.border)),
+                      ),
+                      child: RealtimeMeetingSidebar(
+                        members: members,
+                        showChat: hasChat,
+                        initialTab: hasChat ? initialTab : 1,
+                        onTabChanged: onSelectedTab,
+                        chatWidget:
+                            customChatPanel ??
+                            Column(
+                              children: [
+                                Expanded(
+                                  child: hasChat
+                                      ? const RealtimeChatPanel(
+                                          timelineStyle: true,
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
+                                if (liveEnabled)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      6,
+                                      12,
+                                      10,
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        if (customGiftPanel != null)
+                                          customGiftPanel!
+                                        else
+                                          const RealtimeLiveGiftButton(),
+                                        const SizedBox(width: 8),
+                                        const RealtimeLiveLikeButton(),
+                                      ],
+                                    ),
+                                  ),
+                              ],
                             ),
-                            if (liveEnabled)
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  12,
-                                  6,
-                                  12,
-                                  10,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    if (customGiftPanel != null)
-                                      customGiftPanel!
-                                    else
-                                      const RealtimeLiveGiftButton(),
-                                    const SizedBox(width: 8),
-                                    const RealtimeLiveLikeButton(),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                    membersWidget: const RealtimeManagedParticipantList(),
-                  ),
-                )
-              : null,
+                        membersWidget: const RealtimeManagedParticipantList(),
+                      ),
+                    )
+                  : null,
+            );
+          },
         );
-      },
-    );
       },
     );
   }

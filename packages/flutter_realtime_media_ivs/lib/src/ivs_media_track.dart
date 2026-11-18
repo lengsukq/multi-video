@@ -33,6 +33,7 @@ class IvsMediaVideoTrack extends MediaVideoTrack
         ? userId.substring(0, userId.length - '#content'.length)
         : userId;
   }
+
   @override
   bool get isLocal => local;
   @override

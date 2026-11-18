@@ -17,8 +17,11 @@ void main() {
     try {
       final ready = await runtime.probe();
       expect(ready, isTrue, reason: runtime.lastError);
-      expect(runtime.lastDiagnostic, isNull,
-          reason: 'A healthy IVS host must not report missing WebView2.');
+      expect(
+        runtime.lastDiagnostic,
+        isNull,
+        reason: 'A healthy IVS host must not report missing WebView2.',
+      );
       expect(runtime.lastProbe['origin'], 'https://aws-ivs-local.invalid');
       expect(runtime.lastProbe['secure'], isTrue);
       expect(runtime.lastProbe['mediaEnumeration'], isTrue);

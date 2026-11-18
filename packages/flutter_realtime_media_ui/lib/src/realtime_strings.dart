@@ -92,18 +92,22 @@ class RealtimeStrings {
       failures.add(current);
       current = current.cause;
     }
-    if (failures.any((item) =>
-        item.suggestedAction == 'wait-for-screen-sharing-to-end')) {
+    if (failures.any(
+      (item) => item.suggestedAction == 'wait-for-screen-sharing-to-end',
+    )) {
       return isZh
           ? '其他成员正在共享屏幕，请等对方结束共享后再试。'
           : 'Another participant is already sharing. Wait until they stop before sharing your screen.';
     }
-    if (failures.any((item) =>
-        item.code == RealtimeErrorCode.permissionDenied)) {
-      final screenCaptureDenied = failures.any((item) =>
-          item.operation?.toLowerCase().contains('screenshare') == true ||
-          item.message.toLowerCase().contains('screen-capture permission') ||
-          item.message.toLowerCase().contains('screen recording permission'));
+    if (failures.any(
+      (item) => item.code == RealtimeErrorCode.permissionDenied,
+    )) {
+      final screenCaptureDenied = failures.any(
+        (item) =>
+            item.operation?.toLowerCase().contains('screenshare') == true ||
+            item.message.toLowerCase().contains('screen-capture permission') ||
+            item.message.toLowerCase().contains('screen recording permission'),
+      );
       if (screenCaptureDenied) {
         if (kIsWeb) {
           return isZh

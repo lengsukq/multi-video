@@ -19,16 +19,16 @@ class _ChimeMediaControls {
 
   NativeSystemScreenCaptureClient get _mobileScreenCapture =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-          ? AndroidSystemScreenCapture.instance
-          : IosSystemScreenCapture.instance;
+      ? AndroidSystemScreenCapture.instance
+      : IosSystemScreenCapture.instance;
 
   Future<void> _stopIosSystemScreenCapture() async {
     if (_iosScreenCaptureSource == null) return;
     _iosScreenCaptureSource = null;
     final detachMethod =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-            ? 'detachAndroidScreenCaptureSource'
-            : 'detachIosScreenCaptureKitSource';
+        ? 'detachAndroidScreenCaptureSource'
+        : 'detachIosScreenCaptureKitSource';
     try {
       await _iosChannel.invokeMethod<Object?>(detachMethod);
     } finally {
@@ -61,8 +61,8 @@ class _ChimeMediaControls {
     if (kIsWeb) return;
     if (defaultTargetPlatform == TargetPlatform.windows) {
       try {
-        _windowsEffectsInputAvailable =
-            await _windowsRuntime.probeProcessedVideoInput();
+        _windowsEffectsInputAvailable = await _windowsRuntime
+            .probeProcessedVideoInput();
       } on MissingPluginException {
         _windowsEffectsInputAvailable = false;
       } on PlatformException {
@@ -111,10 +111,8 @@ class _ChimeMediaControls {
     }
   }
 
-  static String _normalizeDeviceLabel(String value) => value
-      .replaceAll(RegExp(r'\s*\([^)]*\)\s*$'), '')
-      .trim()
-      .toLowerCase();
+  static String _normalizeDeviceLabel(String value) =>
+      value.replaceAll(RegExp(r'\s*\([^)]*\)\s*$'), '').trim().toLowerCase();
 
   static bool _isPlaceholderCameraLabel(String label) {
     final normalized = label.trim().toLowerCase();
@@ -507,7 +505,8 @@ class _ChimeMediaControls {
       await _stopIosSystemScreenCapture();
       return;
     }
-    final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final isAndroid =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final capture = _mobileScreenCapture;
     final attachMethod = isAndroid
         ? 'attachAndroidScreenCaptureSource'

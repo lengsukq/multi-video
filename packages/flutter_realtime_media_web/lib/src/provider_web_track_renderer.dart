@@ -36,10 +36,7 @@ class ProviderWebTrackRenderer extends MediaTrackRenderer {
 }
 
 class _ProviderWebVideoView extends StatefulWidget {
-  const _ProviderWebVideoView({
-    required this.track,
-    this.fit = BoxFit.contain,
-  });
+  const _ProviderWebVideoView({required this.track, this.fit = BoxFit.contain});
 
   final ProviderWebVideoTrack track;
   final BoxFit fit;

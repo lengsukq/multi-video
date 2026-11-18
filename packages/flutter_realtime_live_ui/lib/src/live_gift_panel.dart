@@ -1018,7 +1018,9 @@ class _LiveGiftBannerState extends State<LiveGiftBanner> {
     });
     _expiry[event.id] = Timer(widget.displayDuration, () {
       _expiry.remove(event.id);
-      if (mounted) setState(() => _visible.removeWhere((e) => e.id == event.id));
+      if (mounted) {
+        setState(() => _visible.removeWhere((e) => e.id == event.id));
+      }
     });
   }
 
@@ -1077,7 +1079,9 @@ class _LiveGiftBannerState extends State<LiveGiftBanner> {
                         color: Colors.black.withValues(alpha: 0.82),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: const Color(0xFFFBBF24).withValues(alpha: 0.65),
+                          color: const Color(
+                            0xFFFBBF24,
+                          ).withValues(alpha: 0.65),
                         ),
                       ),
                       child: Row(

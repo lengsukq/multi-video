@@ -190,21 +190,18 @@ class WindowsIvsWebView2Engine implements IvsEngine {
     );
     return outputs
         .map(
-          (device) =>
-              MediaAudioDevice.fromLabel(device.label, id: device.id),
+          (device) => MediaAudioDevice.fromLabel(device.label, id: device.id),
         )
         .toList(growable: false);
   }
 
   @override
-  Future<void> selectAudioDevice(MediaAudioDevice device) => _command(
-    'selectAudioOutput',
-    {
-      'id': device.id ?? device.label,
-      'label': device.label,
-      'kind': 'audioOutput',
-    },
-  );
+  Future<void> selectAudioDevice(MediaAudioDevice device) =>
+      _command('selectAudioOutput', {
+        'id': device.id ?? device.label,
+        'label': device.label,
+        'kind': 'audioOutput',
+      });
 
   Future<void> setScreenShareEnabled(
     bool enabled, {
@@ -225,7 +222,9 @@ class WindowsIvsWebView2Engine implements IvsEngine {
 
   @override
   Future<void> switchCamera(MediaCameraPosition position) async {
-    final cameras = await listMediaDevices(kinds: const {MediaDeviceKind.camera});
+    final cameras = await listMediaDevices(
+      kinds: const {MediaDeviceKind.camera},
+    );
     if (cameras.isEmpty) {
       throw const RealtimeException(
         code: RealtimeErrorCode.unsupportedFeature,
@@ -233,7 +232,9 @@ class WindowsIvsWebView2Engine implements IvsEngine {
         message: 'No camera device is available on Windows.',
       );
     }
-    final desiredToken = position == MediaCameraPosition.front ? 'front' : 'back';
+    final desiredToken = position == MediaCameraPosition.front
+        ? 'front'
+        : 'back';
     final byLabel = cameras.cast<MediaDevice?>().firstWhere(
       (c) => c!.label.toLowerCase().contains(desiredToken),
       orElse: () => null,
@@ -355,7 +356,9 @@ class WindowsIvsWebView2Engine implements IvsEngine {
     final rawContentTrack = event['contentShareTrack'];
     String? nextScreenTrackUserId;
     if (rawContentTrack is Map && rawContentTrack['isLocal'] != true) {
-      final trackParticipant = rawContentTrack['participantId']?.toString().trim();
+      final trackParticipant = rawContentTrack['participantId']
+          ?.toString()
+          .trim();
       if (trackParticipant != null && trackParticipant.isNotEmpty) {
         nextScreenTrackUserId = trackParticipant;
       }
@@ -381,7 +384,8 @@ class WindowsIvsWebView2Engine implements IvsEngine {
     }
   }
 
-  static String _stripContentSuffix(String userId) => userId.endsWith('#content')
+  static String _stripContentSuffix(String userId) =>
+      userId.endsWith('#content')
       ? userId.substring(0, userId.length - '#content'.length)
       : userId;
 

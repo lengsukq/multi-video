@@ -140,7 +140,9 @@ void main() {
       for (final plugin in registry.resolvePlugins())
         if (plugin.chatFactory != null) plugin.providerId,
     };
-    expect(chatFactories,
-        containsAll({'agora-chat', 'tencent-chat', 'ivs-chat'}));
+    expect(
+      chatFactories,
+      containsAll({'agora-chat', 'tencent-chat', 'ivs-chat'}),
+    );
   });
 }

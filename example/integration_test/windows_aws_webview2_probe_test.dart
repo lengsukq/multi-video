@@ -16,8 +16,11 @@ void main() {
     final runtime = AwsWindowsWebView2Runtime.instance;
     final available = await runtime.probe();
     expect(available, isTrue, reason: runtime.lastError);
-    expect(runtime.lastDiagnostic, isNull,
-        reason: 'A healthy Chime WebView2 host must not report missing runtime.');
+    expect(
+      runtime.lastDiagnostic,
+      isNull,
+      reason: 'A healthy Chime WebView2 host must not report missing runtime.',
+    );
     expect(runtime.lastProbe['secure'], isTrue);
     expect(runtime.lastProbe['webrtc'], isTrue);
     expect(runtime.lastProbe['mediaEnumeration'], isTrue);

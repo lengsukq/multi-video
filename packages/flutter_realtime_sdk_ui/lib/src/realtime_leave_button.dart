@@ -58,9 +58,7 @@ class RealtimeLeaveButton extends StatelessWidget {
                     return;
                   }
                   if (context.mounted) {
-                    ScaffoldMessenger.maybeOf(
-                      context,
-                    )?.showSnackBar(
+                    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
                       SnackBar(
                         content: Text(strings.displayRealtimeError(error)),
                       ),

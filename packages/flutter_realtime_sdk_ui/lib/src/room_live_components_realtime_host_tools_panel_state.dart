@@ -783,7 +783,8 @@ class RoomLiveComponentsRealtimeHostToolsPanelState
       return const SizedBox.shrink();
     }
     final requests = liveState?.cohostRequests ?? const <LiveCohostRequest>[];
-    final activeCohosts = liveState?.activeCohosts ?? const <LiveCohostMember>[];
+    final activeCohosts =
+        liveState?.activeCohosts ?? const <LiveCohostMember>[];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -812,7 +813,9 @@ class RoomLiveComponentsRealtimeHostToolsPanelState
                           RealtimeUiTokens.compactRadius,
                         ),
                         border: Border.all(
-                          color: RealtimeUiTokens.iosBlue.withValues(alpha: 0.25),
+                          color: RealtimeUiTokens.iosBlue.withValues(
+                            alpha: 0.25,
+                          ),
                         ),
                       ),
                       child: const Icon(
@@ -862,7 +865,9 @@ class RoomLiveComponentsRealtimeHostToolsPanelState
                         ),
                       ),
                       icon: Icon(
-                        isOpen ? Icons.close_rounded : Icons.open_in_new_rounded,
+                        isOpen
+                            ? Icons.close_rounded
+                            : Icons.open_in_new_rounded,
                         size: 16,
                       ),
                       label: Text(
@@ -892,61 +897,63 @@ class RoomLiveComponentsRealtimeHostToolsPanelState
               children: [
                 if (requests.isEmpty && activeCohosts.isEmpty)
                   Text(
-                    isZh ? '暂无连麦请求或连麦观众' : 'No co-host requests or active guests',
+                    isZh
+                        ? '暂无连麦请求或连麦观众'
+                        : 'No co-host requests or active guests',
                     style: TextStyle(fontSize: 12, color: style.textMuted),
                   ),
-                    for (final req in requests) ...[
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${req.displayName.isEmpty ? req.userId : req.displayName} (${isZh ? '申请连麦' : 'Requested'})',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: style.text,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                for (final req in requests) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${req.displayName.isEmpty ? req.userId : req.displayName} (${isZh ? '申请连麦' : 'Requested'})',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: style.text,
                           ),
-                          TextButton(
-                            onPressed: () =>
-                                controller.respondCohost(req.userId, 'decline'),
-                            child: Text(isZh ? '拒绝' : 'Decline'),
-                          ),
-                          const SizedBox(width: 4),
-                          FilledButton(
-                            onPressed: () =>
-                                controller.respondCohost(req.userId, 'approve'),
-                            child: Text(isZh ? '同意' : 'Approve'),
-                          ),
-                        ],
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      const SizedBox(height: 6),
-                    ],
-                    for (final guest in activeCohosts) ...[
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${guest.displayName.isEmpty ? guest.userId : guest.displayName} (${isZh ? '连麦中' : 'On mic'})',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: style.text,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          OutlinedButton(
-                            onPressed: () =>
-                                controller.respondCohost(guest.userId, 'end'),
-                            child: Text(isZh ? '下麦' : 'Remove'),
-                          ),
-                        ],
+                      TextButton(
+                        onPressed: () =>
+                            controller.respondCohost(req.userId, 'decline'),
+                        child: Text(isZh ? '拒绝' : 'Decline'),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(width: 4),
+                      FilledButton(
+                        onPressed: () =>
+                            controller.respondCohost(req.userId, 'approve'),
+                        child: Text(isZh ? '同意' : 'Approve'),
+                      ),
                     ],
+                  ),
+                  const SizedBox(height: 6),
+                ],
+                for (final guest in activeCohosts) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${guest.displayName.isEmpty ? guest.userId : guest.displayName} (${isZh ? '连麦中' : 'On mic'})',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: style.text,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: () =>
+                            controller.respondCohost(guest.userId, 'end'),
+                        child: Text(isZh ? '下麦' : 'Remove'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                ],
               ],
             ),
           ),

@@ -5,190 +5,188 @@ import 'package:flutter_realtime_sdk_runtime/flutter_realtime_sdk_runtime.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('preventScreenCapture defaults to false and acquires no lease', () async {
-    final protection = _FakeScreenProtection();
-    final media = _FakeMediaSession();
-    final room = RealtimeRoom(
-      media: MediaRoomSession.direct(
-        roomCode: 'room-default',
-        participantId: 'u1',
-        session: media,
-      ),
-      renderer: const _NoopRenderer(),
-      screenCaptureProtection: protection,
-      disposeClients: () {},
-    );
-    await room.initialize();
-
-    expect(room.preventScreenCapture, isFalse);
-    expect(room.isScreenCaptured, isFalse);
-    expect(protection.activeLeases, isEmpty);
-
-    await room.dispose();
-  });
-
   test(
-    'Realtime(preventScreenCapture: true) propagates to room, emits events, '
-    'exempts local screen sharing, and releases on dispose',
+    'preventScreenCapture defaults to false and acquires no lease',
     () async {
-      final protection = _FakeScreenProtection(initiallyCaptured: false);
+      final protection = _FakeScreenProtection();
       final media = _FakeMediaSession();
-      final realtime = Realtime(
-        providers: <RealtimeProviderBundle>[
-          RealtimeProviderBundle(
-            webAssetsLoader: ({
-              Iterable<String> mediaProviderIds = const [],
-              bool includeProductChat = false,
-              bool includeAllMediaProviders = false,
-            }) async {},
-            drivers: <RealtimeProviderDriver>[
-              RealtimeProviderDriver(
-                platforms: RealtimeRuntimePlatform.values.toSet(),
-                publicProviderId: 'fake',
-                mediaRoomModes: const {MediaRoomMode.meeting},
-                plugin: RealtimeProviderPlugin(
-                  id: 'fake',
-                  metadata: const RealtimeProviderMetadata(displayName: 'Fake'),
-                  mediaFactory: _FakeMediaFactory(media),
-                  renderer: const _NoopRenderer(),
-                ),
-              ),
-            ],
-          ),
-        ],
-        preventScreenCapture: true,
-        services: RealtimeRoomServices(screenCaptureProtection: protection),
-      );
-      expect(realtime.preventScreenCapture, isTrue);
-
-      final connection = await realtime.open(
-        RealtimeRequest.join(
-          type: RealtimeExperience.meeting,
-          roomCode: 'room-1',
-          user: const RealtimeUser(id: 'u1', name: 'Alice'),
-          source: RealtimeSource.credentials(
-            media: RealtimeCredentials(
-              providerId: 'fake',
-              payload: const <String, Object?>{},
-            ),
-          ),
-        ),
-      );
-      final room = connection.mediaRoom!;
-      await room.initialize();
-
-      expect(room.preventScreenCapture, isTrue);
-      expect(protection.activeLeases, hasLength(1));
-      expect(room.isScreenCaptured, isFalse);
-
-      final streamChanges = <bool>[];
-      final roomEvents = <RealtimeScreenCaptureChanged>[];
-      final sub1 = room.screenCaptureChanges.listen(streamChanges.add);
-      final sub2 = room.events.listen((event) {
-        if (event is RealtimeScreenCaptureChanged) {
-          roomEvents.add(event);
-        }
-      });
-
-      // External OS screen recording starts -> room reports captured = true.
-      protection.setCaptured(true);
-      await Future<void>.delayed(Duration.zero);
-      expect(room.isScreenCaptured, isTrue);
-      expect(streamChanges, <bool>[true]);
-      expect(roomEvents.single.isCaptured, isTrue);
-
-      // Local in-app screen share turns on -> suspends secure window and
-      // exempts local sharing from external capture alert.
-      media.setLocalScreenSharing(true);
-      await Future<void>.delayed(Duration.zero);
-      expect(protection.activeLeases.single.suspended, isTrue);
-      expect(room.isScreenCaptured, isFalse);
-      expect(streamChanges, <bool>[true, false]);
-
-      // External OS screen recording stops while local share stops -> clears cleanly.
-      protection.setCaptured(false);
-      media.setLocalScreenSharing(false);
-      await Future<void>.delayed(Duration.zero);
-      expect(protection.activeLeases.single.suspended, isFalse);
-      expect(room.isScreenCaptured, isFalse);
-      expect(streamChanges, <bool>[true, false]);
-
-      await sub1.cancel();
-      await sub2.cancel();
-      await connection.dispose();
-      expect(protection.activeLeases, isEmpty);
-    },
-  );
-
-  test(
-    'in-app screen share picker startup gap and ReplayKit stop tail never '
-    'trigger false-positive screen capture alerts',
-    () async {
-      final protection = _FakeScreenProtection(initiallyCaptured: false);
-      final pickerPublishCompleter = Completer<void>();
-      late final _FakeMediaSession media;
-      media = _FakeMediaSession(
-        onSetScreenShareEnabled: (enabled) async {
-          if (enabled) {
-            // Simulate Android FLAG_SECURE already suspended BEFORE vendor
-            // MediaProjection / ReplayKit picker runs.
-            expect(protection.activeLeases.single.suspended, isTrue);
-            // Simulate iOS ReplayKit firing UIScreen.isCaptured = true right
-            // after user taps "Start Broadcast", BEFORE RTC track publishes.
-            protection.setCaptured(true);
-            await pickerPublishCompleter.future;
-            media.setLocalScreenSharing(true);
-          } else {
-            // Simulate local track stopping slightly BEFORE OS ReplayKit
-            // finishes tearing down UIScreen.isCaptured.
-            media.setLocalScreenSharing(false);
-          }
-        },
-      );
       final room = RealtimeRoom(
         media: MediaRoomSession.direct(
-          roomCode: 'no-false-positive',
+          roomCode: 'room-default',
           participantId: 'u1',
           session: media,
         ),
         renderer: const _NoopRenderer(),
-        preventScreenCapture: true,
         screenCaptureProtection: protection,
         disposeClients: () {},
       );
       await room.initialize();
 
-      final observedAlerts = <bool>[];
-      final sub = room.screenCaptureChanges.listen(observedAlerts.add);
-
-      // Start local screen share: OS capture fires during picker gap.
-      final startingFuture = room.setScreenShareEnabled(true);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(room.preventScreenCapture, isFalse);
       expect(room.isScreenCaptured, isFalse);
-      expect(observedAlerts, isEmpty);
+      expect(protection.activeLeases, isEmpty);
 
-      // Vendor finishes publishing screen track.
-      pickerPublishCompleter.complete();
-      await startingFuture;
-      expect(room.isScreenCaptured, isFalse);
-      expect(observedAlerts, isEmpty);
-
-      // Stop local screen share: OS capture lingers 100ms before clearing.
-      await room.setScreenShareEnabled(false);
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(room.isScreenCaptured, isFalse);
-      expect(observedAlerts, isEmpty);
-
-      protection.setCaptured(false);
-      await Future<void>.delayed(Duration.zero);
-      expect(protection.activeLeases.single.suspended, isFalse);
-      expect(room.isScreenCaptured, isFalse);
-      expect(observedAlerts, isEmpty);
-
-      await sub.cancel();
       await room.dispose();
     },
   );
+
+  test('Realtime(preventScreenCapture: true) propagates to room, emits events, '
+      'exempts local screen sharing, and releases on dispose', () async {
+    final protection = _FakeScreenProtection(initiallyCaptured: false);
+    final media = _FakeMediaSession();
+    final realtime = Realtime(
+      providers: <RealtimeProviderBundle>[
+        RealtimeProviderBundle(
+          webAssetsLoader:
+              ({
+                Iterable<String> mediaProviderIds = const [],
+                bool includeProductChat = false,
+                bool includeAllMediaProviders = false,
+              }) async {},
+          drivers: <RealtimeProviderDriver>[
+            RealtimeProviderDriver(
+              platforms: RealtimeRuntimePlatform.values.toSet(),
+              publicProviderId: 'fake',
+              mediaRoomModes: const {MediaRoomMode.meeting},
+              plugin: RealtimeProviderPlugin(
+                id: 'fake',
+                metadata: const RealtimeProviderMetadata(displayName: 'Fake'),
+                mediaFactory: _FakeMediaFactory(media),
+                renderer: const _NoopRenderer(),
+              ),
+            ),
+          ],
+        ),
+      ],
+      preventScreenCapture: true,
+      services: RealtimeRoomServices(screenCaptureProtection: protection),
+    );
+    expect(realtime.preventScreenCapture, isTrue);
+
+    final connection = await realtime.open(
+      RealtimeRequest.join(
+        type: RealtimeExperience.meeting,
+        roomCode: 'room-1',
+        user: const RealtimeUser(id: 'u1', name: 'Alice'),
+        source: RealtimeSource.credentials(
+          media: RealtimeCredentials(
+            providerId: 'fake',
+            payload: const <String, Object?>{},
+          ),
+        ),
+      ),
+    );
+    final room = connection.mediaRoom!;
+    await room.initialize();
+
+    expect(room.preventScreenCapture, isTrue);
+    expect(protection.activeLeases, hasLength(1));
+    expect(room.isScreenCaptured, isFalse);
+
+    final streamChanges = <bool>[];
+    final roomEvents = <RealtimeScreenCaptureChanged>[];
+    final sub1 = room.screenCaptureChanges.listen(streamChanges.add);
+    final sub2 = room.events.listen((event) {
+      if (event is RealtimeScreenCaptureChanged) {
+        roomEvents.add(event);
+      }
+    });
+
+    // External OS screen recording starts -> room reports captured = true.
+    protection.setCaptured(true);
+    await Future<void>.delayed(Duration.zero);
+    expect(room.isScreenCaptured, isTrue);
+    expect(streamChanges, <bool>[true]);
+    expect(roomEvents.single.isCaptured, isTrue);
+
+    // Local in-app screen share turns on -> suspends secure window and
+    // exempts local sharing from external capture alert.
+    media.setLocalScreenSharing(true);
+    await Future<void>.delayed(Duration.zero);
+    expect(protection.activeLeases.single.suspended, isTrue);
+    expect(room.isScreenCaptured, isFalse);
+    expect(streamChanges, <bool>[true, false]);
+
+    // External OS screen recording stops while local share stops -> clears cleanly.
+    protection.setCaptured(false);
+    media.setLocalScreenSharing(false);
+    await Future<void>.delayed(Duration.zero);
+    expect(protection.activeLeases.single.suspended, isFalse);
+    expect(room.isScreenCaptured, isFalse);
+    expect(streamChanges, <bool>[true, false]);
+
+    await sub1.cancel();
+    await sub2.cancel();
+    await connection.dispose();
+    expect(protection.activeLeases, isEmpty);
+  });
+
+  test('in-app screen share picker startup gap and ReplayKit stop tail never '
+      'trigger false-positive screen capture alerts', () async {
+    final protection = _FakeScreenProtection(initiallyCaptured: false);
+    final pickerPublishCompleter = Completer<void>();
+    late final _FakeMediaSession media;
+    media = _FakeMediaSession(
+      onSetScreenShareEnabled: (enabled) async {
+        if (enabled) {
+          // Simulate Android FLAG_SECURE already suspended BEFORE vendor
+          // MediaProjection / ReplayKit picker runs.
+          expect(protection.activeLeases.single.suspended, isTrue);
+          // Simulate iOS ReplayKit firing UIScreen.isCaptured = true right
+          // after user taps "Start Broadcast", BEFORE RTC track publishes.
+          protection.setCaptured(true);
+          await pickerPublishCompleter.future;
+          media.setLocalScreenSharing(true);
+        } else {
+          // Simulate local track stopping slightly BEFORE OS ReplayKit
+          // finishes tearing down UIScreen.isCaptured.
+          media.setLocalScreenSharing(false);
+        }
+      },
+    );
+    final room = RealtimeRoom(
+      media: MediaRoomSession.direct(
+        roomCode: 'no-false-positive',
+        participantId: 'u1',
+        session: media,
+      ),
+      renderer: const _NoopRenderer(),
+      preventScreenCapture: true,
+      screenCaptureProtection: protection,
+      disposeClients: () {},
+    );
+    await room.initialize();
+
+    final observedAlerts = <bool>[];
+    final sub = room.screenCaptureChanges.listen(observedAlerts.add);
+
+    // Start local screen share: OS capture fires during picker gap.
+    final startingFuture = room.setScreenShareEnabled(true);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(room.isScreenCaptured, isFalse);
+    expect(observedAlerts, isEmpty);
+
+    // Vendor finishes publishing screen track.
+    pickerPublishCompleter.complete();
+    await startingFuture;
+    expect(room.isScreenCaptured, isFalse);
+    expect(observedAlerts, isEmpty);
+
+    // Stop local screen share: OS capture lingers 100ms before clearing.
+    await room.setScreenShareEnabled(false);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(room.isScreenCaptured, isFalse);
+    expect(observedAlerts, isEmpty);
+
+    protection.setCaptured(false);
+    await Future<void>.delayed(Duration.zero);
+    expect(protection.activeLeases.single.suspended, isFalse);
+    expect(room.isScreenCaptured, isFalse);
+    expect(observedAlerts, isEmpty);
+
+    await sub.cancel();
+    await room.dispose();
+  });
 
   test(
     'RealtimeChatRoom inherits preventScreenCapture and releases on dispose',

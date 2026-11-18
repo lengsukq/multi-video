@@ -22,7 +22,8 @@ MediaCapabilities get _chimeCapabilities => MediaCapabilities(
           defaultTargetPlatform == TargetPlatform.iOS ||
           defaultTargetPlatform == TargetPlatform.macOS ||
           defaultTargetPlatform == TargetPlatform.windows),
-  canSwitchCamera: defaultTargetPlatform == TargetPlatform.android ||
+  canSwitchCamera:
+      defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS,
   canSendData: true,
   canReceiveData: true,

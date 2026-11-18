@@ -169,7 +169,9 @@ class RealtimeLiveCohostButton extends StatelessWidget {
               ),
               minimumSize: const Size(44, 40),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(RealtimeUiTokens.pillRadius),
+                borderRadius: BorderRadius.circular(
+                  RealtimeUiTokens.pillRadius,
+                ),
               ),
             ),
             onPressed: pending

@@ -69,14 +69,13 @@ class RealtimePreJoinController extends ChangeNotifier {
   /// A denied device permission must never be carried into room startup.
   /// Unknown permissions are left to the native capture adapter (notably
   /// iOS hosts which cannot report status until their SDK requests access).
-  bool _mayEnable(MediaPermissionKind kind) => switch (
-    _permissionStates[kind]
-  ) {
-    MediaPermissionState.denied ||
-    MediaPermissionState.permanentlyDenied ||
-    MediaPermissionState.restricted => false,
-    _ => true,
-  };
+  bool _mayEnable(MediaPermissionKind kind) =>
+      switch (_permissionStates[kind]) {
+        MediaPermissionState.denied ||
+        MediaPermissionState.permanentlyDenied ||
+        MediaPermissionState.restricted => false,
+        _ => true,
+      };
 
   void _notify() {
     if (!_disposed) notifyListeners();
@@ -400,15 +399,15 @@ class RealtimePreJoinController extends ChangeNotifier {
     final currentPreview = preview;
     final requested =
         (_retrySettings ??
-                (currentPreview is MediaLocalPreviewRoomSettings
-                    ? (currentPreview as MediaLocalPreviewRoomSettings)
-                        .roomSettings
-                    : currentPreview?.settings) ??
-                const MediaLocalPreviewSettings());
+        (currentPreview is MediaLocalPreviewRoomSettings
+            ? (currentPreview as MediaLocalPreviewRoomSettings).roomSettings
+            : currentPreview?.settings) ??
+        const MediaLocalPreviewSettings());
     final selected = requested.copyWith(
       backgroundEffect: _setup.backgroundEffect,
       microphoneEnabled:
-          requested.microphoneEnabled && _mayEnable(MediaPermissionKind.microphone),
+          requested.microphoneEnabled &&
+          _mayEnable(MediaPermissionKind.microphone),
       cameraEnabled:
           requested.cameraEnabled && _mayEnable(MediaPermissionKind.camera),
     );

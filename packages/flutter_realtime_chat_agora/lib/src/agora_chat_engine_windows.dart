@@ -61,8 +61,9 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
     if (await WebviewController.getWebViewVersion() == null) {
       throw StateError('Microsoft Edge WebView2 Runtime is not installed.');
     }
-    final directory =
-        await Directory.systemTemp.createTemp('agora-chat-windows-');
+    final directory = await Directory.systemTemp.createTemp(
+      'agora-chat-windows-',
+    );
     _assets = directory;
     WebviewController? browser;
     try {
@@ -73,11 +74,13 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
             'packages/flutter_realtime_chat_agora/assets/windows_agora_chat_host.js',
       }.entries) {
         final content = await rootBundle.loadString(entry.value);
-        await File('${directory.path}${Platform.pathSeparator}${entry.key}')
-            .writeAsString(content, flush: true);
+        await File(
+          '${directory.path}${Platform.pathSeparator}${entry.key}',
+        ).writeAsString(content, flush: true);
       }
-      await File('${directory.path}${Platform.pathSeparator}index.html')
-          .writeAsString('''
+      await File(
+        '${directory.path}${Platform.pathSeparator}index.html',
+      ).writeAsString('''
 <!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy"
  content="default-src 'self' https: wss: data: blob:;
@@ -147,7 +150,8 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
     }
   }
 
-  Future<dynamic> _invoke(String operation, {
+  Future<dynamic> _invoke(
+    String operation, {
     String name = '',
     Map<String, Object?> payload = const {},
   }) async {
@@ -161,14 +165,16 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
     final pending = Completer<dynamic>();
     _pending[id] = pending;
     try {
-      await _controller!.postWebMessage(jsonEncode({
-        'channel': _channel,
-        'id': id,
-        'operation': operation,
-        'sessionId': _sessionId,
-        'name': name,
-        'payload': payload,
-      }));
+      await _controller!.postWebMessage(
+        jsonEncode({
+          'channel': _channel,
+          'id': id,
+          'operation': operation,
+          'sessionId': _sessionId,
+          'name': name,
+          'payload': payload,
+        }),
+      );
       return await pending.future.timeout(const Duration(seconds: 35));
     } finally {
       _pending.remove(id);
@@ -187,8 +193,10 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
           pending.complete(body['value']);
         } else {
           pending.completeError(
-            StateError(body['message']?.toString() ??
-                'Agora Chat Windows JavaScript operation failed.'),
+            StateError(
+              body['message']?.toString() ??
+                  'Agora Chat Windows JavaScript operation failed.',
+            ),
           );
         }
       case 'event':
@@ -201,7 +209,8 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
             if (_connected) _events.onConnected?.call();
           case 'disconnected':
             _events.onDisconnected?.call(
-                event['reason']?.toString() ?? 'unknown');
+              event['reason']?.toString() ?? 'unknown',
+            );
           case 'message':
             _events.onMessage?.call(event);
           case 'messageDeleted':
@@ -227,8 +236,11 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
     try {
       final provider = _tokenProvider;
       final info = _info;
-      if (!_connected || _disposed || _disconnectRequested ||
-          provider == null || info == null) {
+      if (!_connected ||
+          _disposed ||
+          _disconnectRequested ||
+          provider == null ||
+          info == null) {
         throw StateError('No active Agora Chat token refresh provider.');
       }
       final fresh = await provider();
@@ -243,13 +255,15 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
     } catch (_) {}
     if (_disposed || _controller == null) return;
     try {
-      await _controller!.postWebMessage(jsonEncode({
-        'channel': _channel,
-        'id': id,
-        'operation': 'tokenResult',
-        'success': token != null,
-        if (token != null) 'token': token,
-      }));
+      await _controller!.postWebMessage(
+        jsonEncode({
+          'channel': _channel,
+          'id': id,
+          'operation': 'tokenResult',
+          'success': token != null,
+          if (token != null) 'token': token,
+        }),
+      );
     } catch (_) {
       // A disposed WebView2 host has no pending token request to fulfill.
     }
@@ -267,7 +281,10 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
     AgoraChatEngineEvents events, {
     AgoraChatTokenProvider? tokenProvider,
   }) async {
-    if (_disposed || _connected || _created || _joining ||
+    if (_disposed ||
+        _connected ||
+        _created ||
+        _joining ||
         (_owner != null && !identical(_owner, this))) {
       throw StateError('Another Agora Chat Windows room is already active.');
     }
@@ -300,13 +317,17 @@ class WindowsAgoraChatEngine implements AgoraChatEngine {
     if (!_connected || info == null) {
       throw StateError('Agora Chat Windows room is not connected.');
     }
-    return _invoke('command', name: 'sendMessage', payload: {
-      'message': message,
-      'userId': info.userId,
-      'displayName': info.displayName,
-      if (info.avatarUrl != null) 'avatarUrl': info.avatarUrl,
-      'participantId': info.participantId,
-    });
+    return _invoke(
+      'command',
+      name: 'sendMessage',
+      payload: {
+        'message': message,
+        'userId': info.userId,
+        'displayName': info.displayName,
+        if (info.avatarUrl != null) 'avatarUrl': info.avatarUrl,
+        'participantId': info.participantId,
+      },
+    );
   }
 
   @override

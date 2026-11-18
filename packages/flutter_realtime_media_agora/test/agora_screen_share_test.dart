@@ -79,14 +79,17 @@ class _ScreenEngine extends Fake implements agora.RtcEngine {
   Future<void> enableLocalAudio(bool enabled) async {
     captureEnableCalls.add(enabled);
   }
+
   @override
   Future<void> muteLocalAudioStream(bool mute) async {
     audioMuteCalls.add(mute);
   }
+
   @override
   Future<void> muteLocalVideoStream(bool mute) async {
     videoMuteCalls.add(mute);
   }
+
   @override
   Future<void> enableVideo() async {}
   @override
@@ -131,6 +134,7 @@ class _ScreenEngine extends Fake implements agora.RtcEngine {
   Future<void> stopScreenCapture() async {
     stopCount++;
   }
+
   @override
   Future<void> startPreview({
     agora.VideoSourceType sourceType =
@@ -183,8 +187,11 @@ void main() {
     await session.setMuted(true);
     await session.setMuted(false);
     expect(engine.audioMuteCalls, [false, true, false]);
-    expect(engine.captureEnableCalls, isEmpty,
-        reason: 'enableLocalAudio restarts the native capture/audio route');
+    expect(
+      engine.captureEnableCalls,
+      isEmpty,
+      reason: 'enableLocalAudio restarts the native capture/audio route',
+    );
     expect(session.snapshot.localMuted, isFalse);
     expect(engine.mediaOptions.last.publishMicrophoneTrack, isTrue);
     await session.dispose();
@@ -221,7 +228,12 @@ void main() {
     // Screen capture is announced independently of the camera's state.
     final data = encodeAgoraScreenShareSignal(AgoraScreenShareSignal.started);
     engine.handler!.onStreamMessage?.call(
-      connection, remoteUid, 6, data, data.length, 0,
+      connection,
+      remoteUid,
+      6,
+      data,
+      data.length,
+      0,
     );
     expect(session.snapshot.contentShareTrack?.isScreenShare, isTrue);
     expect(session.snapshot.contentShareTrack?.participantId, '$remoteUid');
@@ -233,78 +245,97 @@ void main() {
       agora.RemoteVideoStateReason.values.first,
       0,
     );
-    expect(session.snapshot.contentShareTrack?.isScreenShare, isTrue,
-        reason: 'Camera stop must not remove an active screen video source');
-    final stopped = encodeAgoraScreenShareSignal(AgoraScreenShareSignal.stopped);
+    expect(
+      session.snapshot.contentShareTrack?.isScreenShare,
+      isTrue,
+      reason: 'Camera stop must not remove an active screen video source',
+    );
+    final stopped = encodeAgoraScreenShareSignal(
+      AgoraScreenShareSignal.stopped,
+    );
     engine.handler!.onStreamMessage?.call(
-      connection, remoteUid, 6, stopped, stopped.length, 0,
+      connection,
+      remoteUid,
+      6,
+      stopped,
+      stopped.length,
+      0,
     );
     expect(session.snapshot.contentShareTrack, isNull);
     await session.dispose();
   });
 
-  test('active desktop share periodically refreshes state for receivers',
-      () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    final engine = _ScreenEngine()
-      ..desktopSources = const [
-        agora.ScreenCaptureSourceInfo(
-          sourceId: 42,
-          primaryMonitor: true,
-          type: agora.ScreenCaptureSourceType.screencapturesourcetypeScreen,
-        ),
-      ];
-    final session = AgoraInteractiveSession(engineFactory: () => engine);
-    await session.join(_credential());
-    await session.setScreenShareEnabled(true);
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-    final initial = engine.announcedMessages.length;
-    await Future<void>.delayed(const Duration(milliseconds: 4250));
-    expect(engine.announcedMessages.length, greaterThan(initial));
-    await session.setScreenShareEnabled(false);
-    final stoppedAt = engine.announcedMessages.length;
-    await Future<void>.delayed(const Duration(milliseconds: 4200));
-    expect(engine.announcedMessages.length, stoppedAt);
-    await session.dispose();
-  });
+  test(
+    'active desktop share periodically refreshes state for receivers',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      final engine = _ScreenEngine()
+        ..desktopSources = const [
+          agora.ScreenCaptureSourceInfo(
+            sourceId: 42,
+            primaryMonitor: true,
+            type: agora.ScreenCaptureSourceType.screencapturesourcetypeScreen,
+          ),
+        ];
+      final session = AgoraInteractiveSession(engineFactory: () => engine);
+      await session.join(_credential());
+      await session.setScreenShareEnabled(true);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      final initial = engine.announcedMessages.length;
+      await Future<void>.delayed(const Duration(milliseconds: 4250));
+      expect(engine.announcedMessages.length, greaterThan(initial));
+      await session.setScreenShareEnabled(false);
+      final stoppedAt = engine.announcedMessages.length;
+      await Future<void>.delayed(const Duration(milliseconds: 4200));
+      expect(engine.announcedMessages.length, stoppedAt);
+      await session.dispose();
+    },
+  );
 
-  test('Windows explicitly selects and publishes an application window',
-      () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    final engine = _ScreenEngine()
-      ..desktopSources = [
-        const agora.ScreenCaptureSourceInfo(
-          sourceId: 9,
-          sourceName: 'Primary display',
-          primaryMonitor: true,
-          type: agora.ScreenCaptureSourceType.screencapturesourcetypeScreen,
-        ),
-        const agora.ScreenCaptureSourceInfo(
-          sourceId: 1204,
-          sourceTitle: 'Editor',
-          type: agora.ScreenCaptureSourceType.screencapturesourcetypeWindow,
-        ),
-      ];
-    final session = AgoraInteractiveSession(engineFactory: () => engine);
-    await session.join(_credential());
-    final chooser = session as MediaScreenShareSourceSelector;
-    final sources = await chooser.listScreenShareSources();
-    expect(sources.length, 2);
-    expect(sources.last.name, 'Editor');
-    expect(sources.last.kind, MediaScreenShareSourceKind.window);
-    await chooser.selectScreenShareSource(sources.last);
-    await session.setScreenShareEnabled(true);
-    expect(engine.selectedDesktopWindows, [1204]);
-    expect(engine.selectedDesktopDisplays, isEmpty);
-    expect(engine.mediaOptions.last.publishScreenTrack, isTrue,
-        reason: 'Windows must publish the desktop track, not mobile capture');
-    expect(engine.mediaOptions.last.publishScreenCaptureVideo, isFalse);
-    await session.setScreenShareEnabled(false);
-    expect(engine.mediaOptions.last.publishScreenTrack, isFalse);
-    expect(engine.videoMuteCalls, [false, true],
-        reason: 'Unmute video publication only during screen share');
-    await session.dispose();
-  });
+  test(
+    'Windows explicitly selects and publishes an application window',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      final engine = _ScreenEngine()
+        ..desktopSources = [
+          const agora.ScreenCaptureSourceInfo(
+            sourceId: 9,
+            sourceName: 'Primary display',
+            primaryMonitor: true,
+            type: agora.ScreenCaptureSourceType.screencapturesourcetypeScreen,
+          ),
+          const agora.ScreenCaptureSourceInfo(
+            sourceId: 1204,
+            sourceTitle: 'Editor',
+            type: agora.ScreenCaptureSourceType.screencapturesourcetypeWindow,
+          ),
+        ];
+      final session = AgoraInteractiveSession(engineFactory: () => engine);
+      await session.join(_credential());
+      final chooser = session as MediaScreenShareSourceSelector;
+      final sources = await chooser.listScreenShareSources();
+      expect(sources.length, 2);
+      expect(sources.last.name, 'Editor');
+      expect(sources.last.kind, MediaScreenShareSourceKind.window);
+      await chooser.selectScreenShareSource(sources.last);
+      await session.setScreenShareEnabled(true);
+      expect(engine.selectedDesktopWindows, [1204]);
+      expect(engine.selectedDesktopDisplays, isEmpty);
+      expect(
+        engine.mediaOptions.last.publishScreenTrack,
+        isTrue,
+        reason: 'Windows must publish the desktop track, not mobile capture',
+      );
+      expect(engine.mediaOptions.last.publishScreenCaptureVideo, isFalse);
+      await session.setScreenShareEnabled(false);
+      expect(engine.mediaOptions.last.publishScreenTrack, isFalse);
+      expect(engine.videoMuteCalls, [
+        false,
+        true,
+      ], reason: 'Unmute video publication only during screen share');
+      await session.dispose();
+    },
+  );
 
   test('macOS publishes a desktop screen track, not mobile capture', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
@@ -355,8 +386,10 @@ void main() {
       expect(engine.stopCount, 1);
       expect(engine.previewStops, [agora.VideoSourceType.videoSourceScreen]);
       expect(engine.mediaOptions.last.publishScreenCaptureVideo, isFalse);
-      expect(engine.videoMuteCalls, [false, true],
-          reason: 'Restore camera-off state after screen share ends');
+      expect(engine.videoMuteCalls, [
+        false,
+        true,
+      ], reason: 'Restore camera-off state after screen share ends');
       expect(
         jsonDecode(utf8.decode(engine.announcedMessages.last))['message'],
         'stopped',

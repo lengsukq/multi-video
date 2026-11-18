@@ -30,8 +30,8 @@ Future<bool> probeNativeChimeAvailability() async {
   if (kIsWeb) return false;
   if (defaultTargetPlatform != TargetPlatform.windows) return true;
   if (!const bool.fromEnvironment(
-      'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL',
-      defaultValue: true,
+    'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL',
+    defaultValue: true,
   )) {
     return false;
   }
@@ -50,8 +50,8 @@ class ChimeSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
     this.windowsDeviceProbe = probeWindowsChimeDevices,
     ChimeWindowsDiagnosticProbe? windowsDiagnosticProbe,
   }) : _sessionFactory = sessionFactory ?? chime.ChimeMeetingSession.new,
-       windowsDiagnosticProbe = windowsDiagnosticProbe ??
-           _defaultWindowsDiagnosticProbe;
+       windowsDiagnosticProbe =
+           windowsDiagnosticProbe ?? _defaultWindowsDiagnosticProbe;
 
   static AwsWindowsRuntimeDiagnostic? _defaultWindowsDiagnosticProbe() =>
       AwsWindowsWebView2Runtime.instance.lastDiagnostic;
@@ -91,7 +91,9 @@ class ChimeSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
         defaultTargetPlatform == TargetPlatform.windows &&
         !await availabilityProbe()) {
       final disabled = !const bool.fromEnvironment(
-        'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL', defaultValue: true);
+        'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL',
+        defaultValue: true,
+      );
       final diagnostic = disabled ? null : windowsDiagnosticProbe();
       return MediaPreJoinProbeResult([
         MediaPreJoinCheck(
@@ -102,12 +104,13 @@ class ChimeSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
           severity: MediaPreJoinSeverity.blocking,
           message: disabled
               ? 'Windows AWS Chime WebView2 was disabled in build settings. '
-                  'Rebuild without AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL=false.'
+                    'Rebuild without AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL=false.'
               : diagnostic?.userMessage ??
-                  'Windows Chime media readiness could not be verified. '
-                  'Check WebView2 and the bundled AWS media SDK diagnostics.',
-          details: diagnostic == null ? null :
-              {'diagnosticCode': diagnostic.code.name},
+                    'Windows Chime media readiness could not be verified. '
+                        'Check WebView2 and the bundled AWS media SDK diagnostics.',
+          details: diagnostic == null
+              ? null
+              : {'diagnosticCode': diagnostic.code.name},
         ),
       ]);
     }
@@ -134,7 +137,7 @@ class ChimeSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
     if (!kIsWeb &&
         defaultTargetPlatform == TargetPlatform.windows &&
         (request.requirements.microphone != MediaPreJoinRequirement.skipped ||
-         request.requirements.camera != MediaPreJoinRequirement.skipped)) {
+            request.requirements.camera != MediaPreJoinRequirement.skipped)) {
       try {
         final devices = await windowsDeviceProbe();
         void checkWindowsDevice(
@@ -144,17 +147,20 @@ class ChimeSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
           int count,
         ) {
           if (requirement == MediaPreJoinRequirement.skipped) return;
-          checks.add(MediaPreJoinCheck(
-            type: type,
-            status: count > 0
-                ? MediaPreJoinStatus.passed
-                : MediaPreJoinStatus.failed,
-            severity: requirement.severity,
-            message: count > 0
-                ? 'Found $count Windows Chime $label device(s).'
-                : awsWindowsDeviceUnavailableMessage(label),
-          ));
+          checks.add(
+            MediaPreJoinCheck(
+              type: type,
+              status: count > 0
+                  ? MediaPreJoinStatus.passed
+                  : MediaPreJoinStatus.failed,
+              severity: requirement.severity,
+              message: count > 0
+                  ? 'Found $count Windows Chime $label device(s).'
+                  : awsWindowsDeviceUnavailableMessage(label),
+            ),
+          );
         }
+
         checkWindowsDevice(
           MediaPreJoinCheckType.microphoneDevice,
           request.requirements.microphone,
@@ -169,18 +175,21 @@ class ChimeSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
         );
       } catch (error) {
         for (final entry in [
-          (MediaPreJoinCheckType.microphoneDevice,
-           request.requirements.microphone),
-          (MediaPreJoinCheckType.cameraDevice,
-           request.requirements.camera),
+          (
+            MediaPreJoinCheckType.microphoneDevice,
+            request.requirements.microphone,
+          ),
+          (MediaPreJoinCheckType.cameraDevice, request.requirements.camera),
         ]) {
           if (entry.$2 == MediaPreJoinRequirement.skipped) continue;
-          checks.add(MediaPreJoinCheck(
-            type: entry.$1,
-            status: MediaPreJoinStatus.unknown,
-            severity: entry.$2.severity,
-            message: awsWindowsDeviceEnumerationFailure(error),
-          ));
+          checks.add(
+            MediaPreJoinCheck(
+              type: entry.$1,
+              status: MediaPreJoinStatus.unknown,
+              severity: entry.$2.severity,
+              message: awsWindowsDeviceEnumerationFailure(error),
+            ),
+          );
         }
       }
     } else {

@@ -78,8 +78,8 @@ class RealtimeDockSharedContentButton extends StatelessWidget {
             RealtimeCompactMenuAction(
               label: shared.anotherParticipantSharing
                   ? (strings.isZh
-                      ? '其他成员正在共享'
-                      : 'Another participant is sharing')
+                        ? '其他成员正在共享'
+                        : 'Another participant is sharing')
                   : strings.screenShare,
               icon: const Icon(Icons.screen_share_outlined),
               selected: mode == SharedContentMode.screen,

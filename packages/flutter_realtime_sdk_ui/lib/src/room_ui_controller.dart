@@ -106,6 +106,7 @@ class RealtimeRoomUiController extends room_ui.RealtimeRoomUiController {
       }
     }
   }
+
   @override
   bool get canUseMicrophone => super.canUseMicrophone && _canSpeak;
   bool get _canSpeak {

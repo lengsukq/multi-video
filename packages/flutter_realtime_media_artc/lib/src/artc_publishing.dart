@@ -239,8 +239,8 @@ class _ArtcPublishing {
         _desktopCameraPlatform &&
         _session._engine is ArtcCameraDeviceControl) {
       try {
-        final nativeCameras = await (_session._engine as ArtcCameraDeviceControl)
-            .listCameras();
+        final nativeCameras =
+            await (_session._engine as ArtcCameraDeviceControl).listCameras();
         if (nativeCameras.isNotEmpty) {
           return List.unmodifiable(nativeCameras);
         }
@@ -279,8 +279,7 @@ class _ArtcPublishing {
       _selectedCameraDevice = device;
       return;
     }
-    if (_desktopCameraPlatform &&
-        _session._engine is ArtcCameraDeviceControl) {
+    if (_desktopCameraPlatform && _session._engine is ArtcCameraDeviceControl) {
       await (_session._engine as ArtcCameraDeviceControl).selectCamera(device);
       _selectedCameraDevice = device;
       return;

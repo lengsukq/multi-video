@@ -19,16 +19,18 @@ void main() {
           await tester.pumpWidget(
             Builder(
               builder: (context) {
-                rendered = const LiveKitTrackRenderer().buildViewWithFit(
-                  context,
-                  LiveKitMediaVideoTrack(
-                    liveKitTrack: nativeTrack,
-                    id: 'camera',
-                    participantId: 'participant',
-                    isLocal: local,
-                    isScreenShare: screenShare,
-                  ),
-                ) as lk.VideoTrackRenderer;
+                rendered =
+                    const LiveKitTrackRenderer().buildViewWithFit(
+                          context,
+                          LiveKitMediaVideoTrack(
+                            liveKitTrack: nativeTrack,
+                            id: 'camera',
+                            participantId: 'participant',
+                            isLocal: local,
+                            isScreenShare: screenShare,
+                          ),
+                        )
+                        as lk.VideoTrackRenderer;
                 return const SizedBox.shrink();
               },
             ),

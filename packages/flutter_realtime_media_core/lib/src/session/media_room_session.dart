@@ -183,6 +183,7 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
       _profiles.rebindSession(next);
     }
   }
+
   final _cleanupErrors = StreamController<RealtimeException>.broadcast();
   final _localScreenShareStarting = StreamController<bool>.broadcast();
   Future<void> Function()? beforeLocalScreenShareStart;
@@ -225,6 +226,7 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
       }
     }
   }
+
   StreamSubscription<MediaSessionState>? _stateSubscription;
   StreamSubscription<MediaEvent>? _eventSubscription;
   bool _disposed = false;

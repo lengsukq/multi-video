@@ -118,16 +118,16 @@ class _IvsPublishing {
 
   NativeSystemScreenCaptureClient get _mobileScreenCapture =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-          ? AndroidSystemScreenCapture.instance
-          : IosSystemScreenCapture.instance;
+      ? AndroidSystemScreenCapture.instance
+      : IosSystemScreenCapture.instance;
 
   Future<void> _stopIosScreenCapture() async {
     if (_iosScreenSource == null) return;
     _iosScreenSource = null;
     final detachMethod =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-            ? 'detachAndroidScreenCaptureSource'
-            : 'detachIosScreenCaptureKitSource';
+        ? 'detachAndroidScreenCaptureSource'
+        : 'detachIosScreenCaptureKitSource';
     try {
       await _iosChannel.invokeMethod<void>(detachMethod);
     } finally {
@@ -233,7 +233,8 @@ class _IvsPublishing {
       await _stopIosScreenCapture();
       return;
     }
-    final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final isAndroid =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final capture = _mobileScreenCapture;
     final attachMethod = isAndroid
         ? 'attachAndroidScreenCaptureSource'
@@ -307,8 +308,8 @@ class _IvsPublishing {
     if (kIsWeb) return;
     if (defaultTargetPlatform == TargetPlatform.windows) {
       try {
-        _windowsEffectsInputAvailable =
-            await AwsWindowsWebView2Runtime.ivs.probeProcessedVideoInput();
+        _windowsEffectsInputAvailable = await AwsWindowsWebView2Runtime.ivs
+            .probeProcessedVideoInput();
       } on MissingPluginException {
         _windowsEffectsInputAvailable = false;
       } on PlatformException {
@@ -458,7 +459,9 @@ class _IvsPublishing {
       }
     }
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS) {
-      final raw = await _iosChannel.invokeListMethod<dynamic>('listMediaDevices');
+      final raw = await _iosChannel.invokeListMethod<dynamic>(
+        'listMediaDevices',
+      );
       for (final item in raw ?? const <dynamic>[]) {
         if (item is! Map) continue;
         final kind = switch (item['kind']?.toString()) {
@@ -471,7 +474,9 @@ class _IvsPublishing {
         final label = item['label']?.toString() ?? '';
         if (kind == null || id.isEmpty || !requested.contains(kind)) continue;
         if (kind == MediaDeviceKind.camera &&
-            devices.any((existing) => existing.kind == MediaDeviceKind.camera)) {
+            devices.any(
+              (existing) => existing.kind == MediaDeviceKind.camera,
+            )) {
           continue;
         }
         devices.add(MediaDevice(id: id, label: label, kind: kind));
@@ -549,11 +554,7 @@ class _IvsPublishing {
     }
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS) {
       await _iosChannel.invokeMethod<void>('selectDevice', {
-        'device': {
-          'id': device.id,
-          'label': device.label,
-          'kind': 'camera',
-        },
+        'device': {'id': device.id, 'label': device.label, 'kind': 'camera'},
       });
     }
   }
@@ -576,7 +577,10 @@ class _IvsPublishing {
       'publishing video',
     );
     if (_windowsProcessedSource != null) {
-      await ProcessedVideoBridge().setEnabled(_windowsProcessedSource!, enabled);
+      await ProcessedVideoBridge().setEnabled(
+        _windowsProcessedSource!,
+        enabled,
+      );
     } else {
       await _processedSink.setEnabled(enabled);
     }

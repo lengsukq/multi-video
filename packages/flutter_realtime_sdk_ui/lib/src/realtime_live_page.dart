@@ -50,7 +50,8 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
   bool _remoteEndHandled = false;
   int _preparationRevision = 0;
   late Future<List<MediaBackgroundImagePreset>> _presets;
-  final WhiteboardToolsController _whiteboardTools = WhiteboardToolsController();
+  final WhiteboardToolsController _whiteboardTools =
+      WhiteboardToolsController();
   Stream<void>? _sharedContentUpdates;
   _LiveSidePanel _sidePanel = _LiveSidePanel.none;
   bool _cleanScreen = false;
@@ -345,7 +346,8 @@ class _RealtimeLivePageState extends State<RealtimeLivePage> {
                                       snapshot: widget.room.snapshot,
                                       showClassroom: false,
                                     );
-                                    if (shared.mode == SharedContentMode.screen ||
+                                    if (shared.mode ==
+                                            SharedContentMode.screen ||
                                         shared.mode ==
                                             SharedContentMode.whiteboard) {
                                       return shared.buildMain(

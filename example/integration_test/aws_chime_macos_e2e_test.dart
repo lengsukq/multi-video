@@ -21,17 +21,19 @@ void main() {
         return;
       }
       final base = Uri.parse(_backendUrl);
-      final http = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 6);
+      final http = HttpClient()..connectionTimeout = const Duration(seconds: 6);
       final code = 'aws${DateTime.now().millisecondsSinceEpoch % 100000000}';
       RealtimeConnection? connection;
       try {
         final request = await http.getUrl(base.resolve('/health'));
         final response = await request.close();
-        final json = jsonDecode(await utf8.decoder.bind(response).join())
-            as Map<String, dynamic>;
+        final json =
+            jsonDecode(await utf8.decoder.bind(response).join())
+                as Map<String, dynamic>;
         if (json['activeProvider'] != 'aws') {
-          markTestSkipped('Test backend is not using AWS; leaving it unchanged.');
+          markTestSkipped(
+            'Test backend is not using AWS; leaving it unchanged.',
+          );
           return;
         }
         final sdk = Realtime(
@@ -39,16 +41,18 @@ void main() {
           providers: createDemoProviders(),
         );
         debugPrint('[SDK AWS E2E] Creating AWS Chime meeting in SDK example');
-        connection = await sdk.open(
-          RealtimeRequest.create(
-            type: RealtimeExperience.meeting,
-            roomCode: code,
-            user: const RealtimeUser(
-              id: 'sdk-test-local',
-              name: 'SDK local diagnostic',
-            ),
-          ),
-        ).timeout(const Duration(seconds: 55));
+        connection = await sdk
+            .open(
+              RealtimeRequest.create(
+                type: RealtimeExperience.meeting,
+                roomCode: code,
+                user: const RealtimeUser(
+                  id: 'sdk-test-local',
+                  name: 'SDK local diagnostic',
+                ),
+              ),
+            )
+            .timeout(const Duration(seconds: 55));
         debugPrint(
           '[SDK AWS E2E] Joined provider=${connection.providerId} '
           'engine=${connection.mediaEngineProviderId}',
@@ -91,8 +95,9 @@ void main() {
         }
         try {
           final request = await http.deleteUrl(base.resolve('/rooms/$code'));
-          final response = await request.close()
-              .timeout(const Duration(seconds: 15));
+          final response = await request.close().timeout(
+            const Duration(seconds: 15),
+          );
           debugPrint(
             '[SDK AWS E2E] test room cleanup HTTP ${response.statusCode}',
           );

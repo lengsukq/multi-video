@@ -37,25 +37,28 @@ Map<String, Object?> response({MediaRole role = MediaRole.participant}) => {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('ARTC Windows offers display and application window capture sources',
-      () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final engine = _FakeArtcEngine();
-    final info = joinInfo();
-    final session = ArtcSessionFactory(engineFactory: () async => engine)
-        .createSession(info);
-    addTearDown(session.dispose);
-    await session.join(info);
-    final selector = session as MediaScreenShareSourceSelector;
-    final sources = await selector.listScreenShareSources();
-    expect(sources, hasLength(2));
-    expect(sources.last.kind, MediaScreenShareSourceKind.window);
-    await selector.selectScreenShareSource(sources.last);
-    expect(engine.selectedDesktopSource?.name, 'Editor');
-    await (session as InteractiveMediaSession).setScreenShareEnabled(true);
-    expect(engine.calls, contains('screen:true'));
-  });
+  test(
+    'ARTC Windows offers display and application window capture sources',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final engine = _FakeArtcEngine();
+      final info = joinInfo();
+      final session = ArtcSessionFactory(
+        engineFactory: () async => engine,
+      ).createSession(info);
+      addTearDown(session.dispose);
+      await session.join(info);
+      final selector = session as MediaScreenShareSourceSelector;
+      final sources = await selector.listScreenShareSources();
+      expect(sources, hasLength(2));
+      expect(sources.last.kind, MediaScreenShareSourceKind.window);
+      await selector.selectScreenShareSource(sources.last);
+      expect(engine.selectedDesktopSource?.name, 'Editor');
+      await (session as InteractiveMediaSession).setScreenShareEnabled(true);
+      expect(engine.calls, contains('screen:true'));
+    },
+  );
 
   test(
     'Windows ARTC exposes native screen share, camera enumeration, selection, and switching without video effects',
@@ -220,16 +223,17 @@ void main() {
       );
       expect(cameras, hasLength(2));
       await devices.selectMediaDevice(cameras.first);
-      expect(engine.calls, contains('selectCamera:desk-cam-1:Integrated Camera'));
+      expect(
+        engine.calls,
+        contains('selectCamera:desk-cam-1:Integrated Camera'),
+      );
     },
   );
 
   test('Windows ARTC pre-join blocks without a real native bridge', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final factory = ArtcSessionFactory(
-      availabilityProbe: () async => false,
-    );
+    final factory = ArtcSessionFactory(availabilityProbe: () async => false);
     final result = await factory.runPreJoinProbe(
       const MediaPreJoinProbeRequest(
         providerId: 'artc',
@@ -245,30 +249,35 @@ void main() {
     expect(provider.message, contains('Windows native engine'));
   });
 
-  test('Windows ARTC probe rejects missing plugin and accepts ready bridge', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    const methods = MethodChannel(
-      'com.oneplusdream.flutter_realtime_media_artc/methods',
-    );
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    addTearDown(() => messenger.setMockMethodCallHandler(methods, null));
-    expect(await probeNativeArtcAvailability(), isFalse);
-    await expectLater(
-      createNativeArtcEngine(),
-      throwsA(isA<RealtimeException>().having(
-        (error) => error.code,
-        'code',
-        RealtimeErrorCode.unsupportedPlatform,
-      )),
-    );
-    messenger.setMockMethodCallHandler(methods, (call) async {
-      expect(call.method, 'isAvailable');
-      return true;
-    });
-    expect(await probeNativeArtcAvailability(), isTrue);
-  });
+  test(
+    'Windows ARTC probe rejects missing plugin and accepts ready bridge',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const methods = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_artc/methods',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      addTearDown(() => messenger.setMockMethodCallHandler(methods, null));
+      expect(await probeNativeArtcAvailability(), isFalse);
+      await expectLater(
+        createNativeArtcEngine(),
+        throwsA(
+          isA<RealtimeException>().having(
+            (error) => error.code,
+            'code',
+            RealtimeErrorCode.unsupportedPlatform,
+          ),
+        ),
+      );
+      messenger.setMockMethodCallHandler(methods, (call) async {
+        expect(call.method, 'isAvailable');
+        return true;
+      });
+      expect(await probeNativeArtcAvailability(), isTrue);
+    },
+  );
   for (final disposing in [false, true]) {
     test(
       'late ARTC refresh preserves the next active owner after $disposing',

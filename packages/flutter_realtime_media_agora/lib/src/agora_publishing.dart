@@ -29,20 +29,20 @@ class _AgoraPublishing {
     // Agora data messages are transient. A late join, packet loss or the
     // camera track stopping can otherwise leave a remote viewer indefinitely
     // waiting for the separate screen video source. Reannounce until stopped.
-    _screenShareAnnouncementTimer = Timer.periodic(
-      const Duration(seconds: 4),
-      (timer) {
-        if (!_localScreenShareEnabled ||
-            _session._disposed ||
-            _session._joinCancelled ||
-            _session._engine == null) {
-          _stopScreenShareAnnouncements();
-          return;
-        }
-        unawaited(_session._data._announceScreenShareState(true));
-      },
-    );
+    _screenShareAnnouncementTimer = Timer.periodic(const Duration(seconds: 4), (
+      timer,
+    ) {
+      if (!_localScreenShareEnabled ||
+          _session._disposed ||
+          _session._joinCancelled ||
+          _session._engine == null) {
+        _stopScreenShareAnnouncements();
+        return;
+      }
+      unawaited(_session._data._announceScreenShareState(true));
+    });
   }
+
   final _iosScreenSink = NativeProcessedVideoSink(providerId: 'agora');
   ProcessedVideoSource? _iosScreenCaptureSource;
   int? _iosScreenTrackId;
@@ -98,8 +98,9 @@ class _AgoraPublishing {
 
   Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
     final sources = await listScreenShareSources();
-    if (!sources.any((item) =>
-        item.id == source.id && item.kind == source.kind)) {
+    if (!sources.any(
+      (item) => item.id == source.id && item.kind == source.kind,
+    )) {
       throw const RealtimeException(
         code: RealtimeErrorCode.invalidArgument,
         providerId: _agoraProviderId,
@@ -287,9 +288,7 @@ class _AgoraPublishing {
       }
       // This call mutes *all* outgoing video, including an active screen
       // track. Keep publication unmuted while sharing even if camera is off.
-      await engine.muteLocalVideoStream(
-        !enabled && !_localScreenShareEnabled,
-      );
+      await engine.muteLocalVideoStream(!enabled && !_localScreenShareEnabled);
       _localVideoEnabled = enabled;
       await _updatePublishOptions();
       final localId = _session._localUid;

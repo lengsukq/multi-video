@@ -70,7 +70,8 @@ abstract class _IvsMediaSession
   @override
   MediaCapabilities get capabilities {
     final publisher = role != MediaRole.viewer;
-    final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final isWindows =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     final isMacos = !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
     return MediaCapabilities(
       canPublishAudio: publisher,
@@ -178,7 +179,9 @@ abstract class _IvsMediaSession
       role: role,
       capabilities: capabilities,
       participants: nextParticipants,
-      localMuted: role == MediaRole.viewer ? true : previous._snapshot.localMuted,
+      localMuted: role == MediaRole.viewer
+          ? true
+          : previous._snapshot.localMuted,
       localVideoEnabled: role == MediaRole.viewer
           ? false
           : previous._snapshot.localVideoEnabled,

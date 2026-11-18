@@ -25,11 +25,8 @@ void main() {
     expect(textureId, greaterThanOrEqualTo(0));
     // No camera frame exists in this offline smoke test.
     final dimensions = await methods.invokeMapMethod<String, Object?>(
-      'getTextureDimensions', {
-        'userId': 'artc-bridge-smoke',
-        'isLocal': true,
-        'isScreenShare': false,
-      },
+      'getTextureDimensions',
+      {'userId': 'artc-bridge-smoke', 'isLocal': true, 'isScreenShare': false},
     );
     expect(dimensions, isNull);
     await methods.invokeMethod<void>('dispose');

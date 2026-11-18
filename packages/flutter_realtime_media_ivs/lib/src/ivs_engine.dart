@@ -94,7 +94,8 @@ Future<IvsEngine> createNativeIvsEngine() async {
       throw RealtimeException(
         code: RealtimeErrorCode.unsupportedPlatform,
         providerId: 'ivs',
-        message: diagnostic?.userMessage ??
+        message:
+            diagnostic?.userMessage ??
             'Amazon IVS Stage Windows WebView2 is unavailable or disabled by '
                 'build configuration. AWS does not support IVS WebViews.',
       );
@@ -114,8 +115,7 @@ Future<IvsDeviceCounts> probeNativeIvsDevices() async {
       );
     }
     final result = await AwsWindowsWebView2Runtime.ivs.invoke('probeDevices');
-    final devices =
-        Map<String, dynamic>.from(result as Map<Object?, Object?>);
+    final devices = Map<String, dynamic>.from(result as Map<Object?, Object?>);
     return IvsDeviceCounts(
       microphones: (devices['microphones'] as num?)?.toInt() ?? 0,
       cameras: (devices['cameras'] as num?)?.toInt() ?? 0,

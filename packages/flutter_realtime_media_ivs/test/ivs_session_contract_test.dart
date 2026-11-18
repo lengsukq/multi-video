@@ -98,67 +98,78 @@ Map<String, dynamic> _joinJson({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('Windows IVS defaults on but rejects unavailable WebView2 runtime', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    expect(const bool.fromEnvironment(
-      'AWS_IVS_WINDOWS_WEBVIEW2_EXPERIMENTAL',
-      defaultValue: true,
-    ), isTrue);
-    const channel = MethodChannel(
-      'com.oneplusdream.flutter_realtime_media_ivs/methods',
-    );
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
-    expect(await probeNativeIvsAvailability(), isFalse);
-    await expectLater(
-      createNativeIvsEngine(),
-      throwsA(isA<RealtimeException>().having(
-        (error) => error.code,
-        'code',
-        RealtimeErrorCode.unsupportedPlatform,
-      )),
-    );
-    var enumerated = false;
-    final factory = IvsSessionFactory(
-      availabilityProbe: () async => false,
-      deviceProbe: () async {
-        enumerated = true;
-        return const IvsDeviceCounts(microphones: 1, cameras: 1);
-      },
-    );
-    final report = await factory.runPreJoinProbe(
-      const MediaPreJoinProbeRequest(
-        providerId: 'ivs',
-        role: MediaRole.participant,
-        requirements: MediaPreJoinRequirements(
-          microphone: MediaPreJoinRequirement.required,
-          camera: MediaPreJoinRequirement.required,
+  test(
+    'Windows IVS defaults on but rejects unavailable WebView2 runtime',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      expect(
+        const bool.fromEnvironment(
+          'AWS_IVS_WINDOWS_WEBVIEW2_EXPERIMENTAL',
+          defaultValue: true,
         ),
-      ),
-    );
-    expect(report.checks.single.isBlocking, isTrue);
-    expect(report.checks.single.type, MediaPreJoinCheckType.provider);
-    expect(enumerated, isFalse);
-    messenger.setMockMethodCallHandler(channel, (call) async => true);
-    // MethodChannel mocks cannot satisfy the real WebView2 browser probe;
-    // the experiment is enabled by default but unavailable without a runtime.
-    expect(await probeNativeIvsAvailability(), isFalse);
-  });
+        isTrue,
+      );
+      const channel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_ivs/methods',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      expect(await probeNativeIvsAvailability(), isFalse);
+      await expectLater(
+        createNativeIvsEngine(),
+        throwsA(
+          isA<RealtimeException>().having(
+            (error) => error.code,
+            'code',
+            RealtimeErrorCode.unsupportedPlatform,
+          ),
+        ),
+      );
+      var enumerated = false;
+      final factory = IvsSessionFactory(
+        availabilityProbe: () async => false,
+        deviceProbe: () async {
+          enumerated = true;
+          return const IvsDeviceCounts(microphones: 1, cameras: 1);
+        },
+      );
+      final report = await factory.runPreJoinProbe(
+        const MediaPreJoinProbeRequest(
+          providerId: 'ivs',
+          role: MediaRole.participant,
+          requirements: MediaPreJoinRequirements(
+            microphone: MediaPreJoinRequirement.required,
+            camera: MediaPreJoinRequirement.required,
+          ),
+        ),
+      );
+      expect(report.checks.single.isBlocking, isTrue);
+      expect(report.checks.single.type, MediaPreJoinCheckType.provider);
+      expect(enumerated, isFalse);
+      messenger.setMockMethodCallHandler(channel, (call) async => true);
+      // MethodChannel mocks cannot satisfy the real WebView2 browser probe;
+      // the experiment is enabled by default but unavailable without a runtime.
+      expect(await probeNativeIvsAvailability(), isFalse);
+    },
+  );
 
   test('Windows IVS reports browser API compatibility distinctly', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final report = await IvsSessionFactory(
-      availabilityProbe: () async => false,
-      windowsDiagnosticProbe: () =>
-          AwsWindowsRuntimeDiagnostic.webRtcApiUnavailable,
-    ).runPreJoinProbe(const MediaPreJoinProbeRequest(
-      providerId: 'ivs',
-      role: MediaRole.viewer,
-      requirements: MediaPreJoinRequirements(),
-    ));
+    final report =
+        await IvsSessionFactory(
+          availabilityProbe: () async => false,
+          windowsDiagnosticProbe: () =>
+              AwsWindowsRuntimeDiagnostic.webRtcApiUnavailable,
+        ).runPreJoinProbe(
+          const MediaPreJoinProbeRequest(
+            providerId: 'ivs',
+            role: MediaRole.viewer,
+            requirements: MediaPreJoinRequirements(),
+          ),
+        );
     final check = report.checks.single;
     expect(check.status, MediaPreJoinStatus.unsupported);
     expect(check.message, contains('WebRTC APIs are unavailable'));
@@ -804,7 +815,9 @@ void main() {
     () async {
       final engine = _FakeIvsEngine();
       final factory = IvsSessionFactory(engineFactory: () async => engine);
-      final viewerInfo = IvsJoinInfo.fromJson(_joinJson(role: MediaRole.viewer));
+      final viewerInfo = IvsJoinInfo.fromJson(
+        _joinJson(role: MediaRole.viewer),
+      );
       final viewerSession =
           factory.createSession(viewerInfo) as BroadcastViewerSession;
       (viewerSession as MediaRoleSwitchable).setRoleChangeCallback((target) {
@@ -812,7 +825,9 @@ void main() {
           IvsJoinInfo.fromJson(
             _joinJson(
               role: target,
-              token: target == MediaRole.participant ? 'cohost-tok' : 'viewer-tok',
+              token: target == MediaRole.participant
+                  ? 'cohost-tok'
+                  : 'viewer-tok',
             ),
           ),
         );

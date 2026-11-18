@@ -112,7 +112,11 @@ class FakeChimeMeetingSession extends chime.ChimeMeetingSession {
     return const [
       {'id': 'cam-builtin', 'label': 'FaceTime HD Camera', 'kind': 'camera'},
       {'id': 'cam-usb', 'label': 'External 4K Webcam', 'kind': 'camera'},
-      {'id': 'mic-builtin', 'label': 'MacBook Pro Microphone', 'kind': 'microphone'},
+      {
+        'id': 'mic-builtin',
+        'label': 'MacBook Pro Microphone',
+        'kind': 'microphone',
+      },
     ];
   }
 

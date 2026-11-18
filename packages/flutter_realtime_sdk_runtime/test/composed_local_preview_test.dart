@@ -73,32 +73,35 @@ void main() {
     },
   );
 
-  test('cross-provider audio preview never forwards foreign device IDs', () async {
-    final video = _CameraPreview(providerId: 'trtc');
-    final audio = _MicrophonePreview();
-    final preview = ComposedLocalPreview(video: video, audio: audio);
-    await preview.selectMediaDevice(
-      const MediaDevice(
-        id: 'webrtc-mic',
-        label: 'Generic microphone',
-        kind: MediaDeviceKind.microphone,
-      ),
-    );
-    await preview.selectMediaDevice(
-      const MediaDevice(
-        id: 'webrtc-speaker',
-        label: 'Generic speaker',
-        kind: MediaDeviceKind.audioOutput,
-      ),
-    );
-    await preview.setMicrophoneEnabled(true);
-    expect(preview.settings.microphone?.id, 'webrtc-mic');
-    expect(preview.settings.audioOutput?.id, 'webrtc-speaker');
-    expect(preview.roomSettings.microphoneEnabled, isTrue);
-    expect(preview.roomSettings.microphone, isNull);
-    expect(preview.roomSettings.audioOutput, isNull);
-    await preview.dispose();
-  });
+  test(
+    'cross-provider audio preview never forwards foreign device IDs',
+    () async {
+      final video = _CameraPreview(providerId: 'trtc');
+      final audio = _MicrophonePreview();
+      final preview = ComposedLocalPreview(video: video, audio: audio);
+      await preview.selectMediaDevice(
+        const MediaDevice(
+          id: 'webrtc-mic',
+          label: 'Generic microphone',
+          kind: MediaDeviceKind.microphone,
+        ),
+      );
+      await preview.selectMediaDevice(
+        const MediaDevice(
+          id: 'webrtc-speaker',
+          label: 'Generic speaker',
+          kind: MediaDeviceKind.audioOutput,
+        ),
+      );
+      await preview.setMicrophoneEnabled(true);
+      expect(preview.settings.microphone?.id, 'webrtc-mic');
+      expect(preview.settings.audioOutput?.id, 'webrtc-speaker');
+      expect(preview.roomSettings.microphoneEnabled, isTrue);
+      expect(preview.roomSettings.microphone, isNull);
+      expect(preview.roomSettings.audioOutput, isNull);
+      await preview.dispose();
+    },
+  );
 }
 
 class _CameraPreview extends Fake

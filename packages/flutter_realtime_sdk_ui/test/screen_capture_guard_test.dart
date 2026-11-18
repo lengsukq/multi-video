@@ -32,10 +32,7 @@ void main() {
         MaterialApp(
           home: RealtimeStringsScope(
             strings: const RealtimeStrings.zh(),
-            child: RealtimeRoomView(
-              room: room,
-              onLeave: () => left = true,
-            ),
+            child: RealtimeRoomView(room: room, onLeave: () => left = true),
           ),
         ),
       );
@@ -104,11 +101,7 @@ void main() {
         if (!room.isDisposed) return room.dispose();
       });
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: RealtimeLivePage(room: room),
-        ),
-      );
+      await tester.pumpWidget(MaterialApp(home: RealtimeLivePage(room: room)));
       await tester.pumpAndSettle();
 
       expect(
@@ -196,9 +189,7 @@ Future<void> _tapLeaveAndDrain(
   WidgetTester tester,
   bool Function() isDone,
 ) async {
-  await tester.tap(
-    find.byKey(const ValueKey('realtime-screen-capture-leave')),
-  );
+  await tester.tap(find.byKey(const ValueKey('realtime-screen-capture-leave')));
   // Broadcast stream subscription cancellations settle on the real event loop
   // rather than FakeAsync alone, so interleave short real waits with pumps.
   for (var i = 0; i < 15 && !isDone(); i++) {

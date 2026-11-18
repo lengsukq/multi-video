@@ -59,8 +59,11 @@ class RealtimeLiveVideoStage extends StatelessWidget {
               );
         }
         final activeCohostIds = {
-          for (final member in controller.liveState?.activeCohosts ?? const [])
-            ...{member.userId, member.participantId},
+          for (final member
+              in controller.liveState?.activeCohosts ?? const []) ...{
+            member.userId,
+            member.participantId,
+          },
         };
         final cohosts = members
             .where((p) {

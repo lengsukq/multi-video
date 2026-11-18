@@ -210,7 +210,9 @@ class _RealtimeScreenCaptureGuardState extends State<RealtimeScreenCaptureGuard>
                 actions: [
                   TextButton(
                     key: const ValueKey('realtime-screen-capture-leave'),
-                    onPressed: _leaving ? null : () => unawaited(_handleLeave()),
+                    onPressed: _leaving
+                        ? null
+                        : () => unawaited(_handleLeave()),
                     child: Text(strings.leave),
                   ),
                   FilledButton(

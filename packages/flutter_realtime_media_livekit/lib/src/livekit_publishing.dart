@@ -257,7 +257,8 @@ class _LiveKitPublishing {
       } else {
         await _session._requireLocalParticipant().setScreenShareEnabled(
           enabled,
-          screenShareCaptureOptions: enabled &&
+          screenShareCaptureOptions:
+              enabled &&
                   !kIsWeb &&
                   (defaultTargetPlatform == TargetPlatform.windows ||
                       defaultTargetPlatform == TargetPlatform.macOS) &&

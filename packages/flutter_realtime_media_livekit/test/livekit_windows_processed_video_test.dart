@@ -7,32 +7,34 @@ import 'package:flutter_realtime_media_livekit/src/livekit_processed_video_nativ
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('Windows processed-video stream descriptor requires WebRTC ownerTag', () {
-    final valid = <String, dynamic>{
-      'streamId': 'test-native-stream',
-      'ownerTag': 'local',
-      'audioTracks': <Object>[],
-      'videoTracks': [
-        <String, dynamic>{
-          'id': 'test-native-track',
-          'label': 'processed_video',
-          'kind': 'video',
-          'enabled': true,
-          'settings': <String, dynamic>{},
-        },
-      ],
-    };
-    expect(
-      checkedProcessedLiveKitStreamDescriptor(valid)['ownerTag'],
-      'local',
-    );
-    final withoutOwner = Map<String, dynamic>.from(valid)
-      ..remove('ownerTag');
-    expect(
-      () => checkedProcessedLiveKitStreamDescriptor(withoutOwner),
-      throwsA(isA<StateError>()),
-    );
-  });
+  test(
+    'Windows processed-video stream descriptor requires WebRTC ownerTag',
+    () {
+      final valid = <String, dynamic>{
+        'streamId': 'test-native-stream',
+        'ownerTag': 'local',
+        'audioTracks': <Object>[],
+        'videoTracks': [
+          <String, dynamic>{
+            'id': 'test-native-track',
+            'label': 'processed_video',
+            'kind': 'video',
+            'enabled': true,
+            'settings': <String, dynamic>{},
+          },
+        ],
+      };
+      expect(
+        checkedProcessedLiveKitStreamDescriptor(valid)['ownerTag'],
+        'local',
+      );
+      final withoutOwner = Map<String, dynamic>.from(valid)..remove('ownerTag');
+      expect(
+        () => checkedProcessedLiveKitStreamDescriptor(withoutOwner),
+        throwsA(isA<StateError>()),
+      );
+    },
+  );
   tearDown(() => debugDefaultTargetPlatformOverride = null);
   test(
     'Windows uses the custom native frame hub for processed publication',

@@ -64,10 +64,13 @@ class RealtimePreJoinPermissionNotice extends StatelessWidget {
         }).toList();
         if (missing.isEmpty) return const SizedBox.shrink();
         final colors = Theme.of(context).colorScheme;
-        final labels = missing.map((kind) =>
-            kind == MediaPermissionKind.microphone
-                ? strings.microphone
-                : strings.camera).join(strings.isZh ? '、' : ' and ');
+        final labels = missing
+            .map(
+              (kind) => kind == MediaPermissionKind.microphone
+                  ? strings.microphone
+                  : strings.camera,
+            )
+            .join(strings.isZh ? '、' : ' and ');
         return Material(
           key: const ValueKey('prejoin-permission-notice'),
           color: colors.errorContainer.withValues(alpha: 0.60),
@@ -80,8 +83,11 @@ class RealtimePreJoinPermissionNotice extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.shield_outlined, size: 18,
-                        color: colors.onErrorContainer),
+                    Icon(
+                      Icons.shield_outlined,
+                      size: 18,
+                      color: colors.onErrorContainer,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -106,9 +112,10 @@ class RealtimePreJoinPermissionNotice extends StatelessWidget {
                             ? null
                             : () => unawaited(
                                 controller.permissions[kind] ==
-                                        MediaPermissionState.permanentlyDenied ||
-                                    controller.permissions[kind] ==
-                                        MediaPermissionState.restricted
+                                            MediaPermissionState
+                                                .permanentlyDenied ||
+                                        controller.permissions[kind] ==
+                                            MediaPermissionState.restricted
                                     ? controller.openAppSettings()
                                     : controller.requestPermission(kind),
                               ),

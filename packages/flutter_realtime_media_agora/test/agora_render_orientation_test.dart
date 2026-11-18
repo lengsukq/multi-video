@@ -39,24 +39,33 @@ void main() {
     }
   });
 
-  testWidgets('remote screen tracks attach Agora screen video, not camera',
-      (tester) async {
+  testWidgets('remote screen tracks attach Agora screen video, not camera', (
+    tester,
+  ) async {
     late agora.AgoraVideoView screenView;
-    await tester.pumpWidget(Builder(builder: (context) {
-      screenView = const AgoraTrackRenderer().buildViewWithFit(
-        context,
-        AgoraMediaVideoTrack(
-          engine: _Engine(),
-          channelId: 'live',
-          uid: 456,
-          local: false,
-          screenShare: true,
-        ),
-      ) as agora.AgoraVideoView;
-      return const SizedBox.shrink();
-    }));
-    expect(screenView.controller.canvas.sourceType,
-        agora.VideoSourceType.videoSourceScreen);
+    await tester.pumpWidget(
+      Builder(
+        builder: (context) {
+          screenView =
+              const AgoraTrackRenderer().buildViewWithFit(
+                    context,
+                    AgoraMediaVideoTrack(
+                      engine: _Engine(),
+                      channelId: 'live',
+                      uid: 456,
+                      local: false,
+                      screenShare: true,
+                    ),
+                  )
+                  as agora.AgoraVideoView;
+          return const SizedBox.shrink();
+        },
+      ),
+    );
+    expect(
+      screenView.controller.canvas.sourceType,
+      agora.VideoSourceType.videoSourceScreen,
+    );
   });
 }
 

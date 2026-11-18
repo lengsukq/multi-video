@@ -145,9 +145,7 @@ void main() {
         'chime',
         probeOverride: () async => true,
         postWebMessageOverride: (encoded) async {
-          final decoded = Map<String, dynamic>.from(
-            jsonDecode(encoded) as Map,
-          );
+          final decoded = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
           if (decoded['kind'] == 'processedFrame') {
             postedFrames.add(decoded);
             final gate = inFlightFrameGate;
@@ -188,7 +186,10 @@ void main() {
 
       await runtime.attachProcessedVideoSource('win_effects_9');
       // JS canvas source must be attached BEFORE C++ FrameHub starts pushing frames.
-      expect(sequence, ['js:attachProcessedVideo', 'native:subscribeProcessedVideo']);
+      expect(sequence, [
+        'js:attachProcessedVideo',
+        'native:subscribeProcessedVideo',
+      ]);
 
       inFlightFrameGate = Completer<void>();
       Future<void> pushFrame(int ts, String data) =>
@@ -212,10 +213,7 @@ void main() {
       inFlightFrameGate.complete();
       inFlightFrameGate = null;
       await pumpEventQueue();
-      expect(
-        postedFrames.map((f) => f['timestampNs']).toList(),
-        [100, 300],
-      );
+      expect(postedFrames.map((f) => f['timestampNs']).toList(), [100, 300]);
 
       // Simulate JS canvas decode error and confirm native + effects error forwarding.
       runtime.debugHandleWebMessage(

@@ -39,7 +39,8 @@ class LiveKitTrackRenderer extends MediaTrackRenderer {
       // A stable native-track identity ensures replacement tracks get a fresh
       // view even when their publication SID remains unchanged.
       key: ObjectKey(track.liveKitTrack),
-      renderMode: !kIsWeb &&
+      renderMode:
+          !kIsWeb &&
               defaultTargetPlatform == TargetPlatform.iOS &&
               track.isLocal &&
               !track.isScreenShare

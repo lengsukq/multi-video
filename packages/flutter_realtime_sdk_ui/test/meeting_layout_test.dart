@@ -382,8 +382,9 @@ void main() {
     final fixture = await MeetingSharingFixture.create(withTrack: false);
     await pumpPage(tester, fixture, const Size(420, 820));
 
-    RealtimeVideoTile firstTile() =>
-        tester.widgetList<RealtimeVideoTile>(find.byType(RealtimeVideoTile)).first;
+    RealtimeVideoTile firstTile() => tester
+        .widgetList<RealtimeVideoTile>(find.byType(RealtimeVideoTile))
+        .first;
     expect(firstTile().fit, BoxFit.contain);
 
     final toggle = find.byKey(const ValueKey('meeting-video-fit-toggle'));

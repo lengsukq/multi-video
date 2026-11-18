@@ -21,7 +21,9 @@ import 'demo_identity_store.dart';
 import 'demo_strings.dart';
 import 'standalone_chat_demo.dart';
 
-const String _configuredBackendUrl = String.fromEnvironment('MEDIA_BACKEND_URL');
+const String _configuredBackendUrl = String.fromEnvironment(
+  'MEDIA_BACKEND_URL',
+);
 String get _defaultBackendUrl {
   if (_configuredBackendUrl.isNotEmpty) return _configuredBackendUrl;
   // The Windows desktop Demo connects to the LAN backend by default.
@@ -31,6 +33,7 @@ String get _defaultBackendUrl {
       ? 'http://10.0.111.99:3000'
       : 'http://192.168.31.2:3000';
 }
+
 const String _appToken = String.fromEnvironment('MEDIA_APP_TOKEN');
 
 /// Optional test seam; Demo registers its desired providers explicitly.
@@ -1439,7 +1442,10 @@ class _QuickActionTile extends StatelessWidget {
           ConstrainedBox(
             constraints: BoxConstraints(
               minHeight: fillAvailableHeight
-                  ? 36 * MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0)
+                  ? 36 *
+                        MediaQuery.textScalerOf(
+                          context,
+                        ).scale(1).clamp(1.0, 2.0)
                   : 0,
             ),
             child: Text(

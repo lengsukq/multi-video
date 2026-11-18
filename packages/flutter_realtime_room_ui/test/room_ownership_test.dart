@@ -8,8 +8,7 @@ void main() {
   test(
     'remote close success is not reported as failure after local WebRTC cleanup error',
     () async {
-      final media = _FakeMediaSession(role: MediaRole.host)
-        ..failDispose = true;
+      final media = _FakeMediaSession(role: MediaRole.host)..failDispose = true;
       final management = _FakeRoomManagement();
       final room = RealtimeRoom(
         media: MediaRoomSession.attach(
@@ -46,8 +45,10 @@ void main() {
         disposeClients: () {},
       );
       final controller = RealtimeRoomUiController(room);
-      await expectLater(controller.leave(closeForEveryone: false),
-          throwsA(isA<RealtimeException>()));
+      await expectLater(
+        controller.leave(closeForEveryone: false),
+        throwsA(isA<RealtimeException>()),
+      );
       await controller.close();
     },
   );

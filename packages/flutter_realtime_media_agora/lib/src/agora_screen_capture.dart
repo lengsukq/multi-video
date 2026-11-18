@@ -1,5 +1,6 @@
 import 'package:agora_rtc_engine/agora_rtc_engine.dart' as agora;
-import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 
 /// Platform-specific screen capture is intentionally confined to the Agora
@@ -7,7 +8,9 @@ import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 class AgoraScreenCapture {
   const AgoraScreenCapture();
 
-  Future<List<MediaScreenShareSource>> listSources(agora.RtcEngine engine) async {
+  Future<List<MediaScreenShareSource>> listSources(
+    agora.RtcEngine engine,
+  ) async {
     final sources = await engine.getScreenCaptureSources(
       thumbSize: const agora.SIZE(width: 160, height: 90),
       iconSize: const agora.SIZE(width: 32, height: 32),
@@ -17,20 +20,27 @@ class AgoraScreenCapture {
       for (final item in sources)
         if (item.sourceId != null &&
             (item.type ==
-                    agora.ScreenCaptureSourceType.screencapturesourcetypeScreen ||
+                    agora
+                        .ScreenCaptureSourceType
+                        .screencapturesourcetypeScreen ||
                 item.type ==
-                    agora.ScreenCaptureSourceType.screencapturesourcetypeWindow))
+                    agora
+                        .ScreenCaptureSourceType
+                        .screencapturesourcetypeWindow))
           MediaScreenShareSource(
             id: item.sourceId!.toString(),
             name: (item.sourceTitle?.trim().isNotEmpty ?? false)
                 ? item.sourceTitle!
                 : (item.sourceName?.trim().isNotEmpty ?? false)
-                    ? item.sourceName!
-                    : item.type ==
-                            agora.ScreenCaptureSourceType.screencapturesourcetypeWindow
-                        ? 'Window ${item.sourceId}'
-                        : 'Display ${item.sourceId}',
-            kind: item.type ==
+                ? item.sourceName!
+                : item.type ==
+                      agora
+                          .ScreenCaptureSourceType
+                          .screencapturesourcetypeWindow
+                ? 'Window ${item.sourceId}'
+                : 'Display ${item.sourceId}',
+            kind:
+                item.type ==
                     agora.ScreenCaptureSourceType.screencapturesourcetypeWindow
                 ? MediaScreenShareSourceKind.window
                 : MediaScreenShareSourceKind.display,
@@ -79,10 +89,12 @@ class AgoraScreenCapture {
           );
         }
         final primary = displays.where((display) => display.primary);
-        final source = selectedSource ??
+        final source =
+            selectedSource ??
             (primary.isNotEmpty ? primary.first : displays.first);
-        if (!sources.any((item) =>
-            item.id == source.id && item.kind == source.kind)) {
+        if (!sources.any(
+          (item) => item.id == source.id && item.kind == source.kind,
+        )) {
           throw const RealtimeException(
             code: RealtimeErrorCode.invalidArgument,
             providerId: 'agora',

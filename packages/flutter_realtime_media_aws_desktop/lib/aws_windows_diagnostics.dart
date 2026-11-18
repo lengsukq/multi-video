@@ -50,31 +50,36 @@ class AwsWindowsRuntimeDiagnostic {
   static const webView2Missing = AwsWindowsRuntimeDiagnostic(
     code: AwsWindowsRuntimeIssueCode.webView2Missing,
     message: 'Microsoft Edge WebView2 Runtime was not detected.',
-    suggestion: 'Install or repair Microsoft Edge WebView2 Runtime, then restart the app.',
+    suggestion:
+        'Install or repair Microsoft Edge WebView2 Runtime, then restart the app.',
   );
 
   static const webView2DetectionFailed = AwsWindowsRuntimeDiagnostic(
     code: AwsWindowsRuntimeIssueCode.webView2DetectionFailed,
     message: 'Unable to check the installed WebView2 Runtime.',
-    suggestion: 'Check WebView2 installation and Windows permissions, then retry.',
+    suggestion:
+        'Check WebView2 installation and Windows permissions, then retry.',
   );
 
   static const assetLoadFailed = AwsWindowsRuntimeDiagnostic(
     code: AwsWindowsRuntimeIssueCode.assetLoadFailed,
     message: 'The bundled AWS JavaScript or bridge assets could not be loaded.',
-    suggestion: 'Rebuild/reinstall the app and verify the Flutter asset bundle is complete.',
+    suggestion:
+        'Rebuild/reinstall the app and verify the Flutter asset bundle is complete.',
   );
 
   static const webView2InitializationFailed = AwsWindowsRuntimeDiagnostic(
     code: AwsWindowsRuntimeIssueCode.webView2InitializationFailed,
     message: 'WebView2 is detected but its browser instance could not start.',
-    suggestion: 'Check the WebView2 user-data directory, Windows policy and permissions, then retry.',
+    suggestion:
+        'Check the WebView2 user-data directory, Windows policy and permissions, then retry.',
   );
 
   static const pageLoadFailed = AwsWindowsRuntimeDiagnostic(
     code: AwsWindowsRuntimeIssueCode.pageLoadFailed,
     message: 'WebView2 started but its local AWS media page did not load.',
-    suggestion: 'Check local virtual-host mapping and resource access, then restart the app.',
+    suggestion:
+        'Check local virtual-host mapping and resource access, then restart the app.',
   );
 
   static const invalidBrowserProbe = AwsWindowsRuntimeDiagnostic(
@@ -85,39 +90,47 @@ class AwsWindowsRuntimeDiagnostic {
 
   static const insecureBrowserContext = AwsWindowsRuntimeDiagnostic(
     code: AwsWindowsRuntimeIssueCode.insecureBrowserContext,
-    message: 'The local WebView2 media page is not running in a secure context.',
-    suggestion: 'Check the virtual HTTPS host mapping; camera and microphone APIs require a secure origin.',
+    message:
+        'The local WebView2 media page is not running in a secure context.',
+    suggestion:
+        'Check the virtual HTTPS host mapping; camera and microphone APIs require a secure origin.',
   );
 
   static const webRtcApiUnavailable = AwsWindowsRuntimeDiagnostic(
     code: AwsWindowsRuntimeIssueCode.webRtcApiUnavailable,
     message: 'WebRTC APIs are unavailable in the current WebView2 environment.',
-    suggestion: 'Update/repair Edge WebView2 and check browser or enterprise policy restrictions.',
+    suggestion:
+        'Update/repair Edge WebView2 and check browser or enterprise policy restrictions.',
   );
 
   static const mediaApiUnavailable = AwsWindowsRuntimeDiagnostic(
     code: AwsWindowsRuntimeIssueCode.mediaApiUnavailable,
     message: 'Camera/microphone browser APIs are unavailable in WebView2.',
-    suggestion: 'Check media-device access policy, secure context and WebView2 compatibility.',
+    suggestion:
+        'Check media-device access policy, secure context and WebView2 compatibility.',
   );
 
-  static AwsWindowsRuntimeDiagnostic providerSdkUnavailable(String providerId) =>
-      AwsWindowsRuntimeDiagnostic(
-        code: AwsWindowsRuntimeIssueCode.providerSdkUnavailable,
-        message: 'The bundled AWS $providerId JavaScript SDK did not initialize.',
-        suggestion: 'Check the $providerId script in the Flutter asset bundle and its browser load errors.',
-      );
+  static AwsWindowsRuntimeDiagnostic providerSdkUnavailable(
+    String providerId,
+  ) => AwsWindowsRuntimeDiagnostic(
+    code: AwsWindowsRuntimeIssueCode.providerSdkUnavailable,
+    message: 'The bundled AWS $providerId JavaScript SDK did not initialize.',
+    suggestion:
+        'Check the $providerId script in the Flutter asset bundle and its browser load errors.',
+  );
 
   static const mediaBridgeUnavailable = AwsWindowsRuntimeDiagnostic(
     code: AwsWindowsRuntimeIssueCode.mediaBridgeUnavailable,
     message: 'The shared AWS media JavaScript bridge did not initialize.',
-    suggestion: 'Check media-provider-bridge.js and the bundled provider SDK version.',
+    suggestion:
+        'Check media-provider-bridge.js and the bundled provider SDK version.',
   );
 
   static const hostBridgeUnavailable = AwsWindowsRuntimeDiagnostic(
     code: AwsWindowsRuntimeIssueCode.hostBridgeUnavailable,
     message: 'The Windows AWS JavaScript message bridge did not initialize.',
-    suggestion: 'Check windows_runtime.js, windows_host.js and WebView2 messaging.',
+    suggestion:
+        'Check windows_runtime.js, windows_host.js and WebView2 messaging.',
   );
 
   static const unexpectedError = AwsWindowsRuntimeDiagnostic(

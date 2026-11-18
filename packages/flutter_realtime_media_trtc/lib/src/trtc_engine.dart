@@ -95,10 +95,13 @@ class _NativeTrtcEngine implements TrtcEngine, TrtcDesktopScreenCapture {
   MediaScreenShareSource? _selectedDesktopSource;
 
   List<TRTCScreenCaptureSourceInfo> _availableDesktopSources() =>
-      _cloud?.getScreenCaptureSources(
-        TRTCSize(width: 120, height: 72),
-        TRTCSize(width: 24, height: 24),
-      )?.sourceList ?? const <TRTCScreenCaptureSourceInfo>[];
+      _cloud
+          ?.getScreenCaptureSources(
+            TRTCSize(width: 120, height: 72),
+            TRTCSize(width: 24, height: 24),
+          )
+          ?.sourceList ??
+      const <TRTCScreenCaptureSourceInfo>[];
 
   @override
   List<MediaScreenShareSource> listDesktopScreenSources() => [
@@ -119,8 +122,9 @@ class _NativeTrtcEngine implements TrtcEngine, TrtcDesktopScreenCapture {
 
   @override
   void selectDesktopScreenSource(MediaScreenShareSource source) {
-    if (!listDesktopScreenSources().any((candidate) =>
-        candidate.id == source.id && candidate.kind == source.kind)) {
+    if (!listDesktopScreenSources().any(
+      (candidate) => candidate.id == source.id && candidate.kind == source.kind,
+    )) {
       throw const RealtimeException(
         code: RealtimeErrorCode.invalidArgument,
         providerId: 'trtc',
@@ -426,11 +430,14 @@ class _NativeTrtcEngine implements TrtcEngine, TrtcDesktopScreenCapture {
       final selected = _selectedDesktopSource;
       final target = selected == null
           ? (preferred.isNotEmpty ? preferred.first : displays.first)
-          : sources.where((source) =>
-              source.viewId.toString() == selected.id &&
-              (source.type == TRTCScreenCaptureSourceType.window) ==
-                  (selected.kind == MediaScreenShareSourceKind.window))
-              .firstOrNull;
+          : sources
+                .where(
+                  (source) =>
+                      source.viewId.toString() == selected.id &&
+                      (source.type == TRTCScreenCaptureSourceType.window) ==
+                          (selected.kind == MediaScreenShareSourceKind.window),
+                )
+                .firstOrNull;
       if (target == null) {
         throw const RealtimeException(
           code: RealtimeErrorCode.invalidArgument,

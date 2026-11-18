@@ -91,28 +91,31 @@ void main() {
     expect((await capture.start()).id, 'retry');
   });
 
-  test('reports ReplayKit Broadcast Extension cross-app configuration', () async {
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async {
-          if (call.method == 'iosScreenCaptureConfiguration') {
-            return {
-              'captureBackend': 'broadcastExtension',
-              'crossAppSupported': true,
-              'configured': true,
-              'hasAppGroup': true,
-              'hasExtension': true,
-              'appGroup': 'group.com.example.demo',
-              'extensionId': 'com.example.demo.broadcast',
-            };
-          }
-          return null;
-        });
+  test(
+    'reports ReplayKit Broadcast Extension cross-app configuration',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'iosScreenCaptureConfiguration') {
+              return {
+                'captureBackend': 'broadcastExtension',
+                'crossAppSupported': true,
+                'configured': true,
+                'hasAppGroup': true,
+                'hasExtension': true,
+                'appGroup': 'group.com.example.demo',
+                'extensionId': 'com.example.demo.broadcast',
+              };
+            }
+            return null;
+          });
 
-    final config = await capture.configuration();
-    expect(config.captureBackend, 'broadcastExtension');
-    expect(config.crossAppSupported, isTrue);
-    expect(config.broadcastExtensionConfigured, isTrue);
-    expect(config.appGroup, 'group.com.example.demo');
-    expect(config.extensionId, 'com.example.demo.broadcast');
-  });
+      final config = await capture.configuration();
+      expect(config.captureBackend, 'broadcastExtension');
+      expect(config.crossAppSupported, isTrue);
+      expect(config.broadcastExtensionConfigured, isTrue);
+      expect(config.appGroup, 'group.com.example.demo');
+      expect(config.extensionId, 'com.example.demo.broadcast');
+    },
+  );
 }

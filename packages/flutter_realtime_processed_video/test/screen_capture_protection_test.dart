@@ -83,7 +83,9 @@ void main() {
           .setMockMethodCallHandler(channel, (call) async {
             if (call.method == 'setProtectionEnabled') {
               calls.add(
-                Map<String, Object?>.from(call.arguments as Map<Object?, Object?>),
+                Map<String, Object?>.from(
+                  call.arguments as Map<Object?, Object?>,
+                ),
               );
               return false;
             }
@@ -148,12 +150,15 @@ void main() {
     expect(invoked, isFalse);
   });
 
-  test('tolerates MissingPluginException in headless test environments', () async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-    final service = SystemScreenCaptureProtection(channel: channel);
-    final lease = await service.acquire();
-    expect(lease.isCaptured, isFalse);
-    expect(await lease.refresh(), isFalse);
-    await lease.release();
-  });
+  test(
+    'tolerates MissingPluginException in headless test environments',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final service = SystemScreenCaptureProtection(channel: channel);
+      final lease = await service.acquire();
+      expect(lease.isCaptured, isFalse);
+      expect(await lease.refresh(), isFalse);
+      await lease.release();
+    },
+  );
 }

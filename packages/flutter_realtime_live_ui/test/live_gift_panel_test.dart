@@ -126,8 +126,10 @@ void main() {
     await session.refresh();
     await tester.pump();
     expect(find.byKey(const ValueKey('live-gift-notices')), findsOneWidget);
-    expect(find.byKey(ValueKey('gift-notice-${repository.events.single.id}')),
-        findsOneWidget);
+    expect(
+      find.byKey(ValueKey('gift-notice-${repository.events.single.id}')),
+      findsOneWidget,
+    );
 
     await session.sendGift('star', quantity: 2);
     await tester.pump();
@@ -153,7 +155,9 @@ void main() {
     await session.start();
     await session.sendGift('star');
     await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: LiveGiftBanner(session: session))),
+      MaterialApp(
+        home: Scaffold(body: LiveGiftBanner(session: session)),
+      ),
     );
     await tester.pump();
     expect(find.text('Alice sent Star ×1'), findsOneWidget);

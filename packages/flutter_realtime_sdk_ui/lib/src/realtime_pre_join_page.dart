@@ -919,7 +919,8 @@ class _PreviewCard extends StatelessWidget {
                           tooltip: micOn
                               ? (strings.isZh ? '关闭麦克风' : 'Turn off microphone')
                               : (strings.isZh ? '打开麦克风' : 'Turn on microphone'),
-                          onPressed: controller.busy || controller.result == null
+                          onPressed:
+                              controller.busy || controller.result == null
                               ? null
                               : () => toggleCapture(
                                   MediaPermissionKind.microphone,
@@ -935,7 +936,8 @@ class _PreviewCard extends StatelessWidget {
                           tooltip: camOn
                               ? (strings.isZh ? '关闭摄像头' : 'Turn off camera')
                               : (strings.isZh ? '打开摄像头' : 'Turn on camera'),
-                          onPressed: controller.busy || controller.result == null
+                          onPressed:
+                              controller.busy || controller.result == null
                               ? null
                               : () => toggleCapture(
                                   MediaPermissionKind.camera,

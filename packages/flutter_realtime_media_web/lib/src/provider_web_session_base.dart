@@ -262,11 +262,13 @@ abstract class ProviderWebSessionBase
     _joinFuture = Future<void>.value();
     _roleChangeCallback = previous._roleChangeCallback;
     _auxiliaryTokenCallback = previous._auxiliaryTokenCallback;
-    _auxiliaryScreenShareActive =
-        role == MediaRole.viewer ? false : previous._auxiliaryScreenShareActive;
+    _auxiliaryScreenShareActive = role == MediaRole.viewer
+        ? false
+        : previous._auxiliaryScreenShareActive;
     _connectionStats = previous._connectionStats;
-    _processedVideoSource =
-        role == MediaRole.viewer ? null : previous._processedVideoSource;
+    _processedVideoSource = role == MediaRole.viewer
+        ? null
+        : previous._processedVideoSource;
     _backgroundEffect = role == MediaRole.viewer
         ? const MediaBackgroundEffect.none()
         : previous._backgroundEffect;

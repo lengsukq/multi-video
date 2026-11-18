@@ -159,7 +159,8 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
       _boundJsTrackId = null;
       return;
     }
-    if (!_bound || (_boundJsTrackId != null && _boundJsTrackId != currentJsId)) {
+    if (!_bound ||
+        (_boundJsTrackId != null && _boundJsTrackId != currentJsId)) {
       _bound = false;
       _boundJsTrackId = currentJsId;
       if (!_binding) unawaited(_bind(expectedJsId: currentJsId));

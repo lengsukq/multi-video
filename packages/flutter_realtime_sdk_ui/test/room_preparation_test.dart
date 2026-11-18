@@ -21,7 +21,8 @@ void main() {
     expect(
       room.effectSelections,
       0,
-      reason: 'room.prepareVideoEffects already applied the background, '
+      reason:
+          'room.prepareVideoEffects already applied the background, '
           'so native/RTC source update must not run twice on entry',
     );
   });
@@ -37,9 +38,11 @@ void main() {
         isCurrent: () => true,
       ),
       throwsA(
-        isA<RealtimeException>()
-            .having((error) => error.operation, 'operation',
-                'prepareVideoEffects'),
+        isA<RealtimeException>().having(
+          (error) => error.operation,
+          'operation',
+          'prepareVideoEffects',
+        ),
       ),
     );
   });

@@ -142,8 +142,9 @@ class _NativeArtcEngine
   @override
   Future<void> selectDesktopScreenSource(MediaScreenShareSource source) async {
     final sources = await listDesktopScreenSources();
-    if (!sources.any((item) =>
-        item.id == source.id && item.kind == source.kind)) {
+    if (!sources.any(
+      (item) => item.id == source.id && item.kind == source.kind,
+    )) {
       throw const RealtimeException(
         code: RealtimeErrorCode.invalidArgument,
         providerId: ArtcJoinInfo.providerIdValue,

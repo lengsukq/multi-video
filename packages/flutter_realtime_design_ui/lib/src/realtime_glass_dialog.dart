@@ -38,71 +38,71 @@ class RealtimeGlassDialog extends StatelessWidget {
               opacity: iosModal ? 0.98 : 0.92,
               blur: iosModal ? 0.0 : null,
               padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
-          child: Material(
-            type: MaterialType.transparency,
-            child: LayoutBuilder(
-              builder: (context, constraints) => SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
+              child: Material(
+                type: MaterialType.transparency,
+                child: LayoutBuilder(
+                  builder: (context, constraints) => SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        if (icon != null) ...[
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: iconBackground,
-                              borderRadius: BorderRadius.circular(
-                                RealtimeUiTokens.compactRadius,
+                        Row(
+                          children: [
+                            if (icon != null) ...[
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: iconBackground,
+                                  borderRadius: BorderRadius.circular(
+                                    RealtimeUiTokens.compactRadius,
+                                  ),
+                                ),
+                                child: Icon(icon, color: iconColor, size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                            ],
+                            Expanded(
+                              child: DefaultTextStyle(
+                                style: Theme.of(context).textTheme.titleLarge!
+                                    .copyWith(
+                                      color: RealtimeStyle.of(context).text,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: -0.2,
+                                    ),
+                                child: title,
                               ),
                             ),
-                            child: Icon(icon, color: iconColor, size: 22),
-                          ),
-                          const SizedBox(width: 12),
-                        ],
-                        Expanded(
-                          child: DefaultTextStyle(
-                            style: Theme.of(context).textTheme.titleLarge!
-                                .copyWith(
-                                  color: RealtimeStyle.of(context).text,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.2,
-                                ),
-                            child: title,
-                          ),
+                          ],
                         ),
+                        const SizedBox(height: 16),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: constraints.maxHeight,
+                          ),
+                          child: content,
+                        ),
+                        if (actions.isNotEmpty) ...[
+                          const SizedBox(height: 20),
+                          Wrap(
+                            alignment: WrapAlignment.end,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: actions,
+                          ),
+                        ],
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: constraints.maxHeight,
-                      ),
-                      child: content,
-                    ),
-                    if (actions.isNotEmpty) ...[
-                      const SizedBox(height: 20),
-                      Wrap(
-                        alignment: WrapAlignment.end,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: actions,
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  ),
-);
+    );
   }
 }
 

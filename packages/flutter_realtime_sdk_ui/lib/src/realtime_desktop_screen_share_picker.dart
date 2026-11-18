@@ -11,10 +11,12 @@ Future<bool> selectDesktopScreenShareSource(
   BuildContext context,
   RealtimeRoomUiController controller,
 ) async {
-  final isDesktop = !kIsWeb &&
+  final isDesktop =
+      !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.windows ||
           defaultTargetPlatform == TargetPlatform.macOS);
-  if (!isDesktop || !controller.canSelectScreenShareSource ||
+  if (!isDesktop ||
+      !controller.canSelectScreenShareSource ||
       controller.snapshot.localScreenShareEnabled) {
     return true;
   }
@@ -52,14 +54,21 @@ Future<MediaScreenShareSource?> showDesktopScreenSharePicker(
           itemBuilder: (_, index) {
             final source = sources[index];
             return ListTile(
-              leading: Icon(source.kind == MediaScreenShareSourceKind.window
-                  ? Icons.web_asset_rounded
-                  : Icons.monitor_rounded),
-              title: Text(source.name, maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-              subtitle: Text(source.kind == MediaScreenShareSourceKind.window
-                  ? (isZh ? '应用窗口' : 'Application window')
-                  : (isZh ? '完整屏幕' : 'Entire display')),
+              leading: Icon(
+                source.kind == MediaScreenShareSourceKind.window
+                    ? Icons.web_asset_rounded
+                    : Icons.monitor_rounded,
+              ),
+              title: Text(
+                source.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                source.kind == MediaScreenShareSourceKind.window
+                    ? (isZh ? '应用窗口' : 'Application window')
+                    : (isZh ? '完整屏幕' : 'Entire display'),
+              ),
               onTap: () => Navigator.of(dialogContext).pop(source),
             );
           },

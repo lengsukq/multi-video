@@ -28,23 +28,21 @@ class AwsWindowsWebView2Runtime {
   @visibleForTesting
   AwsWindowsWebView2Runtime.forTesting(
     this.providerId, {
-    Future<bool> Function()? probeOverride,
-    Future<void> Function(String jsonMessage)? postWebMessageOverride,
-  }) : _probeOverride = probeOverride,
-       _postWebMessageOverride = postWebMessageOverride;
+    this._probeOverride,
+    this._postWebMessageOverride,
+  });
 
   static final instance = AwsWindowsWebView2Runtime._('chime');
   static final ivs = AwsWindowsWebView2Runtime._('ivs');
   static Future<void>? _environmentInitialization;
 
   static Future<void> _ensureWebViewEnvironment() {
-    return _environmentInitialization ??= WebviewController
-        .initializeEnvironment(
+    return _environmentInitialization ??=
+        WebviewController.initializeEnvironment(
           additionalArguments:
               '--use-fake-ui-for-media-stream '
               '--autoplay-policy=no-user-gesture-required',
-        )
-        .catchError((Object error) {
+        ).catchError((Object error) {
           if (error is PlatformException &&
               error.code == 'environment_already_initialized') {
             return;

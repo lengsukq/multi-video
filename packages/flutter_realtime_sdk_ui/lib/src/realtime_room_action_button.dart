@@ -77,8 +77,7 @@ class RealtimeRoomActionButton extends StatelessWidget {
               RealtimeRoomUiAction.backgroundEffect =>
                 isZh ? '虚拟背景' : 'Background effects',
               RealtimeRoomUiAction.liveLike => isZh ? '点赞' : 'Like',
-              RealtimeRoomUiAction.liveCohost =>
-                isZh ? '申请连麦' : 'Co-host',
+              RealtimeRoomUiAction.liveCohost => isZh ? '申请连麦' : 'Co-host',
             };
         final icon = switch (action) {
           RealtimeRoomUiAction.microphone => active ? Icons.mic : Icons.mic_off,
@@ -102,8 +101,10 @@ class RealtimeRoomActionButton extends StatelessWidget {
           Future<void> task() => switch (action) {
             RealtimeRoomUiAction.microphone => controller.toggleMicrophone(),
             RealtimeRoomUiAction.camera => controller.toggleCamera(),
-            RealtimeRoomUiAction.screenShare =>
-              toggleScreenShareWithPicker(context, controller),
+            RealtimeRoomUiAction.screenShare => toggleScreenShareWithPicker(
+              context,
+              controller,
+            ),
             RealtimeRoomUiAction.switchCamera => controller.switchCamera(),
             RealtimeRoomUiAction.audioOutput => Future.value(),
             RealtimeRoomUiAction.device => Future.value(),
