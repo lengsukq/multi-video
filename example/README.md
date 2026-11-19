@@ -77,7 +77,7 @@ proxy port to your environment:
 $env:HTTP_PROXY = 'http://10.0.111.100:10808'
 $env:HTTPS_PROXY = $env:HTTP_PROXY
 $env:NO_PROXY = 'localhost,127.0.0.1,10.0.111.99,10.0.111.100'
-$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--proxy-server=http://10.0.111.100:10808 --proxy-bypass-list=10.0.111.*;localhost;127.0.0.1;*.invalid --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required'
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--proxy-server=http://10.0.111.100:10808 --proxy-bypass-list=10.0.111.*;localhost;127.0.0.1;*.invalid --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion'
 flutter run -d windows --no-pub
 ```
 

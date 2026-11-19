@@ -36,12 +36,63 @@ class AwsWindowsWebView2Runtime {
   static final ivs = AwsWindowsWebView2Runtime._('ivs');
   static Future<void>? _environmentInitialization;
 
+  static const List<String> _requiredBrowserFlags = <String>[
+    '--use-fake-ui-for-media-stream',
+    '--autoplay-policy=no-user-gesture-required',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+  ];
+
+  /// Merges any external `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (such as
+  /// `--proxy-server` / `--proxy-bypass-list`) with the media and anti-occlusion
+  /// flags required by an offscreen WebView2 controller on Windows.
+  @visibleForTesting
+  static String mergeBrowserArguments([String? externalArguments]) {
+    final rawTokens = (externalArguments ?? '')
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList();
+    final disabledFeatures = <String>[];
+    final keptTokens = <String>[];
+    for (final token in rawTokens) {
+      if (token.startsWith('--disable-features=')) {
+        final features = token
+            .substring('--disable-features='.length)
+            .split(',')
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty);
+        for (final feature in features) {
+          if (!disabledFeatures.contains(feature)) {
+            disabledFeatures.add(feature);
+          }
+        }
+      } else {
+        keptTokens.add(token);
+      }
+    }
+    for (final requiredFlag in _requiredBrowserFlags) {
+      if (!keptTokens.contains(requiredFlag)) {
+        keptTokens.add(requiredFlag);
+      }
+    }
+    if (!disabledFeatures.contains('CalculateNativeWinOcclusion')) {
+      disabledFeatures.add('CalculateNativeWinOcclusion');
+    }
+    keptTokens.add('--disable-features=${disabledFeatures.join(',')}');
+    return keptTokens.join(' ');
+  }
+
   static Future<void> _ensureWebViewEnvironment() {
+    final arguments = mergeBrowserArguments(
+      kIsWeb
+          ? null
+          : Platform.environment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'],
+    );
     return _environmentInitialization ??=
         WebviewController.initializeEnvironment(
-          additionalArguments:
-              '--use-fake-ui-for-media-stream '
-              '--autoplay-policy=no-user-gesture-required',
+          additionalArguments: arguments,
         ).catchError((Object error) {
           if (error is PlatformException &&
               error.code == 'environment_already_initialized') {
@@ -76,6 +127,10 @@ class AwsWindowsWebView2Runtime {
   String? _activeScreenCaptureSourceId;
   bool _postingScreenFrame = false;
   Map<String, Object?>? _queuedScreenFrame;
+  Uint8List? _latestLocalScreenFrame;
+  int _localScreenWidth = 0;
+  int _localScreenHeight = 0;
+  final _localScreenFrames = StreamController<Uint8List>.broadcast();
   final Set<String> _reportedProcessedFailures = <String>{};
   final _pending = <int, Completer<dynamic>>{};
   final _events = StreamController<Map<String, dynamic>>.broadcast();
@@ -158,14 +213,18 @@ class AwsWindowsWebView2Runtime {
         final data = args['data']?.toString() ?? '';
         if (data.isEmpty) return;
         final timestampNs = (args['timestampNs'] as num?)?.toInt() ?? 0;
+        final width = (args['width'] as num?)?.toInt() ?? 0;
+        final height = (args['height'] as num?)?.toInt() ?? 0;
         for (final runtime in List<AwsWindowsWebView2Runtime>.of(
           _screenCaptureRuntimes,
         )) {
           if (runtime._activeScreenCaptureSourceId?.toLowerCase() ==
               sourceId.toLowerCase()) {
-            runtime._pushScreenFrame(
+            runtime._onNativeScreenFrame(
               sourceId: sourceId,
               timestampNs: timestampNs,
+              width: width,
+              height: height,
               data: data,
             );
           }
@@ -269,6 +328,9 @@ class AwsWindowsWebView2Runtime {
     final previousSourceId = _activeScreenCaptureSourceId;
     _activeScreenCaptureSourceId = null;
     _queuedScreenFrame = null;
+    _latestLocalScreenFrame = null;
+    _localScreenWidth = 0;
+    _localScreenHeight = 0;
     _screenCaptureRuntimes.remove(this);
     if (previousSourceId == null && !notifyJsSession) return;
 
@@ -327,6 +389,33 @@ class AwsWindowsWebView2Runtime {
         'reason': reason,
       });
     }
+  }
+
+  void _onNativeScreenFrame({
+    required String sourceId,
+    required int timestampNs,
+    required int width,
+    required int height,
+    required String data,
+  }) {
+    const prefix = 'data:image/jpeg;base64,';
+    if (data.startsWith(prefix)) {
+      final raw = data.substring(prefix.length);
+      if (raw.isNotEmpty && raw.length <= 2400000) {
+        try {
+          final bytes = base64Decode(raw);
+          _latestLocalScreenFrame = bytes;
+          if (width > 0) _localScreenWidth = width;
+          if (height > 0) _localScreenHeight = height;
+          if (!_localScreenFrames.isClosed && _localScreenFrames.hasListener) {
+            _localScreenFrames.add(bytes);
+          }
+        } on FormatException {
+          // Ignore corrupted native frame bytes.
+        }
+      }
+    }
+    _pushScreenFrame(sourceId: sourceId, timestampNs: timestampNs, data: data);
   }
 
   void _pushScreenFrame({
@@ -513,6 +602,10 @@ class AwsWindowsWebView2Runtime {
 
   Stream<Map<String, dynamic>> get events => _events.stream;
   Stream<Map<String, dynamic>> get frames => _frames.stream;
+  Stream<Uint8List> get localScreenFrames => _localScreenFrames.stream;
+  Uint8List? get latestLocalScreenFrame => _latestLocalScreenFrame;
+  int get localScreenWidth => _localScreenWidth;
+  int get localScreenHeight => _localScreenHeight;
   bool get isReady => _ready;
 
   /// Per-view frame stream avoiding O(N^2) broadcast fan-out across tiles.
@@ -802,6 +895,9 @@ class AwsWindowsWebView2Runtime {
     await stopScreenShareCapture();
     await detachProcessedVideoSource();
     _selectedScreenSourceId = null;
+    _latestLocalScreenFrame = null;
+    _localScreenWidth = 0;
+    _localScreenHeight = 0;
     _ready = false;
     _initializing = null;
     _reportedProcessedFailures.clear();

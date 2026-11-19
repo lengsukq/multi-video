@@ -109,10 +109,10 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_media_artc/lib/src/artc_publishing.dart`: `5697c6857a001be3`
 - `packages/flutter_realtime_media_artc/lib/src/artc_session_factory.dart`: `160ebd4e1282f901`
 - `packages/flutter_realtime_media_artc/lib/src/artc_snapshot_mapper.dart`: `b1817fc7cb34a16c`
-- `packages/flutter_realtime_media_chime/lib/src/chime_media_controls.dart`: `2f1be58b1aecb4af`
-- `packages/flutter_realtime_media_chime/lib/src/chime_media_session.dart`: `7cfa6710302fd292`
+- `packages/flutter_realtime_media_chime/lib/src/chime_media_controls.dart`: `65feae0ead7dd803`
+- `packages/flutter_realtime_media_chime/lib/src/chime_media_session.dart`: `6cc2952dc2aa715c`
 - `packages/flutter_realtime_media_chime/lib/src/chime_session_factory.dart`: `0c2ff741ebf79170`
-- `packages/flutter_realtime_media_chime/lib/src/chime_snapshot_mapper.dart`: `c1a5af74ca763844`
+- `packages/flutter_realtime_media_chime/lib/src/chime_snapshot_mapper.dart`: `99d35ec8893af087`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_broadcast_host_session.dart`: `ab872f64fdc33db1`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_broadcast_viewer_session.dart`: `cf9f5aa536c39095`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_credential_refresh.dart`: `376385712374d2bd`

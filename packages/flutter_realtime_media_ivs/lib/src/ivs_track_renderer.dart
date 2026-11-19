@@ -87,7 +87,11 @@ class IvsTrackRenderer extends MediaTrackRenderer {
         fit: fit,
       ),
       TargetPlatform.windows => _WindowsIvsFrameView(
-        key: ValueKey(track.id),
+        key: ValueKey(
+          track.isScreenShare && track.isLocal
+              ? 'ivs-local-screen-${track.userId}'
+              : track.id,
+        ),
         track: track,
         fit: fit,
       ),
@@ -96,7 +100,8 @@ class IvsTrackRenderer extends MediaTrackRenderer {
   }
 }
 
-/// Experimental IVS WebView2 frame path routed per viewKey.
+/// Experimental IVS WebView2 frame path routed per viewKey, with direct native
+/// frame rendering for local Windows screen sharing.
 class _WindowsIvsFrameView extends StatefulWidget {
   const _WindowsIvsFrameView({
     super.key,
@@ -116,11 +121,15 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
   late final String _viewKey = 'ivs-view-${_nextViewId++}';
   StreamSubscription<Map<String, dynamic>>? _frames;
   StreamSubscription<Map<String, dynamic>>? _events;
+  StreamSubscription<Uint8List>? _localScreenFrames;
   Uint8List? _frame;
   bool _bound = false;
   bool _binding = false;
   String? _boundJsTrackId;
   bool _painting = false;
+
+  bool get _usesDirectLocalScreenFrames =>
+      widget.track.isScreenShare && widget.track.isLocal;
 
   String get _lookupTrackId {
     if (widget.track.isScreenShare) {
@@ -136,9 +145,48 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
   @override
   void initState() {
     super.initState();
+    _attachSource();
+  }
+
+  void _attachSource() {
+    if (_usesDirectLocalScreenFrames) {
+      _frame = _runtime.latestLocalScreenFrame;
+      _localScreenFrames = _runtime.localScreenFrames.listen(_paintFrameBytes);
+      return;
+    }
     _frames = _runtime.framesForView(_viewKey).listen(_onFrameEvent);
     _events = _runtime.events.listen(_onRuntimeEvent);
     unawaited(_bind());
+  }
+
+  void _detachSource() {
+    final localSub = _localScreenFrames;
+    _localScreenFrames = null;
+    if (localSub != null) unawaited(localSub.cancel());
+    final framesSub = _frames;
+    _frames = null;
+    if (framesSub != null) unawaited(framesSub.cancel());
+    final eventsSub = _events;
+    _events = null;
+    if (eventsSub != null) unawaited(eventsSub.cancel());
+    _boundJsTrackId = null;
+    if (_bound || _binding) {
+      _bound = false;
+      unawaited(
+        _runtime
+            .invoke('unbind', viewKey: _viewKey)
+            .catchError((Object _) => null),
+      );
+    }
+  }
+
+  void _paintFrameBytes(Uint8List bytes) {
+    if (!mounted || _painting) return;
+    _painting = true;
+    setState(() => _frame = bytes);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _painting = false;
+    });
   }
 
   String? _findCurrentJsTrackId(Map<String, dynamic> snapshot) {
@@ -163,7 +211,11 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
   }
 
   void _onRuntimeEvent(Map<String, dynamic> event) {
-    if (!mounted || event['type'] != 'snapshot') return;
+    if (!mounted ||
+        _usesDirectLocalScreenFrames ||
+        event['type'] != 'snapshot') {
+      return;
+    }
     final currentJsId = _findCurrentJsTrackId(event);
     if (currentJsId == null) {
       _bound = false;
@@ -181,18 +233,16 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
   @override
   void didUpdateWidget(covariant _WindowsIvsFrameView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.track.id != widget.track.id ||
+    final oldDirect = oldWidget.track.isScreenShare && oldWidget.track.isLocal;
+    if (oldDirect != _usesDirectLocalScreenFrames ||
+        (!_usesDirectLocalScreenFrames &&
+            oldWidget.track.id != widget.track.id) ||
+        oldWidget.track.userId != widget.track.userId ||
         oldWidget.track.isLocal != widget.track.isLocal ||
         oldWidget.track.isScreenShare != widget.track.isScreenShare) {
-      _bound = false;
-      _boundJsTrackId = null;
+      _detachSource();
       _frame = null;
-      unawaited(
-        _runtime
-            .invoke('unbind', viewKey: _viewKey)
-            .catchError((Object _) => null),
-      );
-      unawaited(_bind());
+      _attachSource();
     }
   }
 
@@ -204,19 +254,14 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
     if (encoded.length > 1800000) return;
     try {
       final bytes = base64Decode(encoded);
-      if (!mounted) return;
-      _painting = true;
-      setState(() => _frame = bytes);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _painting = false;
-      });
+      _paintFrameBytes(bytes);
     } on FormatException {
       // Drop a damaged frame rather than displaying corrupt pixels.
     }
   }
 
   Future<void> _bind({String? expectedJsId}) async {
-    if (_bound || _binding || !mounted) return;
+    if (_usesDirectLocalScreenFrames || _bound || _binding || !mounted) return;
     _binding = true;
     try {
       await _runtime.invoke(
@@ -224,7 +269,7 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
         trackId: expectedJsId ?? _lookupTrackId,
         viewKey: _viewKey,
       );
-      if (!mounted) {
+      if (!mounted || _usesDirectLocalScreenFrames) {
         await _runtime.invoke('unbind', viewKey: _viewKey);
         return;
       }
@@ -239,15 +284,7 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
 
   @override
   void dispose() {
-    unawaited(_frames?.cancel());
-    unawaited(_events?.cancel());
-    if (_bound) {
-      unawaited(
-        _runtime
-            .invoke('unbind', viewKey: _viewKey)
-            .catchError((Object _) => null),
-      );
-    }
+    _detachSource();
     super.dispose();
   }
 

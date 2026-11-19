@@ -14,11 +14,13 @@ class ChimeWindowsWebview2Transport {
     AwsWindowsWebView2Runtime? runtime,
   }) : _runtime = runtime ?? AwsWindowsWebView2Runtime.instance;
 
+  static const int _localScreenTileId = -2;
   final FutureOr<void> Function(MethodCall) onNativeCall;
   final AwsWindowsWebView2Runtime _runtime;
   StreamSubscription<Map<String, dynamic>>? _subscription;
   final _devices = <Map<String, dynamic>>[];
   String? _selectedCameraId;
+  String? _localAttendeeId;
   Map<String, Map<String, dynamic>> _participants = {};
   Map<String, Map<String, dynamic>> _tracks = {};
 
@@ -31,6 +33,7 @@ class ChimeWindowsWebview2Transport {
     if (subscription != null) unawaited(subscription.cancel());
     _subscription = null;
     _selectedCameraId = null;
+    _localAttendeeId = null;
     _runtime.clearSelectedScreenShareSource();
     _participants = {};
     _tracks = {};
@@ -53,10 +56,12 @@ class ChimeWindowsWebview2Transport {
           return _success();
         case 'join':
           final payload = _chimePayload(args);
+          _localAttendeeId = args['AttendeeId']?.toString().trim();
           await _runtime.invoke('invoke', name: 'create', payload: payload);
           try {
             await _runtime.invoke('invoke', name: 'join');
           } catch (_) {
+            _localAttendeeId = null;
             await _runtime
                 .invoke('invoke', name: 'dispose')
                 .catchError((Object _) => null);
@@ -64,6 +69,7 @@ class ChimeWindowsWebview2Transport {
           }
           return _success();
         case 'stop':
+          _localAttendeeId = null;
           try {
             await _runtime.stopScreenShareCapture();
           } catch (_) {}
@@ -153,6 +159,7 @@ class ChimeWindowsWebview2Transport {
             try {
               await _command('setScreenShareEnabled', {'enabled': false});
             } finally {
+              _removeLocalScreenTracks();
               await _runtime.stopScreenShareCapture();
             }
             return _success();
@@ -167,6 +174,7 @@ class ChimeWindowsWebview2Transport {
             await _runtime.stopScreenShareCapture();
             rethrow;
           }
+          _ensureLocalScreenTrackPublished();
           return _success();
         case 'setCameraPosition':
           final devices = await _fetchNormalizedDevices();
@@ -339,6 +347,8 @@ class ChimeWindowsWebview2Transport {
         }
       case 'snapshot':
         _onSnapshot(event);
+      case 'screenCaptureStopped':
+        _removeLocalScreenTracks();
       case 'message':
         if (event['throttled'] == true) return;
         _emit('messageReceived', {
@@ -420,9 +430,48 @@ class ChimeWindowsWebview2Transport {
     _tracks = tracks;
   }
 
+  void _ensureLocalScreenTrackPublished() {
+    final localId = _localAttendeeId;
+    if (localId == null || localId.isEmpty) return;
+    final trackKey = 'chime:screen:$localId';
+    if (_tracks.containsKey(trackKey)) return;
+    final entry = <String, dynamic>{
+      'id': trackKey,
+      'participantId': localId,
+      'width': _runtime.localScreenWidth,
+      'height': _runtime.localScreenHeight,
+      'isLocal': true,
+      'isScreenShare': true,
+    };
+    _tracks = {..._tracks, trackKey: entry};
+    _emit('videoTileAdd', _tile(trackKey, entry));
+  }
+
+  void _removeLocalScreenTracks() {
+    final removed = <MapEntry<String, Map<String, dynamic>>>[];
+    final remaining = <String, Map<String, dynamic>>{};
+    for (final entry in _tracks.entries) {
+      if (entry.value['isScreenShare'] == true &&
+          entry.value['isLocal'] == true) {
+        removed.add(entry);
+      } else {
+        remaining[entry.key] = entry.value;
+      }
+    }
+    if (removed.isEmpty) return;
+    _tracks = remaining;
+    for (final entry in removed) {
+      _emit('videoTileRemove', _tile(entry.key, entry.value));
+    }
+  }
+
   Map<String, dynamic> _tile(String id, Map<String, dynamic> value) {
+    final isLocalScreen =
+        value['isLocal'] == true && value['isScreenShare'] == true;
     return {
-      'tileId': int.tryParse(id.split(':').last) ?? id.hashCode,
+      'tileId': isLocalScreen
+          ? _localScreenTileId
+          : (int.tryParse(id.split(':').last) ?? id.hashCode),
       'attendeeId': value['participantId'] ?? '',
       'videoStreamContentWidth': value['width'] ?? 0,
       'videoStreamContentHeight': value['height'] ?? 0,

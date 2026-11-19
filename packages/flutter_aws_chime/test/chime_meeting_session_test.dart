@@ -813,9 +813,16 @@ void main() {
         () => messenger.setMockMethodCallHandler(windowsChannel, null),
       );
 
-      final transport = ChimeWindowsWebview2Transport((_) {}, runtime: runtime);
+      final transportCalls = <MethodCall>[];
+      final transport = ChimeWindowsWebview2Transport(
+        transportCalls.add,
+        runtime: runtime,
+      );
       transport.reserve();
       addTearDown(transport.release);
+
+      final joined = await transport.invoke('join', _joinInfo().toJson());
+      expect(joined['success'], isTrue);
 
       final listed = await transport.invoke('listScreenShareSources', null);
       expect(listed['success'], isTrue);
@@ -838,6 +845,19 @@ void main() {
         'enabled': true,
       });
       expect(started['success'], isTrue);
+      await pumpEventQueue();
+
+      final addedTile = transportCalls.singleWhere(
+        (c) => c.method == 'videoTileAdd',
+      );
+      expect(addedTile.arguments, {
+        'tileId': -2,
+        'attendeeId': 'attendee-1',
+        'videoStreamContentWidth': 0,
+        'videoStreamContentHeight': 0,
+        'isLocalTile': true,
+        'isContent': true,
+      });
 
       final startCaptureCall = nativeCalls.singleWhere(
         (c) => c.method == 'startScreenCapture',
@@ -847,7 +867,7 @@ void main() {
       );
       expect(captureArgs['targetId'], 'window:0x1024');
       final generatedSourceId = captureArgs['sourceId'] as String;
-      expect(generatedSourceId, startsWith('aws_win_screen_chime_'));
+      expect(generatedSourceId, startsWith('aws-screen-chime-'));
 
       expect(
         webCalls.any(
@@ -872,6 +892,8 @@ void main() {
         'enabled': false,
       });
       expect(stopped['success'], isTrue);
+      await pumpEventQueue();
+      expect(transportCalls.any((c) => c.method == 'videoTileRemove'), isTrue);
       expect(nativeCalls.any((c) => c.method == 'stopScreenCapture'), isTrue);
       expect(
         webCalls.any((m) => m['operation'] == 'stopScreenCaptureSource'),

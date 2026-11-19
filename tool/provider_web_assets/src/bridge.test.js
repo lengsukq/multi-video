@@ -495,6 +495,85 @@ test('Chime desktop sharing publishes a native RealtimeScreenCaptureBridge track
   await bridge.dispose('chime', 'content-native');
 });
 
+test('Chime desktop sharing exposes local screen track before async contentShareDidStart and ignores loopback #content echo tile', async () => {
+  const nativeTrack = {
+    id: 'win-sc-track-1',
+    kind: 'video',
+    readyState: 'live',
+    addEventListener() {},
+    stop() {},
+  };
+  let capturedObserver = null;
+  let capturedPresence = null;
+  const {bridge, audioVideo, events} = await createChimeHarness({
+    MediaStream: class FakeMediaStream {
+      constructor(tracks) { this._tracks = tracks; }
+      getVideoTracks() { return this._tracks; }
+      getTracks() { return this._tracks; }
+    },
+    RealtimeScreenCaptureBridge: {
+      getTrack(sourceId) {
+        assert.equal(sourceId, 'aws-screen-chime-win');
+        return nativeTrack;
+      },
+    },
+  });
+  const origAddObserver = audioVideo.addObserver;
+  audioVideo.addObserver = (obs) => {
+    capturedObserver = obs;
+    origAddObserver(obs);
+  };
+  const origSubPresence = audioVideo.realtimeSubscribeToAttendeeIdPresence;
+  audioVideo.realtimeSubscribeToAttendeeIdPresence = (cb) => {
+    capturedPresence = cb;
+    origSubPresence(cb);
+  };
+  // Match real Chime SDK: startContentShare(stream) returns while #content
+  // signaling is still connecting asynchronously.
+  audioVideo.startContentShare = async (stream) => stream;
+
+  await bridge.create('chime', 'content-win-async', chimePayload);
+  await bridge.join('chime', 'content-win-async');
+  await bridge.command('chime', 'content-win-async', 'setScreenShareEnabled', {
+    enabled: true,
+    processedSourceId: 'aws-screen-chime-win',
+  });
+
+  const immediateSnapshot = events.filter(({event}) => event.type === 'snapshot').at(-1).event;
+  assert.equal(
+    immediateSnapshot.tracks.some(
+      (track) => track.id === 'chime:screen:attendee-1' && track.isLocal && track.isScreenShare,
+    ),
+    true,
+    'local desktop screen track must be published immediately without waiting for async #content ICE',
+  );
+  assert.equal(immediateSnapshot.contentShareTrack?.id, 'chime:screen:attendee-1');
+
+  // Chime loopback #content presence and videoTileDidUpdate must be ignored.
+  capturedPresence('attendee-1#content', true, 'Ada#content');
+  capturedObserver.videoTileDidUpdate({
+    tileId: 12,
+    boundAttendeeId: 'attendee-1#content',
+    localTile: false,
+    isContent: true,
+    videoStreamContentWidth: 1280,
+    videoStreamContentHeight: 720,
+  });
+  const afterLoopback = events.filter(({event}) => event.type === 'snapshot').at(-1).event;
+  assert.equal(
+    afterLoopback.participants.some((p) => String(p.id).includes('#content')),
+    false,
+  );
+  assert.equal(
+    afterLoopback.tracks.some((t) => t.id === 'chime:tile:12'),
+    false,
+  );
+  assert.equal(afterLoopback.contentShareTrack?.id, 'chime:screen:attendee-1');
+  assert.equal(afterLoopback.contentShareTrack?.isLocal, true);
+
+  await bridge.dispose('chime', 'content-win-async');
+});
+
 test('IVS Web awaits the Stage leave handshake before releasing local capture', async () => {
   const {bridge, calls, getStage} = await createIvsHarness();
   const payload = {participantId:'host',role:'host',

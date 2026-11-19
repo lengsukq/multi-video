@@ -1633,11 +1633,17 @@
       },
       videoTileDidUpdate(tile) {
         if (!tile || !tile.tileId || !tile.boundAttendeeId) return;
+        const boundAttendeeId = String(tile.boundAttendeeId);
+        if (tile.isContent && session.localParticipantId && boundAttendeeId === `${session.localParticipantId}#content`) {
+          return;
+        }
         tiles.set(tile.tileId, tile);
-        addParticipant(session, tile.boundAttendeeId, null, Boolean(tile.localTile));
+        if (!boundAttendeeId.includes("#")) {
+          addParticipant(session, boundAttendeeId, null, Boolean(tile.localTile));
+        }
         addVideoTrack(session, {
           id: tileIdFor(tile),
-          participantId: tile.boundAttendeeId,
+          participantId: boundAttendeeId,
           isLocal: Boolean(tile.localTile),
           isScreenShare: Boolean(tile.isContent),
           width: tile.videoStreamContentWidth || 0,
@@ -1825,6 +1831,9 @@
               throw new Error("Chime screen capture ended before content sharing started.");
             }
             contentShareStream = stream;
+            if (args.processedSourceId) {
+              contentShareStarted = true;
+            }
             publishLocalContentShare();
           } else if (!args.enabled) {
             audioVideo.stopContentShare();

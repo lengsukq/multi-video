@@ -442,10 +442,14 @@
       if (binding.closed) return;
       const video = container.querySelector('video');
       binding.video = video;
-      binding.usesVideoCallback = Boolean(video && typeof video.requestVideoFrameCallback === 'function');
-      binding.frameHandle = binding.usesVideoCallback
-        ? video.requestVideoFrameCallback((now, metadata) => render(now, frameSignature(metadata, video)))
-        : global.requestAnimationFrame(now => render(now, video && video.currentTime));
+      // Offscreen/unmounted WebView2 HWNDs on Windows are marked occluded by
+      // Chromium's compositor, which completely freezes requestAnimationFrame
+      // and video.requestVideoFrameCallback (0 Hz). Drive frame extraction via
+      // a 33 ms timer so remote video and screen-share tiles render reliably.
+      binding.usesVideoCallback = false;
+      binding.frameHandle = global.setTimeout(function() {
+        render(Date.now(), null);
+      }, 33);
     }
     schedule();
   }
@@ -455,8 +459,7 @@
     if (!binding) return;
     binding.closed = true;
     binding.busy = false;
-    if (binding.usesVideoCallback) binding.video?.cancelVideoFrameCallback(binding.frameHandle);
-    else global.cancelAnimationFrame(binding.frameHandle);
+    global.clearTimeout(binding.frameHandle);
     try {
       requireBridge().detachVideo(
         binding.providerId,

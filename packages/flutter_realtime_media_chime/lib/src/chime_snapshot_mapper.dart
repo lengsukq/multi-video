@@ -10,7 +10,10 @@ class _ChimeSnapshotMapper {
   MediaSnapshot get snapshot => _session.snapshot;
   Duration get cleanupTimeout => _session.cleanupTimeout;
 
+  static const int _localSynthesizedScreenTileId = -2;
   final Set<String> _speakingParticipantIds = <String>{};
+  bool _providerHadLocalContentTile = false;
+
   void _onProviderSnapshot(
     chime.MeetingSnapshot providerSnapshot, {
     bool clearLastError = false,
@@ -20,6 +23,18 @@ class _ChimeSnapshotMapper {
             providerSnapshot.state != chime.MeetingState.ended &&
             providerSnapshot.state != chime.MeetingState.disposed)) {
       return;
+    }
+    final providerContentTile = providerSnapshot.contentShareTile;
+    if (providerContentTile != null) {
+      if (providerContentTile.isLocal) {
+        _providerHadLocalContentTile = true;
+      } else {
+        _providerHadLocalContentTile = false;
+        _session._controls._desktopScreenShareEnabled = false;
+      }
+    } else if (_providerHadLocalContentTile) {
+      _providerHadLocalContentTile = false;
+      _session._controls._desktopScreenShareEnabled = false;
     }
     final previous = _session._snapshot;
     final next = _mapSnapshot(providerSnapshot, clearLastError: clearLastError);
@@ -67,21 +82,43 @@ class _ChimeSnapshotMapper {
           ),
         )
         .toList(growable: false);
+    final localScreenShareEnabled =
+        _session._controls._iosScreenCaptureSource != null ||
+        _session._controls._desktopScreenShareEnabled ||
+        (providerSnapshot.contentShareTile?.isLocal == true);
+    final localAttendeeId = providerSnapshot.localAttendeeId;
+    final effectiveContentTile =
+        providerSnapshot.contentShareTile ??
+        (localScreenShareEnabled &&
+                localAttendeeId != null &&
+                localAttendeeId.isNotEmpty
+            ? chime.MeetingVideoTile(
+                tileId: _localSynthesizedScreenTileId,
+                attendeeId: localAttendeeId,
+                width:
+                    !kIsWeb && defaultTargetPlatform == TargetPlatform.windows
+                    ? _session._windowsRuntime.localScreenWidth
+                    : 0,
+                height:
+                    !kIsWeb && defaultTargetPlatform == TargetPlatform.windows
+                    ? _session._windowsRuntime.localScreenHeight
+                    : 0,
+                isLocal: true,
+                isContentShare: true,
+              )
+            : null);
     return MediaSnapshot(
       state: _mapState(providerSnapshot.state),
       role: role,
       participants: participants,
       messages: messages,
-      localParticipantId: providerSnapshot.localAttendeeId,
+      localParticipantId: localAttendeeId,
       localMuted: providerSnapshot.localMuted,
       localVideoEnabled: providerSnapshot.localVideoEnabled,
-      localScreenShareEnabled:
-          _session._controls._iosScreenCaptureSource != null ||
-          _session._controls._desktopScreenShareEnabled ||
-          (providerSnapshot.contentShareTile?.isLocal == true),
-      contentShareTrack: providerSnapshot.contentShareTile == null
+      localScreenShareEnabled: localScreenShareEnabled,
+      contentShareTrack: effectiveContentTile == null
           ? null
-          : ChimeMediaVideoTrack(providerSnapshot.contentShareTile!),
+          : ChimeMediaVideoTrack(effectiveContentTile),
       capabilities: capabilities,
       lastError: clearLastError ? null : _session._snapshot.lastError,
     );

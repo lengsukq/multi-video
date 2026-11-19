@@ -1023,9 +1023,25 @@ test('Windows host bridges screen capture source frames and resolves Chime & IVS
       payload: { sourceId: 'win-screen-1' },
     },
   });
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 5,
+      operation: 'unbind',
+      viewKey: 'view-local-screen',
+    },
+  });
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 6,
+      operation: 'unbind',
+      viewKey: 'view-remote-screen',
+    },
+  });
 
   const results = posted.filter((m) => m.kind === 'result');
-  assert.equal(results.length, 4);
+  assert.equal(results.length, 6);
   for (const res of results) {
     assert.equal(res.success, true, res.message);
   }
@@ -1033,5 +1049,71 @@ test('Windows host bridges screen capture source frames and resolves Chime & IVS
   assert.equal(attachedTracks[0].trackId, 'ivs:local:screen');
   assert.equal(attachedTracks[1].trackId, 'ivs:remote:scr-2');
   assert.equal(screenTrack.readyState, 'ended');
+});
+
+test('Windows runtime pumps bound video frames via setTimeout even when RAF and requestVideoFrameCallback are occluded at 0 Hz', async () => {
+  const windowsRuntimeSource = await readFile(
+    new URL('../assets/windows_runtime.js', import.meta.url),
+    'utf8',
+  );
+  const posted = [];
+  let rafCalled = false;
+  let rvfcCalled = false;
+  const video = {
+    readyState: 2,
+    videoWidth: 1280,
+    videoHeight: 720,
+    currentTime: 0.5,
+    requestVideoFrameCallback() {
+      rvfcCalled = true;
+      return 1;
+    },
+    cancelVideoFrameCallback() {},
+  };
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext() { return { drawImage() {} }; },
+    toDataURL() { return 'data:image/jpeg;base64,/9j/4AAQRemoteTile'; },
+  };
+  const container = {
+    id: '',
+    style: {},
+    querySelector(sel) { return sel === 'video' ? video : null; },
+    remove() {},
+  };
+  const context = {
+    chrome: {
+      webview: {
+        postMessage: (msg) => posted.push(msg),
+      },
+    },
+    document: {
+      body: { appendChild() {} },
+      createElement(name) { return name === 'canvas' ? canvas : container; },
+    },
+    MediaProviderBridge: {
+      async attachVideo() {},
+      detachVideo() {},
+    },
+    requestAnimationFrame() {
+      rafCalled = true;
+      return 1;
+    },
+    cancelAnimationFrame() {},
+    setTimeout,
+    clearTimeout,
+  };
+  context.globalThis = context;
+  vm.runInNewContext(windowsRuntimeSource, context, { filename: 'windows_runtime.js' });
+
+  await context.AwsDesktopRuntime.bindTrack('chime', 'aws-desktop-chime', 'chime:tile:9', 'occluded-view');
+  await waitFor(
+    () => posted.some((msg) => msg.kind === 'frame' && msg.viewKey === 'occluded-view'),
+    'timer-driven frame emission while occluded',
+  );
+  assert.equal(rafCalled, false, 'offscreen Windows WebView2 must not rely on requestAnimationFrame');
+  assert.equal(rvfcCalled, false, 'offscreen Windows WebView2 must not rely on requestVideoFrameCallback');
+  context.AwsDesktopRuntime.unbindTrack('occluded-view');
 });
 

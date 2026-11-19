@@ -83,6 +83,8 @@ struct WindowTarget {
 struct ScreenCaptureEvent {
   std::string source_id;
   uint64_t timestamp_ns = 0;
+  uint32_t width = 0;
+  uint32_t height = 0;
   std::string data_url;
   bool stopped = false;
   std::string reason;
@@ -330,9 +332,14 @@ bool CaptureDisplayFrame(
   }
 
   HGDIOBJ old_obj = SelectObject(mem_dc, dib);
-  const BOOL copied = BitBlt(
+  BOOL copied = BitBlt(
       mem_dc, 0, 0, target.width, target.height,
       screen_dc, target.left, target.top, SRCCOPY | CAPTUREBLT);
+  if (!copied) {
+    copied = BitBlt(
+        mem_dc, 0, 0, target.width, target.height,
+        screen_dc, target.left, target.top, SRCCOPY);
+  }
   if (copied) {
     CURSORINFO cursor_info{};
     cursor_info.cbSize = sizeof(cursor_info);
@@ -495,7 +502,9 @@ bool EncodeBgraToJpegDataUrl(
     IWICImagingFactory* factory,
     const RawFrame& frame,
     uint32_t max_dimension,
-    std::string* out_data_url) {
+    std::string* out_data_url,
+    uint32_t* out_width = nullptr,
+    uint32_t* out_height = nullptr) {
   if (!factory || frame.width == 0 || frame.height == 0 || frame.bgra.empty()) {
     return false;
   }
@@ -591,6 +600,8 @@ bool EncodeBgraToJpegDataUrl(
       "data:image/jpeg;base64," +
       EncodeBase64(static_cast<const uint8_t*>(locked), byte_size);
   GlobalUnlock(hglobal);
+  if (out_width) *out_width = target_width;
+  if (out_height) *out_height = target_height;
   return true;
 }
 
@@ -966,7 +977,7 @@ class AwsDesktopWindowsPlugin : public flutter::Plugin {
               std::lock_guard<std::mutex> lock(screen_events_mutex_);
               pending_screen_frames_.erase(worker->source_id);
               pending_screen_stops_[worker->source_id] = ScreenCaptureEvent{
-                  worker->source_id, 0, {}, true, "window_closed"};
+                  worker->source_id, 0, 0, 0, {}, true, "window_closed"};
             }
             if (message_hwnd_) {
               PostMessageW(message_hwnd_, kWmScreenCaptureEvent, 0, 0);
@@ -977,8 +988,11 @@ class AwsDesktopWindowsPlugin : public flutter::Plugin {
 
         if (captured) {
           std::string data_url;
+          uint32_t encoded_width = 0;
+          uint32_t encoded_height = 0;
           if (EncodeBgraToJpegDataUrl(
-                  factory.Get(), raw, kMaxScreenCaptureDimension, &data_url)) {
+                  factory.Get(), raw, kMaxScreenCaptureDimension, &data_url,
+                  &encoded_width, &encoded_height)) {
             bool active = false;
             {
               std::lock_guard<std::mutex> lock(worker->mutex);
@@ -990,6 +1004,8 @@ class AwsDesktopWindowsPlugin : public flutter::Plugin {
                 pending_screen_frames_[worker->source_id] = ScreenCaptureEvent{
                     worker->source_id,
                     raw.timestamp_ns,
+                    encoded_width,
+                    encoded_height,
                     std::move(data_url),
                     false,
                     {},
@@ -1040,6 +1056,10 @@ class AwsDesktopWindowsPlugin : public flutter::Plugin {
       args[EncodableValue("sourceId")] = EncodableValue(frame.source_id);
       args[EncodableValue("timestampNs")] =
           EncodableValue(static_cast<int64_t>(frame.timestamp_ns));
+      args[EncodableValue("width")] =
+          EncodableValue(static_cast<int64_t>(frame.width));
+      args[EncodableValue("height")] =
+          EncodableValue(static_cast<int64_t>(frame.height));
       args[EncodableValue("data")] = EncodableValue(frame.data_url);
       channel_->InvokeMethod(
           "onScreenFrame",

@@ -33,9 +33,8 @@ class _ChimeMediaControls {
       await _iosChannel.invokeMethod<Object?>(detachMethod);
     } finally {
       await _mobileScreenCapture.stop();
-      _session._replaceSnapshot(
-        _session._snapshot.copyWith(localScreenShareEnabled: false),
-      );
+      _session._mapper._providerHadLocalContentTile = false;
+      _session._mapper._onProviderSnapshot(_session._session.snapshot);
     }
   }
 
@@ -498,8 +497,15 @@ class _ChimeMediaControls {
             defaultTargetPlatform == TargetPlatform.windows)) {
       if (_desktopScreenShareEnabled == enabled) return;
       try {
+        if (!enabled) {
+          _desktopScreenShareEnabled = false;
+          _session._mapper._providerHadLocalContentTile = false;
+        }
         await _session._session.setScreenShareEnabled(enabled);
         _desktopScreenShareEnabled = enabled;
+        if (!enabled) {
+          _session._mapper._providerHadLocalContentTile = false;
+        }
         _session._mapper._onProviderSnapshot(_session._session.snapshot);
       } on chime.RealtimeException catch (error, stack) {
         throw _mapError(error, stage: 'setScreenShareEnabled', stack: stack);
@@ -542,9 +548,7 @@ class _ChimeMediaControls {
       }
       _iosScreenCaptureSource = started;
       capture.onSystemStopped(_onIosScreenCaptureStopped);
-      _session._replaceSnapshot(
-        _session._snapshot.copyWith(localScreenShareEnabled: true),
-      );
+      _session._mapper._onProviderSnapshot(_session._session.snapshot);
     } catch (_) {
       if (source != null) {
         await _iosChannel.invokeMethod<Object?>(detachMethod);

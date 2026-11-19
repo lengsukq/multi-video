@@ -42,8 +42,11 @@ class MeetingVideoTileView extends StatelessWidget {
     }
 
     if (defaultTargetPlatform == TargetPlatform.windows) {
+      final viewIdentity = tile.isContentShare && tile.isLocal
+          ? 'local-screen-${tile.attendeeId}'
+          : '${tile.tileId}';
       return _WindowsChimeFrameView(
-        key: ValueKey('windows-chime-${tile.tileId}'),
+        key: ValueKey('windows-chime-$viewIdentity'),
         tile: tile,
         fit: fit,
       );
@@ -107,7 +110,8 @@ class MeetingVideoTileView extends StatelessWidget {
 
 /// Provisional frame renderer matching the desktop WebView2 JPEG frame event
 /// contract. Subscribes to per-viewKey frame routing rather than O(N^2) global
-/// broadcast filtering.
+/// broadcast filtering, and reads local screen-share frames directly from the
+/// native Win32 screen-capture stream without an offscreen WebView2 round-trip.
 class _WindowsChimeFrameView extends StatefulWidget {
   const _WindowsChimeFrameView({
     super.key,
@@ -128,21 +132,65 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
       'aws-chime-${widget.tile.tileId}-${_nextViewId++}';
   StreamSubscription<Map<String, dynamic>>? _subscription;
   StreamSubscription<Map<String, dynamic>>? _eventsSubscription;
+  StreamSubscription<Uint8List>? _localScreenSubscription;
   Uint8List? _frame;
   bool _bound = false;
   bool _binding = false;
   bool _painting = false;
 
+  bool get _usesDirectLocalScreenFrames =>
+      widget.tile.isContentShare && widget.tile.isLocal;
+
   @override
   void initState() {
     super.initState();
+    _attachSource();
+  }
+
+  void _attachSource() {
+    if (_usesDirectLocalScreenFrames) {
+      _frame = _runtime.latestLocalScreenFrame;
+      _localScreenSubscription = _runtime.localScreenFrames.listen(
+        _paintFrameBytes,
+      );
+      return;
+    }
     _subscription = _runtime.framesForView(_viewKey).listen(_onFrameEvent);
     _eventsSubscription = _runtime.events.listen(_onRuntimeEvent);
     unawaited(_bind());
   }
 
+  void _detachSource() {
+    final localSub = _localScreenSubscription;
+    _localScreenSubscription = null;
+    if (localSub != null) unawaited(localSub.cancel());
+    final subscription = _subscription;
+    _subscription = null;
+    if (subscription != null) unawaited(subscription.cancel());
+    final eventsSubscription = _eventsSubscription;
+    _eventsSubscription = null;
+    if (eventsSubscription != null) unawaited(eventsSubscription.cancel());
+    if (_bound || _binding) {
+      _bound = false;
+      unawaited(
+        _runtime
+            .invoke('unbind', viewKey: _viewKey)
+            .catchError((Object _) => null),
+      );
+    }
+  }
+
+  void _paintFrameBytes(Uint8List bytes) {
+    if (!mounted || _painting) return;
+    _painting = true;
+    setState(() => _frame = bytes);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _painting = false;
+    });
+  }
+
   void _onRuntimeEvent(Map<String, dynamic> event) {
-    if (!mounted || _bound || _binding) return;
+    if (!mounted || _usesDirectLocalScreenFrames || _bound || _binding) return;
     if (event['type'] == 'snapshot') {
       unawaited(_bind());
     }
@@ -159,12 +207,7 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
       // Bound frame copies to protect Flutter's image decoder.
       if (raw.length > 1800000) return;
       final bytes = base64Decode(raw);
-      if (!mounted) return;
-      _painting = true;
-      setState(() => _frame = bytes);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _painting = false;
-      });
+      _paintFrameBytes(bytes);
     } on FormatException {
       // A damaged frame is discarded; the next frame can recover.
     }
@@ -180,11 +223,11 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
   }
 
   Future<void> _bind() async {
-    if (_bound || _binding || !mounted) return;
+    if (_usesDirectLocalScreenFrames || _bound || _binding || !mounted) return;
     _binding = true;
     try {
       await _runtime.invoke('bind', trackId: _lookupTrackId, viewKey: _viewKey);
-      if (!mounted) {
+      if (!mounted || _usesDirectLocalScreenFrames) {
         await _runtime.invoke('unbind', viewKey: _viewKey);
         return;
       }
@@ -199,32 +242,22 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
   @override
   void didUpdateWidget(covariant _WindowsChimeFrameView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.tile.tileId != widget.tile.tileId ||
+    final oldDirect = oldWidget.tile.isContentShare && oldWidget.tile.isLocal;
+    if (oldDirect != _usesDirectLocalScreenFrames ||
+        (!_usesDirectLocalScreenFrames &&
+            oldWidget.tile.tileId != widget.tile.tileId) ||
         oldWidget.tile.isContentShare != widget.tile.isContentShare ||
         oldWidget.tile.isLocal != widget.tile.isLocal ||
         oldWidget.tile.attendeeId != widget.tile.attendeeId) {
-      _bound = false;
+      _detachSource();
       _frame = null;
-      unawaited(
-        _runtime
-            .invoke('unbind', viewKey: _viewKey)
-            .catchError((Object _) => null),
-      );
-      unawaited(_bind());
+      _attachSource();
     }
   }
 
   @override
   void dispose() {
-    final subscription = _subscription;
-    if (subscription != null) unawaited(subscription.cancel());
-    final eventsSubscription = _eventsSubscription;
-    if (eventsSubscription != null) unawaited(eventsSubscription.cancel());
-    unawaited(
-      _runtime
-          .invoke('unbind', viewKey: _viewKey)
-          .catchError((Object _) => null),
-    );
+    _detachSource();
     super.dispose();
   }
 

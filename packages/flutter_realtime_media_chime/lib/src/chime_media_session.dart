@@ -247,6 +247,7 @@ class ChimeMediaSession
         if (event['type'] == 'screenCaptureStopped' &&
             _controls._desktopScreenShareEnabled) {
           _controls._desktopScreenShareEnabled = false;
+          _mapper._providerHadLocalContentTile = false;
           _mapper._onProviderSnapshot(_session.snapshot);
         }
       });
@@ -270,6 +271,7 @@ class ChimeMediaSession
     try {
       try {
         _controls._desktopScreenShareEnabled = false;
+        _mapper._providerHadLocalContentTile = false;
         await _controls._stopIosSystemScreenCapture();
         await _controls.detachProcessedVideoSource();
       } finally {
@@ -289,6 +291,7 @@ class ChimeMediaSession
     _joinCancelled = true;
     final cleanup = Cleanup(timeout: cleanupTimeout);
     _controls._desktopScreenShareEnabled = false;
+    _mapper._providerHadLocalContentTile = false;
     await cleanup.run('processedVideo', () async {
       await _controls.detachProcessedVideoSource();
     });

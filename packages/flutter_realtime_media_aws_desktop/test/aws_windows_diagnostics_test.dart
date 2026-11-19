@@ -394,6 +394,102 @@ void main() {
         runtimeEvents.any((e) => e['type'] == 'screenCaptureStopped'),
         isTrue,
       );
+      expect(runtime.latestLocalScreenFrame, isNull);
+    },
+  );
+
+  test(
+    'mergeBrowserArguments preserves proxy arguments and adds offscreen anti-occlusion flags',
+    () {
+      final merged = AwsWindowsWebView2Runtime.mergeBrowserArguments(
+        '--proxy-server=http://10.0.111.100:10808 '
+        '--proxy-bypass-list=10.0.111.*;localhost;127.0.0.1;*.invalid '
+        '--use-fake-ui-for-media-stream '
+        '--disable-features=HardwareMediaKeyHandling',
+      );
+      expect(merged, contains('--proxy-server=http://10.0.111.100:10808'));
+      expect(merged, contains('--proxy-bypass-list=10.0.111.*;localhost'));
+      expect(merged, contains('--disable-background-timer-throttling'));
+      expect(merged, contains('--disable-backgrounding-occluded-windows'));
+      expect(merged, contains('--disable-renderer-backgrounding'));
+      expect(
+        merged,
+        contains(
+          '--disable-features=HardwareMediaKeyHandling,CalculateNativeWinOcclusion',
+        ),
+      );
+    },
+  );
+
+  test(
+    'onScreenFrame decodes direct localScreenFrames bytes and dimensions for zero-round-trip preview',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        AwsWindowsWebView2Runtime.debugResetWindowsChannelHandler();
+      });
+
+      const windowsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_aws_desktop/windows',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(windowsChannel, (_) async => null);
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(windowsChannel, null),
+      );
+
+      late final AwsWindowsWebView2Runtime runtime;
+      runtime = AwsWindowsWebView2Runtime.forTesting(
+        'chime',
+        probeOverride: () async => true,
+        postWebMessageOverride: (encoded) async {
+          final decoded = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
+          if (decoded['id'] != null) {
+            runtime.debugHandleWebMessage({
+              'channel': 'aws-windows-chime-v1',
+              'kind': 'result',
+              'id': decoded['id'],
+              'success': true,
+              'value': true,
+            });
+          }
+        },
+      );
+      addTearDown(runtime.dispose);
+
+      final receivedFrames = <Uint8List>[];
+      final frameSub = runtime.localScreenFrames.listen(receivedFrames.add);
+      addTearDown(frameSub.cancel);
+
+      final sourceId = await runtime.startScreenShareCapture();
+      final rawBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xD9]);
+      await messenger.handlePlatformMessage(
+        windowsChannel.name,
+        const StandardMethodCodec().encodeMethodCall(
+          MethodCall('onScreenFrame', {
+            'sourceId': sourceId,
+            'timestampNs': 12345,
+            'width': 1280,
+            'height': 720,
+            'data': 'data:image/jpeg;base64,${base64Encode(rawBytes)}',
+          }),
+        ),
+        (_) {},
+      );
+      await pumpEventQueue();
+
+      expect(receivedFrames, hasLength(1));
+      expect(receivedFrames.single, rawBytes);
+      expect(runtime.latestLocalScreenFrame, rawBytes);
+      expect(runtime.localScreenWidth, 1280);
+      expect(runtime.localScreenHeight, 720);
+
+      await runtime.stopScreenShareCapture();
+      expect(runtime.latestLocalScreenFrame, isNull);
+      expect(runtime.localScreenWidth, 0);
+      expect(runtime.localScreenHeight, 0);
     },
   );
 }

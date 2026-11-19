@@ -200,11 +200,25 @@ export function createChimeSession(session, context) {
       },
       videoTileDidUpdate(tile) {
         if (!tile || !tile.tileId || !tile.boundAttendeeId) return;
+        const boundAttendeeId = String(tile.boundAttendeeId);
+        // Chime's DefaultContentShareController binds a loopback content tile
+        // onto attendeeAudioVideo under `<localAttendeeId>#content` with
+        // `localTile = false`. Ignore that loopback echo so it never creates a
+        // bogus `#content` participant or overwrites `localContentTrackId`.
+        if (
+          tile.isContent &&
+          session.localParticipantId &&
+          boundAttendeeId === `${session.localParticipantId}#content`
+        ) {
+          return;
+        }
         tiles.set(tile.tileId, tile);
-        addParticipant(session, tile.boundAttendeeId, null, Boolean(tile.localTile));
+        if (!boundAttendeeId.includes('#')) {
+          addParticipant(session, boundAttendeeId, null, Boolean(tile.localTile));
+        }
         addVideoTrack(session, {
           id: tileIdFor(tile),
-          participantId: tile.boundAttendeeId,
+          participantId: boundAttendeeId,
           isLocal: Boolean(tile.localTile),
           isScreenShare: Boolean(tile.isContent),
           width: tile.videoStreamContentWidth || 0,
@@ -422,6 +436,13 @@ export function createChimeSession(session, context) {
               throw new Error('Chime screen capture ended before content sharing started.');
             }
             contentShareStream = stream;
+            // Native desktop capture (`processedSourceId`) already owns a live
+            // local video track while Chime's `#content` signaling finishes
+            // connecting asynchronously; expose the local screen track right
+            // away so the presenter stage never stalls on a blank placeholder.
+            if (args.processedSourceId) {
+              contentShareStarted = true;
+            }
             publishLocalContentShare();
           } else if (!args.enabled) {
             audioVideo.stopContentShare();

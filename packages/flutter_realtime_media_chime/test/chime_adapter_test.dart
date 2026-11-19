@@ -1037,12 +1037,22 @@ void main() {
       await adapter.setScreenShareEnabled(true);
       expect(fake.actions, contains('screen:true'));
       expect(adapter.snapshot.localScreenShareEnabled, isTrue);
+      // Local contentShareTrack must be immediately non-null so UI never stalls
+      // on "Waiting for shared screen" while async #content ICE connects.
+      expect(adapter.snapshot.contentShareTrack, isNotNull);
+      expect(adapter.snapshot.contentShareTrack!.isLocal, isTrue);
+      expect(adapter.snapshot.contentShareTrack!.isScreenShare, isTrue);
+      expect(
+        adapter.snapshot.contentShareTrack!.contentOwnerParticipantId,
+        'attendee-local',
+      );
 
-      await testRuntime.startScreenShareCapture();
+      final activeSourceId = await testRuntime.startScreenShareCapture();
       await messenger.handlePlatformMessage(
         windowsChannel.name,
         const StandardMethodCodec().encodeMethodCall(
-          const MethodCall('onScreenCaptureStopped', {
+          MethodCall('onScreenCaptureStopped', {
+            'sourceId': activeSourceId,
             'reason': 'windowClosed',
           }),
         ),
@@ -1050,6 +1060,7 @@ void main() {
       );
       await pumpEventQueue();
       expect(adapter.snapshot.localScreenShareEnabled, isFalse);
+      expect(adapter.snapshot.contentShareTrack, isNull);
     },
   );
 }
