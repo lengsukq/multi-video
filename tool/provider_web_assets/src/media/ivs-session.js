@@ -293,7 +293,7 @@ export function createIvsSession(session, context) {
                 global.RealtimeScreenCaptureBridge?.getTrack?.(args.processedSourceId) ||
                 global.RealtimeProcessedVideoBridge?.getTrack?.(args.processedSourceId);
               if (!track || track.readyState === 'ended') {
-                throw new Error('Native macOS screen capture track is unavailable.');
+                throw new Error('Native desktop screen capture track is unavailable.');
               }
             } else {
               const media = await navigator.mediaDevices.getDisplayMedia({

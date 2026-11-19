@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_realtime_media_aws_desktop/aws_windows_diagnostics.dart';
+import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 import 'package:flutter_realtime_media_ivs/flutter_realtime_media_ivs.dart';
+import 'package:flutter_realtime_media_ivs/src/ivs_windows_webview2.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeIvsEngine implements IvsEngine {
@@ -887,6 +890,157 @@ void main() {
       expect(devices.map((d) => d.id), ['speaker', 'bt-1']);
       await session.selectAudioDevice(devices.last);
       expect(engine.selectedAudioDevice?.id, 'bt-1');
+      await session.dispose();
+    },
+  );
+
+  test(
+    'Windows IVS enumerates screen sources, publishes screen share, maps remote #content, and cleans up on window close',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      addTearDown(AwsWindowsWebView2Runtime.debugResetWindowsChannelHandler);
+
+      const windowsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_aws_desktop/windows',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final nativeCalls = <MethodCall>[];
+      final webCalls = <Map<String, dynamic>>[];
+
+      late final AwsWindowsWebView2Runtime runtime;
+      runtime = AwsWindowsWebView2Runtime.forTesting(
+        'ivs',
+        probeOverride: () async => true,
+        postWebMessageOverride: (encoded) async {
+          final decoded = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
+          webCalls.add(decoded);
+          if (decoded['id'] != null) {
+            runtime.debugHandleWebMessage({
+              'channel': 'aws-windows-ivs-v1',
+              'kind': 'result',
+              'id': decoded['id'],
+              'success': true,
+              'value': true,
+            });
+          }
+        },
+      );
+      addTearDown(runtime.dispose);
+
+      messenger.setMockMethodCallHandler(windowsChannel, (call) async {
+        nativeCalls.add(call);
+        if (call.method == 'probeProcessedVideoInput') return true;
+        if (call.method == 'listScreenShareSources') {
+          return [
+            {'id': 'display:1', 'name': 'Primary Monitor', 'kind': 'display'},
+            {'id': 'window:0x2048', 'name': 'Slides Deck', 'kind': 'window'},
+          ];
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(windowsChannel, null),
+      );
+
+      final engine = WindowsIvsWebView2Engine(runtime: runtime);
+      final factory = IvsSessionFactory(engineFactory: () async => engine);
+      final info = IvsJoinInfo.fromJson(_joinJson(role: MediaRole.participant));
+      final session = factory.createSession(info) as IvsParticipantSession;
+      final emittedEvents = <MediaEvent>[];
+      final sub = session.events.listen(emittedEvents.add);
+      addTearDown(sub.cancel);
+
+      await session.join(info);
+      expect(session.capabilities.canScreenShare, isTrue);
+
+      final sources = await session.listScreenShareSources();
+      expect(sources.map((s) => s.id), ['display:1', 'window:0x2048']);
+      expect(sources.last.kind, MediaScreenShareSourceKind.window);
+      await session.selectScreenShareSource(sources.last);
+
+      await session.setScreenShareEnabled(true);
+      expect(session.snapshot.localScreenShareEnabled, isTrue);
+      expect(session.snapshot.contentShareTrack?.isLocal, isTrue);
+      expect(session.snapshot.contentShareTrack?.isScreenShare, isTrue);
+
+      final startCall = nativeCalls.singleWhere(
+        (c) => c.method == 'startScreenCapture',
+      );
+      expect((startCall.arguments as Map)['targetId'], 'window:0x2048');
+      final sourceId = (startCall.arguments as Map)['sourceId'] as String;
+      expect(
+        webCalls.any(
+          (m) =>
+              m['operation'] == 'startScreenCaptureSource' &&
+              (m['payload'] as Map?)?['sourceId'] == sourceId,
+        ),
+        isTrue,
+      );
+
+      // Simulate native window closing unexpectedly during active screen share.
+      await messenger.handlePlatformMessage(
+        windowsChannel.name,
+        const StandardMethodCodec().encodeMethodCall(
+          MethodCall('onScreenCaptureStopped', {
+            'sourceId': sourceId,
+            'reason': 'windowClosed',
+          }),
+        ),
+        (_) {},
+      );
+      await pumpEventQueue();
+      expect(session.snapshot.localScreenShareEnabled, isFalse);
+      expect(session.snapshot.contentShareTrack, isNull);
+      expect(
+        emittedEvents.whereType<MediaTrackUnpublished>().any(
+          (e) => e.wasScreenShare,
+        ),
+        isTrue,
+      );
+
+      // Simulate remote participant screen share via auxiliary #content Stage.
+      runtime.debugHandleWebMessage({
+        'channel': 'aws-windows-ivs-v1',
+        'kind': 'event',
+        'sessionId': 'aws-desktop-ivs',
+        'event': {
+          'type': 'snapshot',
+          'participants': [
+            {
+              'id': 'host-2',
+              'displayName': 'Host Two',
+              'isLocal': false,
+              'isMuted': false,
+            },
+          ],
+          'tracks': [
+            {
+              'id': 'ivs:track:scr-2',
+              'participantId': 'host-2#content',
+              'isLocal': false,
+              'isScreenShare': true,
+            },
+          ],
+          'contentShareTrack': {
+            'id': 'ivs:track:scr-2',
+            'participantId': 'host-2#content',
+            'isLocal': false,
+            'isScreenShare': true,
+          },
+        },
+      });
+      await pumpEventQueue();
+      final remoteScreen = session.snapshot.contentShareTrack;
+      expect(remoteScreen, isNotNull);
+      expect(remoteScreen!.isLocal, isFalse);
+      expect(remoteScreen.participantId, 'host-2#content');
+      expect(
+        (remoteScreen as MediaContentOwnerTrack).contentOwnerParticipantId,
+        'host-2',
+      );
+
       await session.dispose();
     },
   );

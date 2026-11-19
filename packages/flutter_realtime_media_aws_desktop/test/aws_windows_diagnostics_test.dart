@@ -244,4 +244,156 @@ void main() {
       );
     },
   );
+
+  test(
+    'Windows WebView2 runtime enumerates screen sources, coalesces screen frames independently from virtual background, and propagates window close',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        AwsWindowsWebView2Runtime.debugResetWindowsChannelHandler();
+      });
+
+      const windowsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_aws_desktop/windows',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+      final nativeCalls = <MethodCall>[];
+      final postedScreenFrames = <Map<String, dynamic>>[];
+      final jsOperations = <Map<String, dynamic>>[];
+      final runtimeEvents = <Map<String, dynamic>>[];
+      Completer<void>? inFlightScreenGate;
+
+      late final AwsWindowsWebView2Runtime runtime;
+      runtime = AwsWindowsWebView2Runtime.forTesting(
+        'chime',
+        probeOverride: () async => true,
+        postWebMessageOverride: (encoded) async {
+          final decoded = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
+          if (decoded['kind'] == 'screenFrame') {
+            postedScreenFrames.add(decoded);
+            final gate = inFlightScreenGate;
+            if (gate != null) await gate.future;
+            return;
+          }
+          jsOperations.add(decoded);
+          if (decoded['id'] != null) {
+            runtime.debugHandleWebMessage({
+              'channel': 'aws-windows-chime-v1',
+              'kind': 'result',
+              'id': decoded['id'],
+              'success': true,
+              'value': true,
+            });
+          }
+        },
+      );
+      final sub = runtime.events.listen(runtimeEvents.add);
+      addTearDown(() async {
+        await sub.cancel();
+        await runtime.dispose();
+      });
+
+      messenger.setMockMethodCallHandler(windowsChannel, (call) async {
+        nativeCalls.add(call);
+        if (call.method == 'listScreenShareSources') {
+          return const [
+            {
+              'id': 'display:1',
+              'name': 'Main Display (2560x1440)',
+              'kind': 'display',
+            },
+            {
+              'id': 'window:0x10020',
+              'name': 'Visual Studio Code',
+              'kind': 'window',
+            },
+          ];
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(windowsChannel, null),
+      );
+
+      final sources = await runtime.listScreenShareSources();
+      expect(sources, hasLength(2));
+      expect(sources.first['id'], 'display:1');
+      expect(sources.last['kind'], 'window');
+
+      runtime.selectScreenShareSource('window:0x10020');
+      final sourceId = await runtime.startScreenShareCapture();
+      expect(sourceId, startsWith('aws-screen-chime-'));
+      expect(jsOperations.first['operation'], 'startScreenCaptureSource');
+      final startNative = nativeCalls.singleWhere(
+        (c) => c.method == 'startScreenCapture',
+      );
+      expect(startNative.arguments, {
+        'sourceId': sourceId,
+        'targetId': 'window:0x10020',
+      });
+
+      inFlightScreenGate = Completer<void>();
+      Future<void> pushScreen(int ts, String data) =>
+          messenger.handlePlatformMessage(
+            windowsChannel.name,
+            const StandardMethodCodec().encodeMethodCall(
+              MethodCall('onScreenFrame', {
+                'sourceId': sourceId,
+                'timestampNs': ts,
+                'data': data,
+              }),
+            ),
+            (_) {},
+          );
+
+      await pushScreen(10, 'data:image/jpeg;base64,SCR1');
+      await pushScreen(20, 'data:image/jpeg;base64,SCR2_SKIPPED');
+      await pushScreen(30, 'data:image/jpeg;base64,SCR3_LATEST');
+      expect(postedScreenFrames, hasLength(1));
+
+      inFlightScreenGate.complete();
+      inFlightScreenGate = null;
+      await pumpEventQueue();
+      expect(postedScreenFrames.map((f) => f['timestampNs']).toList(), [
+        10,
+        30,
+      ]);
+
+      // Simulate user closing the shared window on Windows.
+      await messenger.handlePlatformMessage(
+        windowsChannel.name,
+        const StandardMethodCodec().encodeMethodCall(
+          MethodCall('onScreenCaptureStopped', {
+            'sourceId': sourceId,
+            'reason': 'window_closed',
+          }),
+        ),
+        (_) {},
+      );
+      await pumpEventQueue();
+
+      expect(nativeCalls.any((c) => c.method == 'stopScreenCapture'), isTrue);
+      expect(
+        jsOperations.any(
+          (m) =>
+              m['operation'] == 'invoke' &&
+              m['name'] == 'command' &&
+              (m['payload'] as Map?)?['name'] == 'setScreenShareEnabled' &&
+              ((m['payload'] as Map?)?['args'] as Map?)?['enabled'] == false,
+        ),
+        isTrue,
+      );
+      expect(
+        jsOperations.any((m) => m['operation'] == 'stopScreenCaptureSource'),
+        isTrue,
+      );
+      expect(
+        runtimeEvents.any((e) => e['type'] == 'screenCaptureStopped'),
+        isTrue,
+      );
+    },
+  );
 }

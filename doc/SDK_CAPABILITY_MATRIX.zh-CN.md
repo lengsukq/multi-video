@@ -124,8 +124,8 @@ Mac 的 `flutter_multi_livestream_video` 是 SDK 唯一开发／发布主仓库�
 | Agora | 捕获接入，Web→原生共享类型信令缺口 | MediaProjection/状态信令有代码 | iOS 27+ ScreenCaptureKit；15–26 已配签名扩展+App Group 时走跨 App Broadcast Socket，否则回退应用内 ReplayKit | 主屏自动选取代码 | 主屏自动选取代码；构建/双机待验收 |
 | TRTC | JS 屏幕辅路有代码 | 原生辅路有代码 | iOS 27+ ScreenCaptureKit；15–26 已配签名扩展+App Group 时走跨 App Broadcast Socket，否则回退应用内 ReplayKit | 主屏自动选取代码 | 主屏自动选取代码；构建/双机待验收 |
 | ARTC | Web 捕获/远端映射有代码 | MediaProjection 桥有代码 | iOS 27+ ScreenCaptureKit；15–26 已配签名扩展+App Group 时走跨 App Broadcast Socket，否则回退应用内 ReplayKit | 原生 `ScreenCaptureKit` 多屏/窗口枚举选择 + 外部视频源推流已接（需宿主提供 Framework，待双机验收） | 本地 Windows Driver 已接多屏/窗口选择与区域共享 API；远端画面待验收 |
-| Chime | 浏览器 Content Share | MediaProjection + FrameHub → Content Share 代码已接 | iOS 27+ ScreenCaptureKit；15–26 跨 App Broadcast Socket（需签名扩展+App Group）或应用内 ReplayKit 回退 | 原生 `ScreenCaptureKit` 多屏/窗口枚举与选择共享已接 | WebView2 实验桥捕获代码已接（待双机验收） |
-| IVS | 浏览器共享（有 `auxiliaryToken` 双路，单 Token 替换摄像头） | MediaProjection + FrameHub → Stage（支持辅路 Token 或替换摄像头） | iOS 27+ ScreenCaptureKit；15–26 跨 App Broadcast Socket（需签名扩展+App Group）或应用内 ReplayKit 回退 | 原生 `ScreenCaptureKit` 多屏/窗口枚举与选择共享已接 | WebView2 实验桥捕获代码已接（待双机验收） |
+| Chime | 浏览器 Content Share | MediaProjection + FrameHub → Content Share 代码已接 | iOS 27+ ScreenCaptureKit；15–26 跨 App Broadcast Socket（需签名扩展+App Group）或应用内 ReplayKit 回退 | 原生 `ScreenCaptureKit` 多屏/窗口枚举与选择共享已接 | 原生多屏/窗口枚举采集 + WebView2 `RealtimeScreenCaptureBridge` 已接（待双机验收） |
+| IVS | 浏览器共享（有 `auxiliaryToken` 双路，单 Token 替换摄像头） | MediaProjection + FrameHub → Stage（支持辅路 Token 或替换摄像头） | iOS 27+ ScreenCaptureKit；15–26 跨 App Broadcast Socket（需签名扩展+App Group）或应用内 ReplayKit 回退 | 原生 `ScreenCaptureKit` 多屏/窗口枚举与选择共享已接 | 原生多屏/窗口枚举采集 + WebView2 `RealtimeScreenCaptureBridge` 已接（待双机验收） |
 
 所有 iOS 路径均须双端验证切出 App 后画面继续、授权/撤销、远端轨道、音频和退出清理；iOS 15–26 跨 App 屏幕共享要求宿主嵌入签名 ReplayKit Broadcast Upload Extension（`scripts/setup_ios_broadcast_extension.rb`）并配置相同 App Group（`rtc_SSFD` Unix Socket），未配置时自动降级为 `RPScreenRecorder` 进程内采集。IVS 在后端签发 `#content` 辅助 Stage Token 时可双路并行发布摄像头与屏幕，单 Token 模式下自动暂停摄像头并在结束共享后恢复。会议与直播模式均已打通共享内容白板与画面内批注，Android/macOS/Windows 另提供系统悬浮窗涂鸦层；iOS/Android 支持开启 `preventScreenCapture` 外部录屏/投屏阻断提醒（自动豁免本应用发起的屏幕共享）。详见 [逐厂商屏幕共享实现说明](SDK_CAPABILITY_MATRIX.zh-CN.md)。
 
@@ -356,7 +356,7 @@ Provider 专属接口。未支持的操作应返回有类型的错误，不能�
 2. **ARTC/Chime/IVS 原生屏幕共享真机验收**：ARTC、Chime 与 IVS 的 Android（`MediaProjection` + `FrameHub`）、macOS（`ScreenCaptureKit` 多显示器与独立窗口选择）、iOS 27+（`ScreenCaptureKit`）以及 iOS 15–26（已配置签名扩展+App Group 时走 `IosBroadcastExtensionScreenCaptureSource` 跨 App 共享，未配置时回退进程内 `RPScreenRecorder`）代码均已接通，仍需真机双端视频流验收。
    IVS **同时发布摄像头和屏幕**已支持 `MediaAuxiliaryTokenConsumer`：后端下发 `#content` 辅助 Stage Token 时自动建立辅助 Stage 双路并推；未配置辅路 Token 时回退为暂停摄像头单路替换并在停止共享后恢复。
 3. **iOS 跨 App 全屏共享的剩余验收**：iOS 27+ 的 ScreenCaptureKit 不需要 Broadcast Upload Extension 或 App Group，但宿主必须启用 `UIBackgroundModes: screen-capture` 并提供 `NSScreenCaptureUsageDescription`。iOS 15–26 全供应商跨 App 共享共用同一个 ReplayKit Broadcast Upload Extension 模板（`rtc_SSFD` App Group Socket），仍需要 App Groups + 两个 Target 的正确签名，并须双设备验证 Safari/微信切换、远端持续出帧、系统停止/权限取消/应用退后台/离会清理。仅执行无签名 Xcode 编译不能宣称全链路通过。
-4. **原生桌面多显示器与窗口共享**：AWS（Chime / IVS）与 ARTC 的 macOS 端均已接入 `ScreenCaptureKit` 多显示器与独立窗口列表选择，ARTC Windows 已接入原生显示器/窗口选择；TRTC 和 Agora 桌面端已接主显示器自动选择；Windows WebView2 实验桥仍采用浏览器默认屏幕捕获，各桌面组合仍需双机真机播放验收。
+4. **原生桌面多显示器与窗口共享**：AWS（Chime / IVS）与 ARTC 的 macOS 端均已接入 `ScreenCaptureKit` 多显示器与独立窗口列表选择，ARTC 与 AWS（Chime / IVS）的 Windows 端均已接入原生多显示器与独立窗口枚举采集（AWS Windows 通过 Win32 GDI/`PrintWindow` + WIC JPEG 经 `RealtimeScreenCaptureBridge` 注入后台 WebView2，避免无界面 `getDisplayMedia` 失败）；TRTC 和 Agora 桌面端已接主显示器自动选择；各桌面组合仍需双机真机播放验收。
 5. **运行时权限和系统停止事件**：Android 前台 MediaProjection 服务，macOS 屏幕录制权限，iOS 广播停止、浏览器 `track.ended`、销毁和重连；真实场景均需端到端确认。
 6. **多供应商/多平台验收**：每个组合至少用双设备测试本地采集 → 发布 → 远端订阅 → 坐标与画面比例 → 主动停止/权限拒绝/意外停止 → 重连与退出。自动化 Mock 测试不等于真实 SDK 通过。
 

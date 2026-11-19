@@ -109,8 +109,8 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_media_artc/lib/src/artc_publishing.dart`: `5697c6857a001be3`
 - `packages/flutter_realtime_media_artc/lib/src/artc_session_factory.dart`: `160ebd4e1282f901`
 - `packages/flutter_realtime_media_artc/lib/src/artc_snapshot_mapper.dart`: `b1817fc7cb34a16c`
-- `packages/flutter_realtime_media_chime/lib/src/chime_media_controls.dart`: `2021ed3537f6a91c`
-- `packages/flutter_realtime_media_chime/lib/src/chime_media_session.dart`: `5b11c87ef9e26988`
+- `packages/flutter_realtime_media_chime/lib/src/chime_media_controls.dart`: `2f1be58b1aecb4af`
+- `packages/flutter_realtime_media_chime/lib/src/chime_media_session.dart`: `7cfa6710302fd292`
 - `packages/flutter_realtime_media_chime/lib/src/chime_session_factory.dart`: `0c2ff741ebf79170`
 - `packages/flutter_realtime_media_chime/lib/src/chime_snapshot_mapper.dart`: `c1a5af74ca763844`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_broadcast_host_session.dart`: `ab872f64fdc33db1`
@@ -118,9 +118,9 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_credential_refresh.dart`: `376385712374d2bd`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_media_session.dart`: `0987bc080c091a6e`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_participant_session.dart`: `6a8698cecaadb93d`
-- `packages/flutter_realtime_media_ivs/lib/src/ivs_publishing.dart`: `a6535793d9d03d47`
+- `packages/flutter_realtime_media_ivs/lib/src/ivs_publishing.dart`: `4fd690cd8bfaf6da`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_session_factory.dart`: `7e847f3acfeee888`
-- `packages/flutter_realtime_media_ivs/lib/src/ivs_snapshot_mapper.dart`: `6239709aa2e4f96f`
+- `packages/flutter_realtime_media_ivs/lib/src/ivs_snapshot_mapper.dart`: `6d84962e2d59d615`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_statistics.dart`: `f3d94cb05a2b89b9`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_capabilities.dart`: `8c2a6ce7df32ad0d`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_data_messenger.dart`: `3a47bbde56d14b68`

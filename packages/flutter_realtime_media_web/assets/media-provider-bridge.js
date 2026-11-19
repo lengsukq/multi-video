@@ -1191,7 +1191,7 @@
             if (args.processedSourceId) {
               track = global.RealtimeScreenCaptureBridge?.getTrack?.(args.processedSourceId) || global.RealtimeProcessedVideoBridge?.getTrack?.(args.processedSourceId);
               if (!track || track.readyState === "ended") {
-                throw new Error("Native macOS screen capture track is unavailable.");
+                throw new Error("Native desktop screen capture track is unavailable.");
               }
             } else {
               const media = await navigator.mediaDevices.getDisplayMedia({
@@ -1813,7 +1813,7 @@
             if (args.processedSourceId) {
               const screenTrack = global.RealtimeScreenCaptureBridge?.getTrack?.(args.processedSourceId) || global.RealtimeProcessedVideoBridge?.getTrack?.(args.processedSourceId);
               if (!screenTrack || screenTrack.readyState === "ended") {
-                throw new Error("Native macOS screen capture track is unavailable.");
+                throw new Error("Native desktop screen capture track is unavailable.");
               }
               stream = new global.MediaStream([screenTrack]);
               await audioVideo.startContentShare(stream);
@@ -2096,13 +2096,16 @@
     }
     function publishSnapshot(session) {
       const participants = [...session.participants.values()];
+      const tracks = [...session.tracks.values()].map(({ native, ...track }) => track);
+      const contentShareTrack = tracks.find((track) => track.isScreenShare && !track.isLocal) || tracks.find((track) => track.isScreenShare) || null;
       emit(session, {
         type: "snapshot",
         localParticipantId: session.localParticipantId,
         localMuted: session.localMuted,
         localVideoEnabled: session.localVideoEnabled,
         participants,
-        tracks: [...session.tracks.values()].map(({ native, ...track }) => track)
+        tracks,
+        contentShareTrack
       });
     }
     function reportError(session, error) {

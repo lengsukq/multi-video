@@ -284,6 +284,16 @@ class SingleSdkDistributionTest(unittest.TestCase):
                 windows_registrar,
             )
         self.assertTrue(
+            (
+                self.root
+                / "windows/aws_desktop/flutter_realtime_media_aws_desktop_plugin.cpp"
+            ).is_file()
+        )
+        self.assertIn(
+            "FlutterRealtimeMediaAwsDesktopPluginCApiRegisterWithRegistrar",
+            windows_registrar,
+        )
+        self.assertTrue(
             (self.root / "windows/effects/flutter_realtime_video_effects_plugin.cpp").exists()
         )
         self.assertTrue(
@@ -291,6 +301,11 @@ class SingleSdkDistributionTest(unittest.TestCase):
         )
         windows_cmake = (self.root / "windows/CMakeLists.txt").read_text()
         self.assertIn("effects/flutter_realtime_video_effects_plugin.cpp", windows_cmake)
+        self.assertIn(
+            "aws_desktop/flutter_realtime_media_aws_desktop_plugin.cpp",
+            windows_cmake,
+        )
+        self.assertIn("dwmapi", windows_cmake)
         self.assertIn("realtime_effects_configure_ort", windows_cmake)
         self.assertIn("d3d11 d3dcompiler dxgi", windows_cmake)
         self.assertIn("effects/directml_provider.cpp", windows_cmake)

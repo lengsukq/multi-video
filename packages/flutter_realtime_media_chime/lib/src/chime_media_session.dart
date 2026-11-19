@@ -54,6 +54,7 @@ class ChimeMediaSession
 
   StreamSubscription<chime.MeetingSnapshot>? _snapshotSubscription;
   StreamSubscription<chime.ChimeEvent>? _eventSubscription;
+  StreamSubscription<Map<String, dynamic>>? _windowsRuntimeSubscription;
   MediaSnapshot _snapshot = MediaSnapshot(
     role: MediaRole.participant,
     capabilities: _chimeCapabilities,
@@ -240,6 +241,16 @@ class ChimeMediaSession
       _mapper._onProviderSnapshot,
     );
     _eventSubscription ??= _session.events.listen(_mapper._onProviderEvent);
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      _windowsRuntimeSubscription ??= _windowsRuntime.events.listen((event) {
+        if (_disposed) return;
+        if (event['type'] == 'screenCaptureStopped' &&
+            _controls._desktopScreenShareEnabled) {
+          _controls._desktopScreenShareEnabled = false;
+          _mapper._onProviderSnapshot(_session.snapshot);
+        }
+      });
+    }
     _mapper._onProviderSnapshot(_session.snapshot);
   }
 
@@ -258,6 +269,7 @@ class ChimeMediaSession
     if (_joinFuture != null) _joinCancelled = true;
     try {
       try {
+        _controls._desktopScreenShareEnabled = false;
         await _controls._stopIosSystemScreenCapture();
         await _controls.detachProcessedVideoSource();
       } finally {
@@ -276,12 +288,16 @@ class ChimeMediaSession
     _disposed = true;
     _joinCancelled = true;
     final cleanup = Cleanup(timeout: cleanupTimeout);
+    _controls._desktopScreenShareEnabled = false;
     await cleanup.run('processedVideo', () async {
       await _controls.detachProcessedVideoSource();
     });
     await cleanup.run('screenCapture', _controls._stopIosSystemScreenCapture);
     await cleanup.run('session', () async {
       await _session.dispose();
+    });
+    await cleanup.run('windowsRuntime.subscription', () async {
+      await _windowsRuntimeSubscription?.cancel();
     });
     await cleanup.run('snapshot.subscription', () async {
       await _snapshotSubscription?.cancel();

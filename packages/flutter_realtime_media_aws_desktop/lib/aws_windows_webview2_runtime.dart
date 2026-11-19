@@ -68,9 +68,14 @@ class AwsWindowsWebView2Runtime {
   Map<String, dynamic> lastProbe = const {};
   int _nextCallId = 0;
   int _processedGeneration = 0;
+  int _screenCaptureGeneration = 0;
   String? _attachedProcessedSourceId;
   bool _postingProcessedFrame = false;
   Map<String, Object?>? _queuedProcessedFrame;
+  String? _selectedScreenSourceId;
+  String? _activeScreenCaptureSourceId;
+  bool _postingScreenFrame = false;
+  Map<String, Object?>? _queuedScreenFrame;
   final Set<String> _reportedProcessedFailures = <String>{};
   final _pending = <int, Completer<dynamic>>{};
   final _events = StreamController<Map<String, dynamic>>.broadcast();
@@ -84,6 +89,8 @@ class AwsWindowsWebView2Runtime {
     'flutter_realtime_video_effects',
   );
   static final Set<AwsWindowsWebView2Runtime> _processedRuntimes =
+      <AwsWindowsWebView2Runtime>{};
+  static final Set<AwsWindowsWebView2Runtime> _screenCaptureRuntimes =
       <AwsWindowsWebView2Runtime>{};
   static bool _windowsChannelBound = false;
 
@@ -116,31 +123,248 @@ class AwsWindowsWebView2Runtime {
       _windowsChannelBound = false;
     }
     _processedRuntimes.clear();
+    _screenCaptureRuntimes.clear();
   }
 
   static void _ensureWindowsChannelHandler() {
     if (_windowsChannelBound) return;
     _windowsChannelBound = true;
     _windowsChannel.setMethodCallHandler((call) async {
-      if (call.method != 'onProcessedFrame' || call.arguments is! Map) return;
+      if (call.arguments is! Map) return;
       final args = Map<Object?, Object?>.from(call.arguments as Map);
       final sourceId = args['sourceId']?.toString() ?? '';
-      final data = args['data']?.toString() ?? '';
-      if (sourceId.isEmpty || data.isEmpty) return;
-      final timestampNs = (args['timestampNs'] as num?)?.toInt() ?? 0;
-      for (final runtime in List<AwsWindowsWebView2Runtime>.of(
-        _processedRuntimes,
-      )) {
-        if (runtime._attachedProcessedSourceId?.toLowerCase() ==
-            sourceId.toLowerCase()) {
-          runtime._pushProcessedFrame(
-            sourceId: sourceId,
-            timestampNs: timestampNs,
-            data: data,
-          );
+      if (sourceId.isEmpty) return;
+
+      if (call.method == 'onProcessedFrame') {
+        final data = args['data']?.toString() ?? '';
+        if (data.isEmpty) return;
+        final timestampNs = (args['timestampNs'] as num?)?.toInt() ?? 0;
+        for (final runtime in List<AwsWindowsWebView2Runtime>.of(
+          _processedRuntimes,
+        )) {
+          if (runtime._attachedProcessedSourceId?.toLowerCase() ==
+              sourceId.toLowerCase()) {
+            runtime._pushProcessedFrame(
+              sourceId: sourceId,
+              timestampNs: timestampNs,
+              data: data,
+            );
+          }
+        }
+        return;
+      }
+
+      if (call.method == 'onScreenFrame') {
+        final data = args['data']?.toString() ?? '';
+        if (data.isEmpty) return;
+        final timestampNs = (args['timestampNs'] as num?)?.toInt() ?? 0;
+        for (final runtime in List<AwsWindowsWebView2Runtime>.of(
+          _screenCaptureRuntimes,
+        )) {
+          if (runtime._activeScreenCaptureSourceId?.toLowerCase() ==
+              sourceId.toLowerCase()) {
+            runtime._pushScreenFrame(
+              sourceId: sourceId,
+              timestampNs: timestampNs,
+              data: data,
+            );
+          }
+        }
+        return;
+      }
+
+      if (call.method == 'onScreenCaptureStopped') {
+        final reason = args['reason']?.toString() ?? 'stopped';
+        for (final runtime in List<AwsWindowsWebView2Runtime>.of(
+          _screenCaptureRuntimes,
+        )) {
+          if (runtime._activeScreenCaptureSourceId?.toLowerCase() ==
+              sourceId.toLowerCase()) {
+            unawaited(
+              runtime._handleNativeScreenCaptureStopped(sourceId, reason),
+            );
+          }
         }
       }
     });
+  }
+
+  /// Enumerates shareable Windows displays and application windows through the
+  /// native desktop plugin.
+  Future<List<Map<String, dynamic>>> listScreenShareSources() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) {
+      return const <Map<String, dynamic>>[];
+    }
+    final raw = await _windowsChannel.invokeListMethod<dynamic>(
+      'listScreenShareSources',
+    );
+    final results = <Map<String, dynamic>>[];
+    for (final item in raw ?? const <dynamic>[]) {
+      if (item is! Map) continue;
+      final id = item['id']?.toString().trim() ?? '';
+      if (id.isEmpty) continue;
+      final kind = item['kind']?.toString() == 'window' ? 'window' : 'display';
+      final rawName = item['name']?.toString().trim() ?? '';
+      results.add({
+        'id': id,
+        'name': rawName.isEmpty
+            ? (kind == 'window' ? 'Application window' : 'Entire display')
+            : rawName,
+        'kind': kind,
+      });
+    }
+    return List.unmodifiable(results);
+  }
+
+  /// Stores the chosen display or window ID for the next screen-share start.
+  void selectScreenShareSource(String sourceId) {
+    final trimmed = sourceId.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(
+        sourceId,
+        'sourceId',
+        'Screen share source id is required.',
+      );
+    }
+    _selectedScreenSourceId = trimmed;
+  }
+
+  /// Clears any previously selected screen-share target on session teardown.
+  void clearSelectedScreenShareSource() {
+    _selectedScreenSourceId = null;
+  }
+
+  /// Starts native Windows display/window capture and binds a dedicated canvas
+  /// MediaStreamTrack in WebView2 (`RealtimeScreenCaptureBridge`).
+  Future<String> startScreenShareCapture() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) {
+      throw UnsupportedError(
+        'Windows WebView2 screen capture requires Windows.',
+      );
+    }
+    await stopScreenShareCapture();
+    _ensureWindowsChannelHandler();
+    final sourceId = 'aws-screen-$providerId-${++_screenCaptureGeneration}';
+    _reportedProcessedFailures.remove(sourceId.toLowerCase());
+    _activeScreenCaptureSourceId = sourceId;
+    _screenCaptureRuntimes.add(this);
+    try {
+      await invoke('startScreenCaptureSource', payload: {'sourceId': sourceId});
+      await _windowsChannel.invokeMethod<void>('startScreenCapture', {
+        'sourceId': sourceId,
+        if (_selectedScreenSourceId != null &&
+            _selectedScreenSourceId!.isNotEmpty)
+          'targetId': _selectedScreenSourceId,
+      });
+      return sourceId;
+    } catch (_) {
+      await stopScreenShareCapture();
+      rethrow;
+    }
+  }
+
+  /// Stops active native Windows screen capture and releases the WebView2
+  /// screen-capture track.
+  Future<void> stopScreenShareCapture({bool notifyJsSession = false}) async {
+    final previousSourceId = _activeScreenCaptureSourceId;
+    _activeScreenCaptureSourceId = null;
+    _queuedScreenFrame = null;
+    _screenCaptureRuntimes.remove(this);
+    if (previousSourceId == null && !notifyJsSession) return;
+
+    if (previousSourceId != null) {
+      try {
+        await _windowsChannel.invokeMethod<void>('stopScreenCapture', {
+          'sourceId': previousSourceId,
+        });
+      } on MissingPluginException {
+        // Ignore when native Windows plugin is absent in unit tests.
+      } on PlatformException {
+        // Best-effort cleanup.
+      }
+    }
+
+    if (_ready) {
+      if (notifyJsSession) {
+        try {
+          await invoke(
+            'invoke',
+            name: 'command',
+            payload: {
+              'name': 'setScreenShareEnabled',
+              'args': const {'enabled': false},
+            },
+          );
+        } catch (_) {
+          // Ignore teardown errors when session already ended.
+        }
+      }
+      if (previousSourceId != null) {
+        try {
+          await invoke(
+            'stopScreenCaptureSource',
+            payload: {'sourceId': previousSourceId},
+          );
+        } catch (_) {
+          // Ignore detach RPC errors during teardown.
+        }
+      }
+    }
+  }
+
+  Future<void> _handleNativeScreenCaptureStopped(
+    String sourceId,
+    String reason,
+  ) async {
+    if (_activeScreenCaptureSourceId?.toLowerCase() != sourceId.toLowerCase()) {
+      return;
+    }
+    await stopScreenShareCapture(notifyJsSession: true);
+    if (!_events.isClosed) {
+      _events.add({
+        'type': 'screenCaptureStopped',
+        'sourceId': sourceId,
+        'reason': reason,
+      });
+    }
+  }
+
+  void _pushScreenFrame({
+    required String sourceId,
+    required int timestampNs,
+    required String data,
+  }) {
+    if (!_canPostWebMessage) return;
+    final payload = <String, Object?>{
+      'channel': _channel,
+      'kind': 'screenFrame',
+      'sourceId': sourceId,
+      'timestampNs': timestampNs,
+      'data': data,
+    };
+    if (_postingScreenFrame) {
+      _queuedScreenFrame = payload;
+      return;
+    }
+    _postingScreenFrame = true;
+    unawaited(_drainScreenFrames(payload));
+  }
+
+  Future<void> _drainScreenFrames(Map<String, Object?> initial) async {
+    Map<String, Object?>? current = initial;
+    try {
+      while (current != null &&
+          _canPostWebMessage &&
+          _activeScreenCaptureSourceId != null) {
+        await _postWebMessage(jsonEncode(current));
+        current = _queuedScreenFrame;
+        _queuedScreenFrame = null;
+      }
+    } catch (_) {
+      // Dropped frame cleanly when WebView2 is closing.
+    } finally {
+      _postingScreenFrame = false;
+    }
   }
 
   /// Checks whether Windows WebView2 and the native processed-video FrameHub
@@ -263,7 +487,12 @@ class AwsWindowsWebView2Runtime {
 
   void _reportProcessedVideoError(String sourceId, String message) {
     final key = sourceId.trim().toLowerCase();
-    if (key.isEmpty || !_reportedProcessedFailures.add(key)) return;
+    if (key.isEmpty) return;
+    if (_activeScreenCaptureSourceId?.toLowerCase() == key) {
+      unawaited(_handleNativeScreenCaptureStopped(sourceId, message));
+      return;
+    }
+    if (!_reportedProcessedFailures.add(key)) return;
     unawaited(
       _windowsChannel
           .invokeMethod<void>('reportProcessedVideoError', {
@@ -570,7 +799,9 @@ class AwsWindowsWebView2Runtime {
   }
 
   Future<void> dispose() async {
+    await stopScreenShareCapture();
     await detachProcessedVideoSource();
+    _selectedScreenSourceId = null;
     _ready = false;
     _initializing = null;
     _reportedProcessedFailures.clear();

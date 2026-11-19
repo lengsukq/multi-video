@@ -122,9 +122,16 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
   String? _boundJsTrackId;
   bool _painting = false;
 
-  String get _lookupTrackId => widget.track.isLocal
-      ? 'ivs:local-participant:${widget.track.userId}'
-      : 'ivs:participant:${widget.track.userId}';
+  String get _lookupTrackId {
+    if (widget.track.isScreenShare) {
+      return widget.track.isLocal
+          ? 'ivs:local-screen:${widget.track.userId}'
+          : 'ivs:screen-participant:${widget.track.userId}';
+    }
+    return widget.track.isLocal
+        ? 'ivs:local-participant:${widget.track.userId}'
+        : 'ivs:participant:${widget.track.userId}';
+  }
 
   @override
   void initState() {
@@ -142,9 +149,13 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
       final isScreen = item['isScreenShare'] == true;
       if (isScreen != widget.track.isScreenShare) continue;
       final isLocal = item['isLocal'] == true;
+      if (isLocal != widget.track.isLocal) continue;
       final participantId = item['participantId']?.toString() ?? '';
-      if (participantId == widget.track.userId &&
-          isLocal == widget.track.isLocal) {
+      final matchesUser = widget.track.isScreenShare && !widget.track.isLocal
+          ? (participantId == widget.track.userId ||
+                participantId == '${widget.track.userId}#content')
+          : participantId == widget.track.userId;
+      if (matchesUser) {
         return item['id']?.toString();
       }
     }
@@ -171,7 +182,8 @@ class _WindowsIvsFrameViewState extends State<_WindowsIvsFrameView> {
   void didUpdateWidget(covariant _WindowsIvsFrameView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.track.id != widget.track.id ||
-        oldWidget.track.isLocal != widget.track.isLocal) {
+        oldWidget.track.isLocal != widget.track.isLocal ||
+        oldWidget.track.isScreenShare != widget.track.isScreenShare) {
       _bound = false;
       _boundJsTrackId = null;
       _frame = null;

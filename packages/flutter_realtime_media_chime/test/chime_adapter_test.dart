@@ -978,6 +978,80 @@ void main() {
       );
     },
   );
+
+  test(
+    'Windows Chime lists screen sources and resets state when native capture stops',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      addTearDown(AwsWindowsWebView2Runtime.debugResetWindowsChannelHandler);
+
+      const windowsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_aws_desktop/windows',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final webMessages = <Map<String, dynamic>>[];
+
+      late final AwsWindowsWebView2Runtime testRuntime;
+      testRuntime = AwsWindowsWebView2Runtime.forTesting(
+        'chime',
+        probeOverride: () async => true,
+        postWebMessageOverride: (encoded) async {
+          final decoded = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
+          webMessages.add(decoded);
+          if (decoded['id'] != null) {
+            testRuntime.debugHandleWebMessage({
+              'channel': 'aws-windows-chime-v1',
+              'kind': 'result',
+              'id': decoded['id'],
+              'success': true,
+              'value': true,
+            });
+          }
+        },
+      );
+      addTearDown(testRuntime.dispose);
+
+      messenger.setMockMethodCallHandler(windowsChannel, (call) async => null);
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(windowsChannel, null),
+      );
+
+      final fake = FakeChimeMeetingSession();
+      final adapter = ChimeMediaSession(
+        session: fake,
+        windowsRuntime: testRuntime,
+      );
+      addTearDown(adapter.dispose);
+      await adapter.join(ChimeJoinInfo.fromBackendResponse(backendJson()));
+
+      expect(adapter.capabilities.canScreenShare, isTrue);
+      final sources = await adapter.listScreenShareSources();
+      expect(sources.map((s) => s.id), ['display:1', 'window:42']);
+      expect(sources.last.kind, MediaScreenShareSourceKind.window);
+
+      await adapter.selectScreenShareSource(sources.last);
+      expect(fake.actions, contains('selectScreenShareSource:window:42'));
+
+      await adapter.setScreenShareEnabled(true);
+      expect(fake.actions, contains('screen:true'));
+      expect(adapter.snapshot.localScreenShareEnabled, isTrue);
+
+      await testRuntime.startScreenShareCapture();
+      await messenger.handlePlatformMessage(
+        windowsChannel.name,
+        const StandardMethodCodec().encodeMethodCall(
+          const MethodCall('onScreenCaptureStopped', {
+            'reason': 'windowClosed',
+          }),
+        ),
+        (_) {},
+      );
+      await pumpEventQueue();
+      expect(adapter.snapshot.localScreenShareEnabled, isFalse);
+    },
+  );
 }
 
 class _PendingChimeSession extends FakeChimeMeetingSession {

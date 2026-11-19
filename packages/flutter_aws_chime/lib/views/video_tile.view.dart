@@ -170,15 +170,20 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
     }
   }
 
+  String get _lookupTrackId {
+    if (widget.tile.isContentShare) {
+      return widget.tile.isLocal
+          ? 'chime:local-screen:${widget.tile.attendeeId}'
+          : 'chime:remote-screen:${widget.tile.attendeeId}';
+    }
+    return 'chime:tile:${widget.tile.tileId}';
+  }
+
   Future<void> _bind() async {
     if (_bound || _binding || !mounted) return;
     _binding = true;
     try {
-      await _runtime.invoke(
-        'bind',
-        trackId: 'chime:tile:${widget.tile.tileId}',
-        viewKey: _viewKey,
-      );
+      await _runtime.invoke('bind', trackId: _lookupTrackId, viewKey: _viewKey);
       if (!mounted) {
         await _runtime.invoke('unbind', viewKey: _viewKey);
         return;
@@ -194,7 +199,10 @@ class _WindowsChimeFrameViewState extends State<_WindowsChimeFrameView> {
   @override
   void didUpdateWidget(covariant _WindowsChimeFrameView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.tile.tileId != widget.tile.tileId) {
+    if (oldWidget.tile.tileId != widget.tile.tileId ||
+        oldWidget.tile.isContentShare != widget.tile.isContentShare ||
+        oldWidget.tile.isLocal != widget.tile.isLocal ||
+        oldWidget.tile.attendeeId != widget.tile.attendeeId) {
       _bound = false;
       _frame = null;
       unawaited(

@@ -55,6 +55,13 @@ class _IvsSnapshotMapper {
           );
         }
       },
+      onLocalScreenShareStopped: () {
+        if (currentLease()) {
+          unawaited(
+            _session._eventTarget._publishing._onDesktopScreenCaptureStopped(),
+          );
+        }
+      },
       onRemoteAudioChanged: (id, available) {
         if (currentLease()) {
           _session._eventTarget._mapper._remoteAudioChanged(id, available);

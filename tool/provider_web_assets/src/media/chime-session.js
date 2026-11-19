@@ -408,7 +408,7 @@ export function createChimeSession(session, context) {
                 global.RealtimeScreenCaptureBridge?.getTrack?.(args.processedSourceId) ||
                 global.RealtimeProcessedVideoBridge?.getTrack?.(args.processedSourceId);
               if (!screenTrack || screenTrack.readyState === 'ended') {
-                throw new Error('Native macOS screen capture track is unavailable.');
+                throw new Error('Native desktop screen capture track is unavailable.');
               }
               stream = new global.MediaStream([screenTrack]);
               await audioVideo.startContentShare(stream);

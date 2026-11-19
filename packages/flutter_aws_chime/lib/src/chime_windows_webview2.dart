@@ -31,6 +31,7 @@ class ChimeWindowsWebview2Transport {
     if (subscription != null) unawaited(subscription.cancel());
     _subscription = null;
     _selectedCameraId = null;
+    _runtime.clearSelectedScreenShareSource();
     _participants = {};
     _tracks = {};
     _devices.clear();
@@ -56,12 +57,17 @@ class ChimeWindowsWebview2Transport {
           try {
             await _runtime.invoke('invoke', name: 'join');
           } catch (_) {
-            await _runtime.invoke('invoke', name: 'dispose')
+            await _runtime
+                .invoke('invoke', name: 'dispose')
                 .catchError((Object _) => null);
             rethrow;
           }
           return _success();
         case 'stop':
+          try {
+            await _runtime.stopScreenShareCapture();
+          } catch (_) {}
+          _runtime.clearSelectedScreenShareSource();
           try {
             await _runtime.detachProcessedVideoSource();
           } catch (_) {}
@@ -128,10 +134,39 @@ class ChimeWindowsWebview2Transport {
         case 'sendMessage':
           await _command('sendMessage', args);
           return _success();
+        case 'listScreenShareSources':
+          final sources = await _runtime.listScreenShareSources();
+          return _success(sources);
+        case 'selectScreenShareSource':
+          final sourceId = args['id']?.toString().trim() ?? '';
+          if (sourceId.isEmpty) {
+            return _failure(
+              'invalid_argument',
+              'Screen share source id is required.',
+            );
+          }
+          _runtime.selectScreenShareSource(sourceId);
+          return _success();
         case 'setScreenShareEnabled':
-          await _command('setScreenShareEnabled', {
-            'enabled': args['enabled'] == true,
-          });
+          final enabled = args['enabled'] == true;
+          if (!enabled) {
+            try {
+              await _command('setScreenShareEnabled', {'enabled': false});
+            } finally {
+              await _runtime.stopScreenShareCapture();
+            }
+            return _success();
+          }
+          final sourceId = await _runtime.startScreenShareCapture();
+          try {
+            await _command('setScreenShareEnabled', {
+              'enabled': true,
+              'processedSourceId': sourceId,
+            });
+          } catch (_) {
+            await _runtime.stopScreenShareCapture();
+            rethrow;
+          }
           return _success();
         case 'setCameraPosition':
           final devices = await _fetchNormalizedDevices();
@@ -147,14 +182,12 @@ class ChimeWindowsWebview2Transport {
               'No camera device is available on Windows.',
             );
           }
-          final desired =
-              (args['position']?.toString().toLowerCase() == 'back')
+          final desired = (args['position']?.toString().toLowerCase() == 'back')
               ? 'back'
               : 'front';
           final byLabel = cameras.cast<Map<String, dynamic>?>().firstWhere(
-            (c) => (c!['label']?.toString().toLowerCase() ?? '').contains(
-              desired,
-            ),
+            (c) =>
+                (c!['label']?.toString().toLowerCase() ?? '').contains(desired),
             orElse: () => null,
           );
           final target =
@@ -237,12 +270,8 @@ class ChimeWindowsWebview2Transport {
     }
   }
 
-  Future<dynamic> _command(String name, Map<String, dynamic> args) =>
-      _runtime.invoke(
-        'invoke',
-        name: 'command',
-        payload: {'name': name, 'args': args},
-      );
+  Future<dynamic> _command(String name, Map<String, dynamic> args) => _runtime
+      .invoke('invoke', name: 'command', payload: {'name': name, 'args': args});
 
   Map<String, dynamic> _chimePayload(Map<String, dynamic> data) {
     const required = [
@@ -402,8 +431,13 @@ class ChimeWindowsWebview2Transport {
     };
   }
 
-  Map<String, dynamic> _success([Object? data]) =>
-      {'success': true, 'data': data};
-  Map<String, dynamic> _failure(String code, String message) =>
-      {'success': false, 'code': code, 'message': message};
+  Map<String, dynamic> _success([Object? data]) => {
+    'success': true,
+    'data': data,
+  };
+  Map<String, dynamic> _failure(String code, String message) => {
+    'success': false,
+    'code': code,
+    'message': message,
+  };
 }

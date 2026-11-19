@@ -1062,6 +1062,9 @@ private final class AwsDesktopRuntime: NSObject,
     }
     if notifyJsSession {
       command(provider, name: "setScreenShareEnabled", args: ["enabled": false]) { _, _ in }
+      if provider == .ivs {
+        ivsSink?(["type": "localScreenShareStopped"])
+      }
     }
     if let sourceId, let webView, bridgeReady {
       Task { @MainActor in

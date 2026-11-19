@@ -154,13 +154,19 @@ import { createChimeSession } from './media/chime-session.js';
 
   function publishSnapshot(session) {
     const participants = [...session.participants.values()];
+    const tracks = [...session.tracks.values()].map(({ native, ...track }) => track);
+    const contentShareTrack =
+      tracks.find((track) => track.isScreenShare && !track.isLocal) ||
+      tracks.find((track) => track.isScreenShare) ||
+      null;
     emit(session, {
       type: 'snapshot',
       localParticipantId: session.localParticipantId,
       localMuted: session.localMuted,
       localVideoEnabled: session.localVideoEnabled,
       participants,
-      tracks: [...session.tracks.values()].map(({ native, ...track }) => track),
+      tracks,
+      contentShareTrack,
     });
   }
 

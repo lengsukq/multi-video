@@ -442,7 +442,9 @@ class _ChimeMediaControls {
 
   Future<List<MediaScreenShareSource>> listScreenShareSources() async {
     _session._ensureActive();
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS) {
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.macOS &&
+            defaultTargetPlatform != TargetPlatform.windows)) {
       return const <MediaScreenShareSource>[];
     }
     try {
@@ -466,7 +468,11 @@ class _ChimeMediaControls {
 
   Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
     _session._ensureActive();
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS) return;
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.macOS &&
+            defaultTargetPlatform != TargetPlatform.windows)) {
+      return;
+    }
     try {
       await _session._session.selectScreenShareSource(
         id: source.id,

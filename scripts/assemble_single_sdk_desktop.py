@@ -14,6 +14,7 @@ PROCESSED_VIDEO = ROOT / "packages" / "flutter_realtime_processed_video"
 LIVEKIT = ROOT / "packages" / "flutter_realtime_media_livekit"
 AGORA = ROOT / "packages" / "flutter_realtime_media_agora"
 TRTC = ROOT / "packages" / "flutter_realtime_media_trtc"
+AWS_DESKTOP = ROOT / "packages" / "flutter_realtime_media_aws_desktop"
 
 
 def enable_platform(name: str, config: str) -> None:
@@ -54,7 +55,7 @@ def windows() -> None:
     shutil.copytree(PROCESSED_VIDEO / "windows" / "include",
                     dst / "processed_video" / "include")
     for package, folder in ((LIVEKIT, "livekit"), (AGORA, "agora"),
-                            (TRTC, "trtc")):
+                            (TRTC, "trtc"), (AWS_DESKTOP, "aws_desktop")):
         shutil.copytree(package / "windows", dst / folder)
     api = dst / "include" / "flutter_realtime_sdk"
     api.mkdir(parents=True, exist_ok=True)
@@ -82,12 +83,14 @@ FLUTTER_SDK_EXPORT void FlutterRealtimeSdkPluginCApiRegisterWithRegistrar(
 #include "livekit/include/flutter_realtime_media_livekit/flutter_realtime_media_livekit_plugin_c_api.h"
 #include "agora/include/flutter_realtime_media_agora/flutter_realtime_media_agora_plugin_c_api.h"
 #include "trtc/include/flutter_realtime_media_trtc/flutter_realtime_media_trtc_plugin_c_api.h"
+#include "aws_desktop/include/flutter_realtime_media_aws_desktop/flutter_realtime_media_aws_desktop_plugin_c_api.h"
 void FlutterRealtimeSdkPluginCApiRegisterWithRegistrar(FlutterDesktopPluginRegistrarRef registrar) {
   FlutterRealtimeScreenAnnotationPluginCApiRegisterWithRegistrar(registrar);
   FlutterRealtimeVideoEffectsPluginCApiRegisterWithRegistrar(registrar);
   FlutterRealtimeMediaLivekitPluginCApiRegisterWithRegistrar(registrar);
   FlutterRealtimeMediaAgoraPluginCApiRegisterWithRegistrar(registrar);
   FlutterRealtimeMediaTrtcPluginCApiRegisterWithRegistrar(registrar);
+  FlutterRealtimeMediaAwsDesktopPluginCApiRegisterWithRegistrar(registrar);
 }
 """)
     cmake = (dst / "CMakeLists.txt")
@@ -100,7 +103,8 @@ void FlutterRealtimeSdkPluginCApiRegisterWithRegistrar(FlutterDesktopPluginRegis
         '"effects/flutter_realtime_video_effects_plugin.cpp" '
         '"livekit/livekit_processed_video_plugin.cpp" '
         '"agora/agora_processed_video_plugin.cpp" '
-        '"trtc/trtc_processed_video_plugin.cpp"'
+        '"trtc/trtc_processed_video_plugin.cpp" '
+        '"aws_desktop/flutter_realtime_media_aws_desktop_plugin.cpp"'
     ).replace(
         'set(flutter_realtime_screen_annotation_bundled_libraries',
         'set(flutter_realtime_sdk_bundled_libraries'
@@ -113,10 +117,11 @@ void FlutterRealtimeSdkPluginCApiRegisterWithRegistrar(FlutterDesktopPluginRegis
         '  "${CMAKE_CURRENT_SOURCE_DIR}/livekit"\n'
         '  "${CMAKE_CURRENT_SOURCE_DIR}/agora"\n'
         '  "${CMAKE_CURRENT_SOURCE_DIR}/trtc"\n'
+        '  "${CMAKE_CURRENT_SOURCE_DIR}/aws_desktop"\n'
         '  "${CMAKE_CURRENT_SOURCE_DIR}/processed_video/include"\n'
         ')\n'
         'target_link_libraries(${PLUGIN_NAME} PRIVATE '
-        'mfplat mfreadwrite mf mfuuid windowscodecs ole32 '
+        'mfplat mfreadwrite mf mfuuid windowscodecs ole32 dwmapi '
         'd3d11 d3dcompiler dxgi)\n'
         '# Keep Windows background effects responsive in Flutter Debug, and '
         'tolerate Media Foundation C4245 in recent MSVC.\n'

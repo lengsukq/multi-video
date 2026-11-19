@@ -97,41 +97,53 @@ void main() {
     // Enabling the transport never grants camera/microphone permissions;
     // availability is checked separately by ChimeSessionFactory.
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    expect(const bool.fromEnvironment(
-      'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL',
-      defaultValue: true,
-    ), isTrue);
+    expect(
+      const bool.fromEnvironment(
+        'AWS_CHIME_WINDOWS_WEBVIEW2_EXPERIMENTAL',
+        defaultValue: true,
+      ),
+      isTrue,
+    );
     final owner = Object();
     ChimeNativeChannel.instance.reserve(owner, (_) {});
     ChimeNativeChannel.instance.release(owner);
   });
 
-  test('macOS may join Chime as a listener when both media permissions are denied', () async {
-    // ignore: deprecated_member_use
-    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-    final session = activeSession = ChimeMeetingSession();
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(_channel, (call) async {
-      calls.add(call);
-      if (call.method == 'manageAudioPermissions' ||
-          call.method == 'manageVideoPermissions') {
-        return {
-          'success': false,
-          'code': 'permission_denied',
-          'message': 'Device unavailable on macOS.',
-          'data': null,
-          'details': null,
-        };
-      }
-      return _success();
-    });
+  test(
+    'macOS may join Chime as a listener when both media permissions are denied',
+    () async {
+      // ignore: deprecated_member_use
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      final session = activeSession = ChimeMeetingSession();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_channel, (call) async {
+            calls.add(call);
+            if (call.method == 'manageAudioPermissions' ||
+                call.method == 'manageVideoPermissions') {
+              return {
+                'success': false,
+                'code': 'permission_denied',
+                'message': 'Device unavailable on macOS.',
+                'data': null,
+                'details': null,
+              };
+            }
+            return _success();
+          });
 
-    await session.join(_joinInfo());
-    expect(session.state, MeetingState.connecting);
-    expect(calls.map((call) => call.method), contains('join'));
-    expect(calls.map((call) => call.method), contains('manageAudioPermissions'));
-    expect(calls.map((call) => call.method), contains('manageVideoPermissions'));
-  });
+      await session.join(_joinInfo());
+      expect(session.state, MeetingState.connecting);
+      expect(calls.map((call) => call.method), contains('join'));
+      expect(
+        calls.map((call) => call.method),
+        contains('manageAudioPermissions'),
+      );
+      expect(
+        calls.map((call) => call.method),
+        contains('manageVideoPermissions'),
+      );
+    },
+  );
 
   test(
     'rejects malformed join info as a typed exception before platform calls',
@@ -311,48 +323,51 @@ void main() {
     final session = activeSession = ChimeMeetingSession();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_channel, (call) async {
-      calls.add(call);
-      if (call.method == 'manageAudioPermissions' ||
-          call.method == 'manageVideoPermissions') {
-        return {
-          'success': false,
-          'code': 'permission_denied',
-          'message': 'Device permission denied',
-        };
-      }
-      return _success();
-    });
+          calls.add(call);
+          if (call.method == 'manageAudioPermissions' ||
+              call.method == 'manageVideoPermissions') {
+            return {
+              'success': false,
+              'code': 'permission_denied',
+              'message': 'Device permission denied',
+            };
+          }
+          return _success();
+        });
     await session.join(_joinInfo());
     expect(session.state, MeetingState.connecting);
     expect(calls.map((call) => call.method), contains('join'));
   });
 
-  test('maps other native response errors to stable typed exceptions', () async {
-    final session = activeSession = ChimeMeetingSession();
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(_channel, (call) async {
-          calls.add(call);
-          if (call.method == 'manageAudioPermissions') {
-            return {
-              'success': false,
-              'code': 'invalid_state',
-              'message': 'Native audio session unavailable.',
-              'data': null,
-              'details': {'source': 'native'},
-            };
-          }
-          return _success();
-        });
+  test(
+    'maps other native response errors to stable typed exceptions',
+    () async {
+      final session = activeSession = ChimeMeetingSession();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_channel, (call) async {
+            calls.add(call);
+            if (call.method == 'manageAudioPermissions') {
+              return {
+                'success': false,
+                'code': 'invalid_state',
+                'message': 'Native audio session unavailable.',
+                'data': null,
+                'details': {'source': 'native'},
+              };
+            }
+            return _success();
+          });
 
-    try {
-      await session.join(_joinInfo());
-      fail('Expected join to fail.');
-    } on RealtimeException catch (error) {
-      expect(error.code, RealtimeErrorCode.invalidState);
-      expect(error.message, 'Native audio session unavailable.');
-      expect(error.details, {'source': 'native'});
-    }
-  });
+      try {
+        await session.join(_joinInfo());
+        fail('Expected join to fail.');
+      } on RealtimeException catch (error) {
+        expect(error.code, RealtimeErrorCode.invalidState);
+        expect(error.message, 'Native audio session unavailable.');
+        expect(error.details, {'source': 'native'});
+      }
+    },
+  );
 
   test(
     'enforces one active session and idempotent leave and dispose',
@@ -640,9 +655,7 @@ void main() {
         'chime',
         probeOverride: () async => true,
         postWebMessageOverride: (encoded) async {
-          final decoded = Map<String, dynamic>.from(
-            jsonDecode(encoded) as Map,
-          );
+          final decoded = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
           webCalls.add(decoded);
           if (decoded['id'] != null) {
             final payload = decoded['payload'];
@@ -652,8 +665,16 @@ void main() {
                 payload is Map &&
                 payload['name'] == 'listDevices') {
               value = jsonEncode([
-                {'id': 'cam-front-1', 'label': 'Front Integrated Cam', 'kind': 'camera'},
-                {'id': 'cam-ext-2', 'label': 'USB Studio Cam', 'kind': 'camera'},
+                {
+                  'id': 'cam-front-1',
+                  'label': 'Front Integrated Cam',
+                  'kind': 'camera',
+                },
+                {
+                  'id': 'cam-ext-2',
+                  'label': 'USB Studio Cam',
+                  'kind': 'camera',
+                },
               ]);
             }
             runtime.debugHandleWebMessage({
@@ -673,7 +694,9 @@ void main() {
         if (call.method == 'probeProcessedVideoInput') return true;
         return null;
       });
-      addTearDown(() => messenger.setMockMethodCallHandler(windowsChannel, null));
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(windowsChannel, null),
+      );
 
       final transport = ChimeWindowsWebview2Transport((_) {}, runtime: runtime);
       transport.reserve();
@@ -689,25 +712,22 @@ void main() {
       expect(invalidAttach['success'], isFalse);
       expect(invalidAttach['code'], 'invalid_argument');
 
-      final attached = await transport.invoke(
-        'attachProcessedVideoSource',
-        {'sourceId': 'win_effects_42'},
-      );
+      final attached = await transport.invoke('attachProcessedVideoSource', {
+        'sourceId': 'win_effects_42',
+      });
       expect(attached['success'], isTrue);
       expect(
         nativeCalls.map((c) => c.method),
         contains('subscribeProcessedVideo'),
       );
 
-      final switchedFront = await transport.invoke(
-        'setCameraPosition',
-        {'position': 'front'},
-      );
+      final switchedFront = await transport.invoke('setCameraPosition', {
+        'position': 'front',
+      });
       expect(switchedFront['success'], isTrue);
-      final switchedAlternate = await transport.invoke(
-        'setCameraPosition',
-        {'position': 'back'},
-      );
+      final switchedAlternate = await transport.invoke('setCameraPosition', {
+        'position': 'back',
+      });
       expect(switchedAlternate['success'], isTrue);
       final selectedIds = webCalls
           .where(
@@ -732,6 +752,130 @@ void main() {
       expect(
         nativeCalls.map((c) => c.method),
         contains('unsubscribeProcessedVideo'),
+      );
+    },
+  );
+
+  test(
+    'ChimeWindowsWebview2Transport enumerates, selects, starts, and stops Windows screen share',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      addTearDown(AwsWindowsWebView2Runtime.debugResetWindowsChannelHandler);
+
+      const windowsChannel = MethodChannel(
+        'com.oneplusdream.flutter_realtime_media_aws_desktop/windows',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final nativeCalls = <MethodCall>[];
+      final webCalls = <Map<String, dynamic>>[];
+
+      late final AwsWindowsWebView2Runtime runtime;
+      runtime = AwsWindowsWebView2Runtime.forTesting(
+        'chime',
+        probeOverride: () async => true,
+        postWebMessageOverride: (encoded) async {
+          final decoded = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
+          webCalls.add(decoded);
+          if (decoded['id'] != null) {
+            runtime.debugHandleWebMessage({
+              'channel': 'aws-windows-chime-v1',
+              'kind': 'result',
+              'id': decoded['id'],
+              'success': true,
+              'value': true,
+            });
+          }
+        },
+      );
+      addTearDown(runtime.dispose);
+
+      messenger.setMockMethodCallHandler(windowsChannel, (call) async {
+        nativeCalls.add(call);
+        if (call.method == 'listScreenShareSources') {
+          return [
+            {
+              'id': 'display:1',
+              'name': 'Primary Display (2560x1440)',
+              'kind': 'display',
+            },
+            {
+              'id': 'window:0x1024',
+              'name': 'Visual Studio Code',
+              'kind': 'window',
+            },
+          ];
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(windowsChannel, null),
+      );
+
+      final transport = ChimeWindowsWebview2Transport((_) {}, runtime: runtime);
+      transport.reserve();
+      addTearDown(transport.release);
+
+      final listed = await transport.invoke('listScreenShareSources', null);
+      expect(listed['success'], isTrue);
+      expect((listed['data'] as List).length, 2);
+
+      final invalidSelect = await transport.invoke('selectScreenShareSource', {
+        'id': '   ',
+      });
+      expect(invalidSelect['success'], isFalse);
+      expect(invalidSelect['code'], 'invalid_argument');
+
+      final selected = await transport.invoke('selectScreenShareSource', {
+        'id': 'window:0x1024',
+        'name': 'Visual Studio Code',
+        'kind': 'window',
+      });
+      expect(selected['success'], isTrue);
+
+      final started = await transport.invoke('setScreenShareEnabled', {
+        'enabled': true,
+      });
+      expect(started['success'], isTrue);
+
+      final startCaptureCall = nativeCalls.singleWhere(
+        (c) => c.method == 'startScreenCapture',
+      );
+      final captureArgs = Map<String, dynamic>.from(
+        startCaptureCall.arguments as Map,
+      );
+      expect(captureArgs['targetId'], 'window:0x1024');
+      final generatedSourceId = captureArgs['sourceId'] as String;
+      expect(generatedSourceId, startsWith('aws_win_screen_chime_'));
+
+      expect(
+        webCalls.any(
+          (m) =>
+              m['operation'] == 'startScreenCaptureSource' &&
+              (m['payload'] as Map?)?['sourceId'] == generatedSourceId,
+        ),
+        isTrue,
+      );
+      final jsEnableCall = webCalls.singleWhere(
+        (m) =>
+            m['operation'] == 'invoke' &&
+            m['name'] == 'command' &&
+            (m['payload'] as Map?)?['name'] == 'setScreenShareEnabled',
+      );
+      expect(
+        ((jsEnableCall['payload'] as Map)['args'] as Map)['processedSourceId'],
+        generatedSourceId,
+      );
+
+      final stopped = await transport.invoke('setScreenShareEnabled', {
+        'enabled': false,
+      });
+      expect(stopped['success'], isTrue);
+      expect(nativeCalls.any((c) => c.method == 'stopScreenCapture'), isTrue);
+      expect(
+        webCalls.any((m) => m['operation'] == 'stopScreenCaptureSource'),
+        isTrue,
       );
     },
   );

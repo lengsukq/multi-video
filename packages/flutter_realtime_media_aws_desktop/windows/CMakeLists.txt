@@ -30,6 +30,9 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
   flutter_wrapper_plugin
   windowscodecs
   ole32
+  gdi32
+  user32
+  dwmapi
 )
 
 set(flutter_realtime_media_aws_desktop_bundled_libraries

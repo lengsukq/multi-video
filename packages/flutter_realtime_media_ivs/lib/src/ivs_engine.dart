@@ -67,6 +67,7 @@ class IvsEngineEvents {
     this.onParticipantLeft,
     this.onRemoteVideoChanged,
     this.onRemoteScreenShareChanged,
+    this.onLocalScreenShareStopped,
     this.onRemoteAudioChanged,
     this.onReconnecting,
     this.onRecovered,
@@ -80,6 +81,7 @@ class IvsEngineEvents {
   final void Function(String userId, bool available)? onRemoteVideoChanged;
   final void Function(String ownerUserId, String trackUserId, bool available)?
   onRemoteScreenShareChanged;
+  final void Function()? onLocalScreenShareStopped;
   final void Function(String userId, bool available)? onRemoteAudioChanged;
   final void Function()? onReconnecting;
   final void Function()? onRecovered;
@@ -261,6 +263,9 @@ class _NativeIvsEngine implements IvsEngine {
             event['available'] == true,
           );
         }
+        return;
+      case 'localScreenShareStopped':
+        _handlers.onLocalScreenShareStopped?.call();
         return;
       case 'audioChanged':
         if (userId.isNotEmpty) {

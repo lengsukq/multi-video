@@ -79,6 +79,13 @@ class _IvsPublishing {
 
   Future<List<MediaScreenShareSource>> listScreenShareSources() async {
     _session._requireActive();
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      final engine = _session._engine;
+      if (engine is WindowsIvsWebView2Engine) {
+        return engine.listScreenShareSources();
+      }
+      return const <MediaScreenShareSource>[];
+    }
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS) {
       return const <MediaScreenShareSource>[];
     }
@@ -104,6 +111,13 @@ class _IvsPublishing {
 
   Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
     _session._requireActive();
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      final engine = _session._engine;
+      if (engine is WindowsIvsWebView2Engine) {
+        await engine.selectScreenShareSource(source);
+      }
+      return;
+    }
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.macOS) return;
     try {
       await _iosChannel.invokeMethod<void>('selectScreenShareSource', {
@@ -113,6 +127,30 @@ class _IvsPublishing {
       });
     } on PlatformException catch (error) {
       throw mapIvsPlatformError(error);
+    }
+  }
+
+  Future<void> _onDesktopScreenCaptureStopped() async {
+    if (!_desktopScreenShareEnabled) return;
+    _desktopScreenShareEnabled = false;
+    await _revokeAuxiliaryScreenTokenIfNeeded();
+    if (_session._disposed) return;
+    final previousContent = _session._snapshot.contentShareTrack;
+    final clearLocal = previousContent?.isLocal == true;
+    _session._setSnapshot(
+      _session._snapshot.copyWith(
+        localScreenShareEnabled: false,
+        clearContentShareTrack: clearLocal,
+      ),
+    );
+    if (clearLocal && previousContent != null) {
+      _session._emit(
+        MediaTrackUnpublished(
+          trackId: previousContent.id,
+          participantId: previousContent.participantId,
+          wasScreenShare: true,
+        ),
+      );
     }
   }
 

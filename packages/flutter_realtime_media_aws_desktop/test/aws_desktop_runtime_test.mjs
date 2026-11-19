@@ -841,4 +841,197 @@ test('Windows runtime consumes pushed JPEG data-URL processed frames without cus
   assert.equal(bridgeCommands[1].name, 'detachProcessedVideoSource');
 });
 
+test('Windows host bridges screen capture source frames and resolves Chime & IVS screen tracks', async () => {
+  const [windowsRuntimeSource, windowsHostSource] = await Promise.all([
+    readFile(new URL('../assets/windows_runtime.js', import.meta.url), 'utf8'),
+    readFile(new URL('../assets/windows_host.js', import.meta.url), 'utf8'),
+  ]);
+  const posted = [];
+  const loadedImageUrls = [];
+  const attachedTracks = [];
+  let messageHandler = null;
+
+  class FakeWindowsImage {
+    naturalWidth = 1280;
+    naturalHeight = 720;
+    onload = null;
+    onerror = null;
+    set src(url) {
+      loadedImageUrls.push(url);
+      setTimeout(() => this.onload?.(), 0);
+    }
+  }
+
+  class FakeElement {
+    width = 0;
+    height = 0;
+    id = '';
+    className = '';
+    style = { cssText: '' };
+    videoChild = null;
+    getContext() {
+      return { fillStyle: '', fillRect() {}, drawImage() {} };
+    }
+    toDataURL() {
+      return 'data:image/png;base64,AA==';
+    }
+    captureStream() {
+      const track = {
+        enabled: true,
+        readyState: 'live',
+        requestFrame() {},
+        stop() { this.readyState = 'ended'; },
+      };
+      return {
+        getVideoTracks() { return [track]; },
+        getTracks() { return [track]; },
+      };
+    }
+    querySelector(selector) {
+      return selector === 'video' ? this.videoChild : null;
+    }
+    remove() {}
+  }
+
+  const elementsById = new Map();
+  const context = {
+    chrome: {
+      webview: {
+        postMessage: (msg) => posted.push(msg),
+        addEventListener: (event, fn) => {
+          if (event === 'message') messageHandler = fn;
+        },
+      },
+    },
+    location: { hostname: 'aws-ivs-local.invalid' },
+    document: {
+      body: {
+        appendChild(el) {
+          if (el && el.id) elementsById.set(el.id, el);
+        },
+      },
+      createElement() { return new FakeElement(); },
+    },
+    Image: FakeWindowsImage,
+    MediaProviderBridge: {
+      async command() {},
+      async attachVideo(providerId, sessionId, trackId, containerId) {
+        attachedTracks.push({ providerId, sessionId, trackId, containerId });
+        const container = elementsById.get(containerId);
+        if (container) {
+          container.videoChild = {
+            readyState: 0,
+            videoWidth: 1280,
+            videoHeight: 720,
+            currentTime: 0,
+          };
+        }
+      },
+      detachVideo() {},
+    },
+    requestAnimationFrame() { return 1; },
+    cancelAnimationFrame() {},
+    setTimeout,
+    clearTimeout,
+  };
+  context.globalThis = context;
+
+  vm.runInNewContext(windowsRuntimeSource, context, { filename: 'windows_runtime.js' });
+  vm.runInNewContext(windowsHostSource, context, { filename: 'windows_host.js' });
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 1,
+      operation: 'startScreenCaptureSource',
+      providerId: 'ivs',
+      sessionId: 'aws-desktop-ivs',
+      payload: { sourceId: 'win-screen-1' },
+    },
+  });
+
+  const screenTrack = context.RealtimeScreenCaptureBridge.getTrack('win-screen-1');
+  assert.equal(screenTrack.readyState, 'live');
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      kind: 'screenFrame',
+      sourceId: 'win-screen-1',
+      timestampNs: 7788,
+      data: 'data:image/jpeg;base64,/9j/4AAQScreen',
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.ok(loadedImageUrls.includes('data:image/jpeg;base64,/9j/4AAQScreen'));
+
+  context.__flutterMediaProviderOnEvent('aws-desktop-ivs', {
+    type: 'snapshot',
+    tracks: [
+      { id: 'ivs:local:camera', participantId: 'host-1', isLocal: true, isScreenShare: false },
+      { id: 'ivs:local:screen', participantId: 'host-1', isLocal: true, isScreenShare: true },
+      { id: 'ivs:remote:cam-2', participantId: 'user-2', isLocal: false, isScreenShare: false },
+      { id: 'ivs:remote:scr-2', participantId: 'user-2#content', isLocal: false, isScreenShare: true },
+    ],
+  });
+  context.__flutterMediaProviderOnEvent('aws-desktop-chime', {
+    type: 'snapshot',
+    tracks: [
+      { id: 'chime:screen:att-local', participantId: 'att-local', isLocal: true, isScreenShare: true },
+      { id: 'chime:tile:9', participantId: 'att-remote#content', isLocal: false, isScreenShare: true },
+    ],
+  });
+
+  assert.equal(
+    context.AwsDesktopRuntime.resolveTrackId('chime', 'aws-desktop-chime', 'chime:local-screen:att-local'),
+    'chime:screen:att-local',
+  );
+  assert.equal(
+    context.AwsDesktopRuntime.resolveTrackId('chime', 'aws-desktop-chime', 'chime:remote-screen:att-remote'),
+    'chime:tile:9',
+  );
+  assert.equal(
+    context.AwsDesktopRuntime.resolveTrackId('ivs', 'aws-desktop-ivs', 'ivs:local-participant:host-1'),
+    'ivs:local:camera',
+  );
+
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 2,
+      operation: 'bind',
+      trackId: 'ivs:local-screen:host-1',
+      viewKey: 'view-local-screen',
+    },
+  });
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 3,
+      operation: 'bind',
+      trackId: 'ivs:screen-participant:user-2',
+      viewKey: 'view-remote-screen',
+    },
+  });
+  await messageHandler({
+    data: {
+      channel: 'aws-windows-ivs-v1',
+      id: 4,
+      operation: 'stopScreenCaptureSource',
+      providerId: 'ivs',
+      sessionId: 'aws-desktop-ivs',
+      payload: { sourceId: 'win-screen-1' },
+    },
+  });
+
+  const results = posted.filter((m) => m.kind === 'result');
+  assert.equal(results.length, 4);
+  for (const res of results) {
+    assert.equal(res.success, true, res.message);
+  }
+  assert.equal(attachedTracks.length, 2);
+  assert.equal(attachedTracks[0].trackId, 'ivs:local:screen');
+  assert.equal(attachedTracks[1].trackId, 'ivs:remote:scr-2');
+  assert.equal(screenTrack.readyState, 'ended');
+});
 

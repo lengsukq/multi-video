@@ -21,6 +21,7 @@ class WindowsIvsWebView2Engine implements IvsEngine {
   final Map<String, Map<String, dynamic>> _participants = {};
   final Set<String> _videoParticipants = {};
   String? _remoteScreenTrackUserId;
+  bool _hadLocalScreenTrack = false;
   Map<String, dynamic>? _joinPayload;
   String? _localUserId;
   Map<String, dynamic>? _selectedCamera;
@@ -203,15 +204,67 @@ class WindowsIvsWebView2Engine implements IvsEngine {
         'kind': 'audioOutput',
       });
 
+  Future<List<MediaScreenShareSource>> listScreenShareSources() async {
+    if (!_joined || _disposed) {
+      throw StateError('IVS Windows Stage is inactive.');
+    }
+    final raw = await _runtime.listScreenShareSources();
+    return raw
+        .map(
+          (item) => MediaScreenShareSource(
+            id: item['id']?.toString() ?? '',
+            name: item['name']?.toString() ?? '',
+            kind: item['kind'] == 'window'
+                ? MediaScreenShareSourceKind.window
+                : MediaScreenShareSourceKind.display,
+          ),
+        )
+        .where((source) => source.id.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  Future<void> selectScreenShareSource(MediaScreenShareSource source) async {
+    if (!_joined || _disposed) {
+      throw StateError('IVS Windows Stage is inactive.');
+    }
+    if (source.id.trim().isEmpty) {
+      throw const RealtimeException(
+        code: RealtimeErrorCode.invalidArgument,
+        providerId: 'ivs',
+        message: 'Screen share source id is required.',
+      );
+    }
+    _runtime.selectScreenShareSource(source.id);
+  }
+
   Future<void> setScreenShareEnabled(
     bool enabled, {
     String? auxiliaryToken,
   }) async {
-    await _command('setScreenShareEnabled', {
-      'enabled': enabled,
-      if (auxiliaryToken != null && auxiliaryToken.trim().isNotEmpty)
-        'auxiliaryToken': auxiliaryToken.trim(),
-    });
+    if (!_joined || _disposed) {
+      throw StateError('IVS Windows Stage is inactive.');
+    }
+    if (!enabled) {
+      _hadLocalScreenTrack = false;
+      try {
+        await _command('setScreenShareEnabled', {'enabled': false});
+      } finally {
+        await _runtime.stopScreenShareCapture();
+      }
+      return;
+    }
+    final sourceId = await _runtime.startScreenShareCapture();
+    try {
+      await _command('setScreenShareEnabled', {
+        'enabled': true,
+        'processedSourceId': sourceId,
+        if (auxiliaryToken != null && auxiliaryToken.trim().isNotEmpty)
+          'auxiliaryToken': auxiliaryToken.trim(),
+      });
+    } catch (_) {
+      await _runtime.stopScreenShareCapture();
+      rethrow;
+    }
   }
 
   Future<void> attachProcessedVideoSource(ProcessedVideoSource source) =>
@@ -284,10 +337,14 @@ class WindowsIvsWebView2Engine implements IvsEngine {
             _joined) {
           _joined = false;
           _reconnecting = false;
+          _hadLocalScreenTrack = false;
           _events.onDisconnected?.call();
         }
       case 'snapshot':
         _onSnapshot(event);
+      case 'screenCaptureStopped':
+        _hadLocalScreenTrack = false;
+        _events.onLocalScreenShareStopped?.call();
       case 'stats':
         _events.onStats?.call(Map<String, Object?>.from(event));
       case 'error':
@@ -322,18 +379,32 @@ class WindowsIvsWebView2Engine implements IvsEngine {
       }
     }
     final videos = <String>{};
+    var hasLocalScreenTrack = false;
+    Map<Object?, Object?>? fallbackRemoteScreenTrack;
     final rawTracks = event['tracks'];
     if (rawTracks is List) {
       for (final item in rawTracks) {
-        if (item is! Map ||
-            item['isLocal'] == true ||
-            item['isScreenShare'] == true) {
+        if (item is! Map) continue;
+        if (item['isScreenShare'] == true) {
+          if (item['isLocal'] == true) {
+            hasLocalScreenTrack = true;
+          } else {
+            fallbackRemoteScreenTrack ??= item;
+          }
           continue;
         }
+        if (item['isLocal'] == true) continue;
         final id = item['participantId']?.toString() ?? '';
         if (current.containsKey(id)) videos.add(id);
       }
     }
+    if (_hadLocalScreenTrack && !hasLocalScreenTrack && !_exchangingToken) {
+      _hadLocalScreenTrack = false;
+      _events.onLocalScreenShareStopped?.call();
+    } else {
+      _hadLocalScreenTrack = hasLocalScreenTrack;
+    }
+
     for (final id in current.keys) {
       final hadVideo = _videoParticipants.contains(id);
       if (hadVideo != videos.contains(id)) {
@@ -353,9 +424,14 @@ class WindowsIvsWebView2Engine implements IvsEngine {
     _videoParticipants
       ..clear()
       ..addAll(videos);
-    final rawContentTrack = event['contentShareTrack'];
+
+    final explicitContentTrack = event['contentShareTrack'];
+    final rawContentTrack =
+        (explicitContentTrack is Map && explicitContentTrack['isLocal'] != true)
+        ? explicitContentTrack
+        : fallbackRemoteScreenTrack;
     String? nextScreenTrackUserId;
-    if (rawContentTrack is Map && rawContentTrack['isLocal'] != true) {
+    if (rawContentTrack != null) {
       final trackParticipant = rawContentTrack['participantId']
           ?.toString()
           .trim();
@@ -393,6 +469,11 @@ class WindowsIvsWebView2Engine implements IvsEngine {
   Future<void> leave() async {
     if (!_joined) return;
     _joined = false;
+    _hadLocalScreenTrack = false;
+    try {
+      await _runtime.stopScreenShareCapture();
+    } catch (_) {}
+    _runtime.clearSelectedScreenShareSource();
     try {
       await _runtime.invoke('invoke', name: 'leave');
     } finally {
@@ -410,6 +491,11 @@ class WindowsIvsWebView2Engine implements IvsEngine {
       await leave();
     } finally {
       _disposed = true;
+      _hadLocalScreenTrack = false;
+      try {
+        await _runtime.stopScreenShareCapture();
+      } catch (_) {}
+      _runtime.clearSelectedScreenShareSource();
       await _subscription?.cancel();
       _subscription = null;
       try {

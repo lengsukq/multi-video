@@ -15,7 +15,7 @@
   host.addEventListener('message', async function (event) {
     const request = event.data;
     if (!request || request.channel !== channel) return;
-    if (request.kind === 'processedFrame') {
+    if (request.kind === 'processedFrame' || request.kind === 'screenFrame') {
       if (typeof global.AwsDesktopRuntime.pushProcessedFrameData === 'function') {
         global.AwsDesktopRuntime.pushProcessedFrameData(
           String(request.sourceId || ''),
@@ -60,24 +60,38 @@
           String(payload.sourceId || ''),
           payload.generation,
         );
-      } else if (request.operation === 'bind') {
-        let trackId = String(request.trackId || '');
-        const snapshot = global.AwsDesktopRuntime.snapshot(sessionId);
-        if (providerId === 'ivs' &&
-            (trackId.startsWith('ivs:local-participant:') ||
-             trackId.startsWith('ivs:participant:'))) {
-          const isLocalLookup = trackId.startsWith('ivs:local-participant:');
-          const participantId = trackId.substring(
-            isLocalLookup ? 'ivs:local-participant:'.length : 'ivs:participant:'.length,
-          );
-          const found = snapshot?.tracks?.find(track =>
-            String(track.participantId || '') === participantId &&
-            !track.isScreenShare &&
-            (isLocalLookup ? Boolean(track.isLocal) : !track.isLocal));
-          if (!found) throw new Error('IVS participant does not have a published video track yet.');
-          trackId = found.id;
+      } else if (request.operation === 'startScreenCaptureSource') {
+        if (request.providerId !== providerId ||
+            request.sessionId !== sessionId) {
+          throw new Error('Cross-provider Windows session access is forbidden.');
         }
+        const payload = request.payload || {};
+        value = await global.AwsDesktopRuntime.startScreenCaptureSource(
+          String(payload.sourceId || ''),
+        );
+      } else if (request.operation === 'stopScreenCaptureSource') {
+        if (request.providerId !== providerId ||
+            request.sessionId !== sessionId) {
+          throw new Error('Cross-provider Windows session access is forbidden.');
+        }
+        const payload = request.payload || {};
+        value = global.AwsDesktopRuntime.stopScreenCaptureSource(
+          String(payload.sourceId || ''),
+        );
+      } else if (request.operation === 'bind') {
+        const rawTrackId = String(request.trackId || '');
+        const snapshot = global.AwsDesktopRuntime.snapshot(sessionId);
+        const trackId = typeof global.AwsDesktopRuntime.resolveTrackId === 'function'
+          ? global.AwsDesktopRuntime.resolveTrackId(providerId, sessionId, rawTrackId)
+          : rawTrackId;
         if (!snapshot?.tracks?.some(track => track.id === trackId)) {
+          if (providerId === 'ivs' &&
+              (rawTrackId.startsWith('ivs:local-participant:') ||
+               rawTrackId.startsWith('ivs:participant:') ||
+               rawTrackId.startsWith('ivs:local-screen:') ||
+               rawTrackId.startsWith('ivs:screen-participant:'))) {
+            throw new Error('IVS participant does not have a published video track yet.');
+          }
           throw new Error('AWS video track is not present in the current session.');
         }
         value = await global.AwsDesktopRuntime.bindTrack(

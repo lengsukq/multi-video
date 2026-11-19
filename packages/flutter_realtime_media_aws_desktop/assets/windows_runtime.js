@@ -155,6 +155,9 @@
     selectCamera: async function() { throw new Error('Select the camera through the native SDK bridge.'); }
   };
   global.RealtimeProcessedVideoBridge = global.RealtimeVideoEffectsBridge;
+  global.RealtimeScreenCaptureBridge = {
+    getTrack: function(sourceId) { return getProcessedSource(sourceId).track; },
+  };
 
   function post(value) {
     if (native) native.postMessage(value);
@@ -255,15 +258,67 @@
 
   function resolveTrackId(providerId, sessionId, trackId) {
     const raw = String(trackId || '');
+    const snapshot = snapshots.get(sessionId);
+    const tracks = Array.isArray(snapshot && snapshot.tracks) ? snapshot.tracks : [];
+    if (tracks.some(function(item) { return item && item.id === raw; })) {
+      return raw;
+    }
+
+    if (providerId === 'chime') {
+      if (raw.startsWith('chime:local-screen:')) {
+        const attendeeId = raw.slice('chime:local-screen:'.length);
+        const exact = attendeeId && tracks.find(function(item) {
+          return Boolean(item && item.isScreenShare) &&
+            Boolean(item.isLocal) &&
+            String(item.participantId || '') === attendeeId;
+        });
+        const fallback = exact || tracks.find(function(item) {
+          return Boolean(item && item.isScreenShare) && Boolean(item.isLocal);
+        });
+        return fallback && fallback.id ? String(fallback.id) : raw;
+      }
+      if (raw.startsWith('chime:remote-screen:')) {
+        const attendeeId = raw.slice('chime:remote-screen:'.length);
+        const exact = attendeeId && tracks.find(function(item) {
+          const pid = String(item && item.participantId || '');
+          return Boolean(item && item.isScreenShare) &&
+            !item.isLocal &&
+            (pid === attendeeId || pid === attendeeId + '#content');
+        });
+        const fallback = exact || tracks.find(function(item) {
+          return Boolean(item && item.isScreenShare) && !item.isLocal;
+        });
+        return fallback && fallback.id ? String(fallback.id) : raw;
+      }
+      return raw;
+    }
+
     if (providerId !== 'ivs') return raw;
+
+    if (raw.startsWith('ivs:local-screen:') || raw.startsWith('ivs:screen-participant:')) {
+      const isLocalScreen = raw.startsWith('ivs:local-screen:');
+      const participantId = raw.slice(
+        isLocalScreen ? 'ivs:local-screen:'.length : 'ivs:screen-participant:'.length,
+      );
+      const exactScreen = tracks.find(function(item) {
+        const pid = String(item && item.participantId || '');
+        return Boolean(item && item.isScreenShare) &&
+          (isLocalScreen ? Boolean(item.isLocal) : !item.isLocal) &&
+          (pid === participantId || pid === participantId + '#content');
+      });
+      const fallbackScreen = exactScreen || tracks.find(function(item) {
+        return Boolean(item && item.isScreenShare) &&
+          (isLocalScreen ? Boolean(item.isLocal) : !item.isLocal);
+      });
+      return fallbackScreen && fallbackScreen.id ? String(fallbackScreen.id) : raw;
+    }
+
     const isLocalLookup = raw.startsWith('ivs:local-participant:');
     const isRemoteLookup = raw.startsWith('ivs:participant:');
     if (!isLocalLookup && !isRemoteLookup) return raw;
     const participantId = raw.slice(
       isLocalLookup ? 'ivs:local-participant:'.length : 'ivs:participant:'.length,
     );
-    const snapshot = snapshots.get(sessionId);
-    const tracks = Array.isArray(snapshot && snapshot.tracks) ? snapshot.tracks : [];
     const matched = tracks.find(function(item) {
       return (
         String(item.participantId || '') === participantId &&
@@ -433,6 +488,7 @@
       source.loadFrame();
     },
     invoke: invoke,
+    resolveTrackId: resolveTrackId,
     bindTrack: bindTrack,
     unbindTrack: unbindTrack,
     snapshot: function(sessionId) { return snapshots.get(sessionId) || null; },
@@ -510,6 +566,26 @@
       } catch (error) {
         throw error;
       }
+    },
+    startScreenCaptureSource: async function(sourceId) {
+      const normalizedSourceId = String(sourceId || '');
+      if (!normalizedSourceId) throw new Error('Screen capture sourceId is required.');
+      if (!await global.AwsDesktopRuntime.canConsumeProcessedVideo()) {
+        throw new Error('Windows WebView2 does not support native screen capture transport.');
+      }
+      const existing = processedSources.get(processedSourceKey(normalizedSourceId));
+      if (existing) {
+        existing.references += 1;
+        return true;
+      }
+      const source = createProcessedSource(normalizedSourceId);
+      source.references += 1;
+      return true;
+    },
+    stopScreenCaptureSource: function(sourceId) {
+      const key = processedSourceKey(String(sourceId || ''));
+      if (key) releaseProcessedSourceReference(key);
+      return true;
     },
     failProcessedVideo: function(sourceId, message) {
       const source = processedSources.get(processedSourceKey(sourceId));
