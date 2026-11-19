@@ -4,6 +4,7 @@ import 'package:flutter_realtime_media_aws_desktop/aws_windows_diagnostics.dart'
 import 'package:flutter_realtime_media_aws_desktop/aws_windows_webview2_runtime.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_realtime_media_core/flutter_realtime_media_core.dart';
 import 'package:flutter_realtime_media_ivs/flutter_realtime_media_ivs.dart';
 import 'package:flutter_realtime_media_ivs/src/ivs_windows_webview2.dart';
@@ -101,6 +102,36 @@ Map<String, dynamic> _joinJson({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'IVS provider network cannot be pre-probed without token and must not block live entry',
+    () async {
+      final factory = IvsSessionFactory(
+        availabilityProbe: () async => true,
+        deviceProbe: () async =>
+            const IvsDeviceCounts(microphones: 1, cameras: 1),
+      );
+      for (final role in [MediaRole.host, MediaRole.viewer]) {
+        final report = await factory.runPreJoinProbe(
+          MediaPreJoinProbeRequest(
+            providerId: 'ivs',
+            role: role,
+            requirements: MediaPreJoinRequirements.forRole(role),
+          ),
+        );
+        final probe = report.checks.singleWhere(
+          (check) => check.type == MediaPreJoinCheckType.providerNetwork,
+        );
+        expect(probe.status, MediaPreJoinStatus.unsupported);
+        expect(probe.severity, MediaPreJoinSeverity.warning);
+        expect(probe.isBlocking, isFalse);
+        expect(
+          MediaPreJoinResult(role: role, checks: report.checks).isReady,
+          isTrue,
+        );
+      }
+    },
+  );
+
   test(
     'Windows IVS defaults on but rejects unavailable WebView2 runtime',
     () async {
@@ -1042,6 +1073,46 @@ void main() {
       );
 
       await session.dispose();
+    },
+  );
+
+  testWidgets(
+    'IvsTrackRenderer handles native video fit on Android and forwards fit mode',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      try {
+        const renderer = IvsTrackRenderer();
+        const remoteTrack = IvsMediaVideoTrack(userId: 'host-1', local: false);
+        const localTrack = IvsMediaVideoTrack(userId: 'self-1', local: true);
+        const screenTrack = IvsMediaVideoTrack(
+          userId: 'host-1#content',
+          local: false,
+          isScreenShare: true,
+        );
+
+        expect(renderer.handlesVideoFit(remoteTrack), isTrue);
+        expect(renderer.handlesVideoFit(localTrack), isTrue);
+        expect(renderer.handlesVideoFit(screenTrack), isTrue);
+
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Builder(
+              builder: (context) => renderer.buildViewWithFit(
+                context,
+                remoteTrack,
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+        );
+        final coverView = tester.widget<AndroidView>(find.byType(AndroidView));
+        expect(coverView.viewType, IvsTrackRenderer.viewType);
+        expect((coverView.creationParams as Map)['fit'], 'cover');
+        expect((coverView.creationParams as Map)['userId'], 'host-1');
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
     },
   );
 }

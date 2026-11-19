@@ -196,10 +196,7 @@ class _RealtimePreJoinPageState extends State<RealtimePreJoinPage>
             body: RealtimeAmbientBackground(
               child: SafeArea(
                 child: LayoutBuilder(
-                  builder: (context, page) {
-                    final pageWide =
-                        RealtimeBreakpoints.isWide(context, page.maxWidth) &&
-                        page.maxHeight >= 420;
+                  builder: (context, _) {
                     return Stack(
                       children: [
                         Column(
@@ -234,74 +231,90 @@ class _RealtimePreJoinPageState extends State<RealtimePreJoinPage>
                                   final viewer =
                                       controller.result?.role ==
                                       MediaRole.viewer;
-                                  return Align(
-                                    alignment: Alignment.topCenter,
-                                    child: ConstrainedBox(
-                                      constraints: const BoxConstraints(
-                                        maxWidth: 1240,
+                                  // Use this one layout decision for both the
+                                  // session-card CTA and the fixed bottom CTA.
+                                  // The outer page has more height than this
+                                  // region after its header; computing them
+                                  // independently could hide BOTH join buttons.
+                                  return Column(
+                                    children: [
+                                      Expanded(
+                                        child: Align(
+                                          alignment: Alignment.topCenter,
+                                          child: ConstrainedBox(
+                                            constraints: const BoxConstraints(
+                                              maxWidth: 1240,
+                                            ),
+                                            child: Padding(
+                                              padding: padding,
+                                              child: wide
+                                                  ? _buildWide(
+                                                      context,
+                                                      strings,
+                                                      viewer: viewer,
+                                                    )
+                                                  : _buildNarrow(
+                                                      context,
+                                                      strings,
+                                                      compact: compact,
+                                                      viewer: viewer,
+                                                    ),
+                                            ),
+                                          ),
+                                        ),
                                       ),
-                                      child: Padding(
-                                        padding: padding,
-                                        child: wide
-                                            ? _buildWide(
-                                                context,
-                                                strings,
-                                                viewer: viewer,
-                                              )
-                                            : _buildNarrow(
-                                                context,
-                                                strings,
-                                                compact: compact,
-                                                viewer: viewer,
-                                              ),
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 4,
+                                        ),
+                                        child: RealtimePreJoinPermissionNotice(),
                                       ),
-                                    ),
+                                      if (_showsError)
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 4,
+                                          ),
+                                          child: Text(
+                                            strings.displayRealtimeError(
+                                              controller.joinError ??
+                                                  controller.error ??
+                                                  controller.previewError!,
+                                            ),
+                                            maxLines: 3,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.error,
+                                            ),
+                                          ),
+                                        ),
+                                      // Wide desktop keeps the join action in
+                                      // the dark session card. Narrow windows
+                                      // use a sticky footer instead.
+                                      if (!wide)
+                                        _BottomBar(
+                                          strings: strings,
+                                          onEnter: (settings) =>
+                                              _enter(settings),
+                                          joining: controller.joining,
+                                          label: _joinActionLabel(
+                                            strings,
+                                            joining: controller.joining,
+                                            role: controller.result?.role,
+                                            classroom:
+                                                _meetingMode ==
+                                                MediaMeetingMode.classroom,
+                                          ),
+                                          viewer: viewer,
+                                        ),
+                                    ],
                                   );
                                 },
                               ),
                             ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 4,
-                              ),
-                              child: RealtimePreJoinPermissionNotice(),
-                            ),
-                            if (_showsError)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 4,
-                                ),
-                                child: Text(
-                                  strings.displayRealtimeError(
-                                    controller.joinError ??
-                                        controller.error ??
-                                        controller.previewError!,
-                                  ),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: Theme.of(context).colorScheme.error,
-                                  ),
-                                ),
-                              ),
-                            if (!pageWide)
-                              _BottomBar(
-                                strings: strings,
-                                onEnter: (settings) => _enter(settings),
-                                joining: controller.joining,
-                                label: _joinActionLabel(
-                                  strings,
-                                  joining: controller.joining,
-                                  role: controller.result?.role,
-                                  classroom:
-                                      _meetingMode ==
-                                      MediaMeetingMode.classroom,
-                                ),
-                                viewer:
-                                    controller.result?.role == MediaRole.viewer,
-                              ),
                           ],
                         ),
                         if (controller.joining)
@@ -381,34 +394,47 @@ class _RealtimePreJoinPageState extends State<RealtimePreJoinPage>
               const SizedBox(width: 24),
               Expanded(
                 flex: 100,
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _SessionColumn(
-                        strings: strings,
-                        roomLabel: widget.roomLabel,
-                        title:
-                            (controller.result?.meetingMode ??
-                                    widget.meetingMode)
-                                ?.label(isZh: strings.isZh) ??
-                            widget.title,
-                        displayName: widget.displayName,
-                        sessionInfo: widget.sessionInfo,
-                        meetingMode: _meetingMode,
-                        onEnter: (settings) => _enter(settings),
-                        onEnterIntent: _enterWithIntent,
-                        joining: controller.joining,
-                        showJoinButton: true,
-                        showSecondaryActions: !viewer,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // The black session card must not scroll away while users
+                    // inspect warnings. Keep its primary CTA in the same
+                    // place as Join Meeting on desktop.
+                    _SessionColumn(
+                      strings: strings,
+                      roomLabel: widget.roomLabel,
+                      title:
+                          (controller.result?.meetingMode ?? widget.meetingMode)
+                              ?.label(isZh: strings.isZh) ??
+                          widget.title,
+                      displayName: widget.displayName,
+                      sessionInfo: widget.sessionInfo,
+                      meetingMode: _meetingMode,
+                      onEnter: (settings) => _enter(settings),
+                      onEnterIntent: _enterWithIntent,
+                      joining: controller.joining,
+                      showJoinButton: true,
+                      showSecondaryActions: !viewer,
+                      showSupportingNote: false,
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        key: const ValueKey('prejoin-wide-diagnostics-scroll'),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const SizedBox(height: 14),
+                            _PreJoinMediaNote(strings: strings, viewer: viewer),
+                            if (!viewer) ...[
+                              const SizedBox(height: 14),
+                              RealtimePreJoinReadinessCard(),
+                            ],
+                            ..._hostSections(strings),
+                          ],
+                        ),
                       ),
-                      if (!viewer) ...[
-                        const SizedBox(height: 14),
-                        RealtimePreJoinReadinessCard(),
-                      ],
-                      ..._hostSections(strings),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1352,6 +1378,7 @@ class _SessionColumn extends StatelessWidget {
     this.compact = false,
     this.showJoinButton = true,
     this.showSecondaryActions = true,
+    this.showSupportingNote = true,
   });
 
   final RealtimeStrings strings;
@@ -1366,6 +1393,7 @@ class _SessionColumn extends StatelessWidget {
   final bool compact;
   final bool showJoinButton;
   final bool showSecondaryActions;
+  final bool showSupportingNote;
 
   @override
   Widget build(BuildContext context) {
@@ -1533,8 +1561,25 @@ class _SessionColumn extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        RealtimeCardSurface(
+        if (showSupportingNote) ...[
+          const SizedBox(height: 14),
+          _PreJoinMediaNote(strings: strings, viewer: viewer),
+        ],
+      ],
+    );
+  }
+}
+
+class _PreJoinMediaNote extends StatelessWidget {
+  const _PreJoinMediaNote({required this.strings, required this.viewer});
+
+  final RealtimeStrings strings;
+  final bool viewer;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = RealtimeStyle.of(context);
+    return RealtimeCardSurface(
           padding: const EdgeInsets.all(16),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1563,9 +1608,7 @@ class _SessionColumn extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ],
-    );
+        );
   }
 }
 
@@ -2252,6 +2295,7 @@ String _joinActionLabel(
 }) {
   if (joining) return strings.enteringRoom;
   if (role == MediaRole.viewer) return strings.enterLiveRoom;
+  if (role == MediaRole.host && !classroom) return strings.startLive;
   if (!classroom) return strings.joinMeeting;
   return role == MediaRole.host
       ? (strings.isZh ? '开始上课' : 'Start class')

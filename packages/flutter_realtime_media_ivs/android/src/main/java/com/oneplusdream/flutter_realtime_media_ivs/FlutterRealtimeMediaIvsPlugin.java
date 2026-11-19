@@ -22,8 +22,9 @@ import com.amazonaws.ivs.broadcast.Device;
 import com.amazonaws.ivs.broadcast.DeviceDiscovery;
 import com.amazonaws.ivs.broadcast.CustomImageSource;
 import com.amazonaws.ivs.broadcast.BroadcastConfiguration;
+import com.amazonaws.ivs.broadcast.ImageDevice;
 import com.amazonaws.ivs.broadcast.ImageLocalStageStream;
-import com.amazonaws.ivs.broadcast.ImagePreviewSurfaceView;
+import com.amazonaws.ivs.broadcast.ImagePreviewView;
 import com.amazonaws.ivs.broadcast.ImageStageStream;
 import com.amazonaws.ivs.broadcast.LocalAudioStats;
 import com.amazonaws.ivs.broadcast.LocalStageStream;
@@ -69,7 +70,7 @@ public final class FlutterRealtimeMediaIvsPlugin
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final List<LocalStageStream> publishStreams = new ArrayList<>();
     private final Map<String, ImageStageStream> remoteVideoStreams = new HashMap<>();
-    private final Map<String, List<FrameLayout>> previewHolders = new HashMap<>();
+    private final Map<String, List<PreviewHolder>> previewHolders = new HashMap<>();
     private final List<StageStream> observedStreams = new ArrayList<>();
 
     private Context applicationContext;
@@ -605,7 +606,7 @@ public final class FlutterRealtimeMediaIvsPlugin
             } else {
                 activeStage.refreshStrategy();
             }
-            updatePreviewHolders(LOCAL_SCREEN_KEY, stream.getPreviewSurfaceView());
+            updatePreviewHolders(LOCAL_SCREEN_KEY, stream);
         } catch (Throwable failure) {
             if (auxStage != null) {
                 try {
@@ -1025,15 +1026,33 @@ public final class FlutterRealtimeMediaIvsPlugin
         return event;
     }
 
-    private void attachPreview(FrameLayout holder, @Nullable ImagePreviewSurfaceView preview) {
+    @Nullable
+    private ImagePreviewView createPreviewView(
+            @Nullable StageStream stream,
+            BroadcastConfiguration.AspectMode aspectMode) {
+        if (stream == null) return null;
+        final Device device = stream.getDevice();
+        if (device instanceof ImageDevice) {
+            final ImagePreviewView preview =
+                    ((ImageDevice) device).getPreviewTextureView(aspectMode);
+            if (preview != null) return preview;
+        }
+        if (stream instanceof ImageStageStream) {
+            return ((ImageStageStream) stream).getPreviewTextureView();
+        }
+        return null;
+    }
+
+    private void attachPreview(PreviewHolder holder, @Nullable StageStream stream) {
         mainHandler.post(() -> {
-            holder.removeAllViews();
+            holder.container.removeAllViews();
+            final ImagePreviewView preview = createPreviewView(stream, holder.aspectMode);
             if (preview == null) return;
             final ViewGroup parent = preview.getParent() instanceof ViewGroup
                     ? (ViewGroup) preview.getParent()
                     : null;
             if (parent != null) parent.removeView(preview);
-            holder.addView(
+            holder.container.addView(
                     preview,
                     new FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1042,39 +1061,35 @@ public final class FlutterRealtimeMediaIvsPlugin
     }
 
     private void updateLocalPreviewHolders(@Nullable ImageLocalStageStream stream) {
-        updatePreviewHolders(
-                LOCAL_VIEW_KEY,
-                stream == null ? null : stream.getPreviewSurfaceView());
+        updatePreviewHolders(LOCAL_VIEW_KEY, stream);
     }
 
     private void updateRemotePreviewHolders(
             String key,
             @Nullable ImageStageStream stream) {
-        updatePreviewHolders(
-                key,
-                stream == null ? null : stream.getPreviewSurfaceView());
+        updatePreviewHolders(key, stream);
     }
 
     private void updatePreviewHolders(
             String key,
-            @Nullable ImagePreviewSurfaceView preview) {
-        final List<FrameLayout> holders = previewHolders.get(key);
+            @Nullable StageStream stream) {
+        final List<PreviewHolder> holders = previewHolders.get(key);
         if (holders == null) return;
-        for (FrameLayout holder : new ArrayList<>(holders)) {
-            attachPreview(holder, preview);
+        for (PreviewHolder holder : new ArrayList<>(holders)) {
+            attachPreview(holder, stream);
         }
     }
 
     private void clearAllPreviewHolders() {
         mainHandler.post(() -> {
-            for (List<FrameLayout> holders : previewHolders.values()) {
-                for (FrameLayout holder : holders) holder.removeAllViews();
+            for (List<PreviewHolder> holders : previewHolders.values()) {
+                for (PreviewHolder holder : holders) holder.container.removeAllViews();
             }
         });
     }
 
     void attachPlatformView(
-            FrameLayout holder,
+            PreviewHolder holder,
             String userId,
             boolean isLocal,
             boolean isScreenShare) {
@@ -1085,30 +1100,38 @@ public final class FlutterRealtimeMediaIvsPlugin
         if (isLocal) {
             final ImageLocalStageStream localStream =
                     isScreenShare ? androidScreenStream : cameraStream;
-            attachPreview(
-                    holder,
-                    localStream == null ? null : localStream.getPreviewSurfaceView());
+            attachPreview(holder, localStream);
         } else {
             final ImageStageStream remoteStream = remoteVideoStreams.get(userId);
-            attachPreview(
-                    holder,
-                    remoteStream == null ? null : remoteStream.getPreviewSurfaceView());
+            attachPreview(holder, remoteStream);
         }
     }
 
     void detachPlatformView(
-            FrameLayout holder,
+            PreviewHolder holder,
             String userId,
             boolean isLocal,
             boolean isScreenShare) {
         final String key = isLocal
                 ? (isScreenShare ? LOCAL_SCREEN_KEY : LOCAL_VIEW_KEY)
                 : userId;
-        final List<FrameLayout> holders = previewHolders.get(key);
+        final List<PreviewHolder> holders = previewHolders.get(key);
         if (holders == null) return;
         holders.remove(holder);
         if (holders.isEmpty()) previewHolders.remove(key);
-        holder.removeAllViews();
+        holder.container.removeAllViews();
+    }
+
+    private static final class PreviewHolder {
+        final FrameLayout container;
+        final BroadcastConfiguration.AspectMode aspectMode;
+
+        PreviewHolder(
+                FrameLayout container,
+                BroadcastConfiguration.AspectMode aspectMode) {
+            this.container = container;
+            this.aspectMode = aspectMode;
+        }
     }
 
     private static final class IvsVideoViewFactory extends PlatformViewFactory {
@@ -1128,12 +1151,20 @@ public final class FlutterRealtimeMediaIvsPlugin
             final String userId = String.valueOf(params.get("userId"));
             final boolean isLocal = Boolean.TRUE.equals(params.get("isLocal"));
             final boolean isScreenShare = Boolean.TRUE.equals(params.get("isScreenShare"));
-            return new IvsVideoPlatformView(context, plugin, userId, isLocal, isScreenShare);
+            final String fit = params.get("fit") instanceof String
+                    ? (String) params.get("fit")
+                    : "contain";
+            final BroadcastConfiguration.AspectMode aspectMode =
+                    "cover".equals(fit)
+                            ? BroadcastConfiguration.AspectMode.FILL
+                            : BroadcastConfiguration.AspectMode.FIT;
+            return new IvsVideoPlatformView(
+                    context, plugin, userId, isLocal, isScreenShare, aspectMode);
         }
     }
 
     private static final class IvsVideoPlatformView implements PlatformView {
-        private final FrameLayout holder;
+        private final PreviewHolder holder;
         private final FlutterRealtimeMediaIvsPlugin plugin;
         private final String userId;
         private final boolean isLocal;
@@ -1144,8 +1175,9 @@ public final class FlutterRealtimeMediaIvsPlugin
                 FlutterRealtimeMediaIvsPlugin plugin,
                 String userId,
                 boolean isLocal,
-                boolean isScreenShare) {
-            this.holder = new FrameLayout(context);
+                boolean isScreenShare,
+                BroadcastConfiguration.AspectMode aspectMode) {
+            this.holder = new PreviewHolder(new FrameLayout(context), aspectMode);
             this.plugin = plugin;
             this.userId = userId;
             this.isLocal = isLocal;
@@ -1155,7 +1187,7 @@ public final class FlutterRealtimeMediaIvsPlugin
 
         @Override
         public View getView() {
-            return holder;
+            return holder.container;
         }
 
         @Override

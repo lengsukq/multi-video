@@ -26,7 +26,8 @@ class IvsTrackRenderer extends MediaTrackRenderer {
       return track.processedSource!.platform == ProcessedVideoPlatform.web;
     }
     return !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.iOS ||
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS ||
             defaultTargetPlatform == TargetPlatform.macOS ||
             defaultTargetPlatform == TargetPlatform.windows);
   }

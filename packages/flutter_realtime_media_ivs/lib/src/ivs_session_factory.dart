@@ -171,7 +171,10 @@ class IvsSessionFactory implements MediaSessionFactory, MediaPreJoinProbe {
         MediaPreJoinCheck(
           type: MediaPreJoinCheckType.providerNetwork,
           status: MediaPreJoinStatus.unsupported,
-          severity: request.requirements.network.severity,
+          // No Stage token exists until join, so this synthetic probe cannot
+          // run. Mark it as a warning even when network is required: not
+          // supporting a pre-check is not evidence that joining will fail.
+          severity: MediaPreJoinSeverity.warning,
           message:
               'Amazon IVS native Stage connectivity requires a participant token; '
               'Pre-Join does not consume join credentials for a synthetic probe.',

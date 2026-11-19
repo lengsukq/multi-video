@@ -19,6 +19,78 @@ void main() {
     ],
   );
 
+  testWidgets(
+    'desktop live host keeps Start Live CTA visible after right diagnostics scroll',
+    (tester) async {
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      // Mirrors the user's 1280x720 Windows display after its title bar is
+      // subtracted (150% DPI scaling); verify real usable viewport height.
+      const viewport = Size(1280, 649);
+      await tester.binding.setSurfaceSize(viewport);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: RealtimeUiTheme.light(),
+          locale: const Locale('zh', 'CN'),
+          supportedLocales: RealtimeStrings.supportedLocales,
+          localizationsDelegates: RealtimeStrings.localizationsDelegates,
+          home: RealtimePreJoinPage(
+            permissionRequester: const _Permissions(),
+            roomLabel: 'live-host-room',
+            displayName: 'Host',
+            runCheck: () async => const MediaPreJoinResult(
+              role: MediaRole.host,
+              providerId: 'ivs',
+              checks: [
+                MediaPreJoinCheck(
+                  type: MediaPreJoinCheckType.providerNetwork,
+                  status: MediaPreJoinStatus.unsupported,
+                  severity: MediaPreJoinSeverity.warning,
+                  message: 'Cannot pre-probe an IVS Stage without a token.',
+                ),
+              ],
+            ),
+            openPreview: (_, _) async => null,
+            onEnter: (_, _) async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final join = find.byType(RealtimePreJoinJoinButton);
+      expect(join, findsOneWidget);
+      final darkCard = find.byKey(const ValueKey('prejoin-session-card'));
+      expect(
+        find.descendant(of: darkCard, matching: join),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: join, matching: find.text('开始直播')),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<FilledButton>(
+          find.descendant(of: join, matching: find.byType(FilledButton)),
+        ).onPressed,
+        isNotNull,
+      );
+      // The diagnostics column scrolls independently on desktop. Its scroll
+      // position must not be able to remove the primary button from view.
+      await tester.drag(
+        find.byKey(const ValueKey('prejoin-wide-diagnostics-scroll')),
+        const Offset(0, -550),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: darkCard, matching: join),
+        findsOneWidget,
+      );
+      final bounds = tester.getRect(join);
+      expect(bounds.top, greaterThanOrEqualTo(0));
+      expect(bounds.bottom, lessThanOrEqualTo(viewport.height));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('wide Pre-Join intro spans the page and aligns both cards', (
     tester,
   ) async {
@@ -26,6 +98,7 @@ void main() {
     for (final viewport in const [
       Size(1440, 900),
       Size(1280, 700),
+      Size(1280, 649),
       Size(390, 844),
     ]) {
       await tester.binding.setSurfaceSize(viewport);
@@ -68,6 +141,70 @@ void main() {
       expect(tester.takeException(), isNull, reason: '$viewport');
     }
   });
+
+  testWidgets(
+    'live viewer always has one reachable join CTA when provider probe is unsupported',
+    (tester) async {
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      Future<MediaPreJoinResult> liveViewer() async =>
+          const MediaPreJoinResult(
+            role: MediaRole.viewer,
+            providerId: 'aws',
+            checks: [
+              MediaPreJoinCheck(
+                type: MediaPreJoinCheckType.providerNetwork,
+                status: MediaPreJoinStatus.unsupported,
+                severity: MediaPreJoinSeverity.warning,
+                message: 'IVS needs a participant token to test connectivity.',
+              ),
+            ],
+          );
+
+      // At 1100x500 the outer page meets the desktop height threshold,
+      // but the content area below the header does not. Previously that
+      // hid both the session-card CTA and the sticky bottom-bar CTA.
+      for (final viewport in const [
+        Size(1100, 500),
+        Size(1100, 600),
+        Size(1280, 800),
+        Size(390, 700),
+      ]) {
+        await tester.binding.setSurfaceSize(viewport);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: RealtimeUiTheme.light(),
+            locale: const Locale('zh', 'CN'),
+            supportedLocales: RealtimeStrings.supportedLocales,
+            localizationsDelegates: RealtimeStrings.localizationsDelegates,
+            home: RealtimePreJoinPage(
+              permissionRequester: const _Permissions(),
+              roomLabel: 'live-room',
+              displayName: 'Viewer',
+              runCheck: liveViewer,
+              openPreview: (_, _) async => null,
+              onEnter: (_, _) async {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final join = find.byType(RealtimePreJoinJoinButton);
+        expect(join, findsOneWidget, reason: '$viewport');
+        final controller = RealtimePreJoinScope.of(tester.element(join));
+        expect(controller.canEnter, isTrue, reason: '$viewport');
+        final button = find.descendant(
+          of: join,
+          matching: find.byType(FilledButton),
+        );
+        expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+        final rect = tester.getRect(join);
+        expect(rect.top, greaterThanOrEqualTo(0), reason: '$viewport');
+        expect(rect.bottom, lessThanOrEqualTo(viewport.height),
+            reason: '$viewport');
+        expect(tester.takeException(), isNull, reason: '$viewport');
+      }
+    },
+  );
 
   testWidgets('pre-join renders host waiting room, agenda and materials', (
     tester,
