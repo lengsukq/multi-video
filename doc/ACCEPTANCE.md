@@ -442,6 +442,19 @@ cloud-room deletion.
 
 ## Windows 原生构建与实机验收
 
+### AWS Chime Windows 实机记录（2026-11-18）
+
+| 验收项目 | 结果与证据边界 |
+| --- | --- |
+| 测试版本 | Windows x64 `example/` Flutter Debug Demo，`main` 提交 `987712b` |
+| 会议与后端 | `10.0.111.99:3000` `/health` 返回 HTTP 200，供应商为 AWS，Chime 媒体区 `us-west-2`；创建房间后点击进入会议，用户复测确认成功 |
+| Windows WebView2 | Windows 原生应用与 WebView2 宿主已启动；WebView2 子进程命令行确认带有 `--proxy-server` 和 `--proxy-bypass-list` |
+| 虚拟背景 | 用户在本次 Windows AWS Chime 会议中确认虚拟背景可用；未单独收集另一端对处理后视频帧的截图或自动化像素比对 |
+| 失败网络与恢复路径 | 直连 `nearest-media-region.l.chime.aws` 发生 DNS 解析失败；经 `http://10.0.111.100:10808` 代理访问返回 HTTP 200（`us-west-2`）；进程级代理启动后，原先的入会等待／失败问题不再复现（用户确认） |
+| 仍需验收 | 双端音视频与远端虚拟背景帧、屏幕共享远端像素、权限拒绝、UDP/TURN、弱网重连、反复进退和资源清理、长时间稳定性；AWS WebView2 路径仍属实验性 |
+
+Windows 进程级代理启动步骤见 [`example/README.md`](../example/README.md)；能力矩阵见 [`SDK_CAPABILITY_MATRIX.zh-CN.md`](SDK_CAPABILITY_MATRIX.zh-CN.md)。这些结果限定为本次设备和代理网络，不代表其他网络、其他 AWS 服务或公开发行包已通过同样验收。此处不记录或提交 AWS 凭证。
+
 ### 四、Windows 验收操作
 
 Windows 10/11 x64、Visual Studio 2022（Desktop C++ + Windows SDK）、Flutter >=3.47、真实摄像头和两台终端。先执行：

@@ -61,6 +61,44 @@ Windows and browser permission prompts are handled by their platform runtimes.
 Minimum OS support and provider/feature differences are listed in
 [`../doc/SDK_CAPABILITY_MATRIX.zh-CN.md`](../doc/SDK_CAPABILITY_MATRIX.zh-CN.md).
 
+### Run on Windows with an AWS Chime proxy (tested 2026-11-18)
+
+The Windows AWS Chime meeting adapter uses an experimental WebView2 bridge.
+On a test LAN where the Windows host could reach the Demo backend but could
+not resolve an AWS Chime media endpoint directly, setting **only Git's proxy**
+did not help. Launching both Flutter and the embedded WebView2 browser with
+a per-process proxy restored meeting entry and virtual background operation
+in an actual Windows x64 Demo test.
+
+From the `example/` directory in **PowerShell**, adapt the sample LAN IPs and
+proxy port to your environment:
+
+```powershell
+$env:HTTP_PROXY = 'http://10.0.111.100:10808'
+$env:HTTPS_PROXY = $env:HTTP_PROXY
+$env:NO_PROXY = 'localhost,127.0.0.1,10.0.111.99,10.0.111.100'
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--proxy-server=http://10.0.111.100:10808 --proxy-bypass-list=10.0.111.*;localhost;127.0.0.1;*.invalid --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required'
+flutter run -d windows --no-pub
+```
+
+Here `10.0.111.99:3000` is the sample **LAN Demo backend** (keep LAN and
+loopback requests direct), while `10.0.111.100:10808` is the test HTTP proxy
+for AWS traffic. These variables are scoped to the current PowerShell process
+and its children; they do not change Windows system or Git proxy settings.
+Restart the Demo completely after changing the proxy. In this test the WebView2
+child process was verified to contain both `--proxy-server` and
+`--proxy-bypass-list`. A direct request to `nearest-media-region.l.chime.aws`
+failed DNS resolution; a request through the proxy returned HTTP 200 and
+`us-west-2`, matching the backend's AWS media region.
+
+The user confirmed **creating/entering an AWS Chime meeting and using virtual
+backgrounds** with this launch configuration. Remote processed-frame
+verification, two-device media quality, screen sharing, reconnection, and
+long-run stability have **not** been separately accepted; WebView2 remains an
+experimental adapter rather than an AWS-certified Windows media SDK.
+See the [Windows acceptance evidence](../doc/ACCEPTANCE.md) for the complete
+boundary. Do not commit proxy credentials or AWS secrets.
+
 ### Run on Web
 
 Enable Flutter Web once on the development machine with `flutter config --enable-web`.
