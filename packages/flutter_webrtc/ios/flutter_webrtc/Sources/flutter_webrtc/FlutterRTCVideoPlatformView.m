@@ -103,10 +103,13 @@
 #if defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 170000
   if (@available(iOS 17.0, *)) {
     AVSampleBufferVideoRenderer* renderer = _videoLayer.sampleBufferRenderer;
-    if ([renderer requiresFlushToResumeDecoding]) {
-      [renderer flushWithRemovalOfDisplayedImage:YES completionHandler:nil];
+    if (renderer.status == AVQueuedSampleBufferRenderingStatusFailed ||
+        [renderer requiresFlushToResumeDecoding]) {
+      [renderer flush];
     }
-    [renderer enqueueSampleBuffer:sampleBuffer];
+    if ([renderer isReadyForMoreMediaData]) {
+      [renderer enqueueSampleBuffer:sampleBuffer];
+    }
     return;
   }
 #endif
@@ -114,6 +117,9 @@
     if ([_videoLayer requiresFlushToResumeDecoding]) {
       [_videoLayer flushAndRemoveImage];
     }
+  }
+  if (_videoLayer.status == AVQueuedSampleBufferRenderingStatusFailed) {
+    [_videoLayer flush];
   }
 #elif TARGET_OS_OSX
 #if defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 140000
@@ -158,13 +164,11 @@
 }
 
 - (CVPixelBufferRef)pixelBufferFromRTCCVPixelBuffer:(RTCCVPixelBuffer*)buffer {
-  if (![buffer requiresCropping] &&
-      ![buffer requiresScalingToWidth:buffer.width height:buffer.height]) {
-    CVPixelBufferRef pixelBuffer = buffer.pixelBuffer;
-    CFRetain(pixelBuffer);
-    return pixelBuffer;
-  }
-
+  // Always copy into our own CVPixelBufferPool instead of retaining the
+  // camera's raw AVCaptureVideoDataOutput CVPixelBuffer directly. Holding
+  // camera pool buffers inside AVSampleBufferDisplayLayer can exhaust
+  // AVCaptureSession's finite buffer pool on iOS 17+/27 and freeze capture
+  // after the first frame.
   CVPixelBufferRef outputPixelBuffer = nil;
   OSType pixelFormat = CVPixelBufferGetPixelFormatType(buffer.pixelBuffer);
   @synchronized(self) {
@@ -284,7 +288,11 @@
     return nil;
   }
 
-  CMSampleTimingInfo sampleTimingInfo = kCMTimingInfoInvalid;
+  CMSampleTimingInfo sampleTimingInfo = {
+    .duration = kCMTimeInvalid,
+    .presentationTimeStamp = CMClockGetTime(CMClockGetHostTimeClock()),
+    .decodeTimeStamp = kCMTimeInvalid,
+  };
   err = CMSampleBufferCreateReadyWithImageBuffer(kCFAllocatorDefault, pixelBuffer, formatDesc,
                                                  &sampleTimingInfo, &sampleBuffer);
   if (formatDesc) {
