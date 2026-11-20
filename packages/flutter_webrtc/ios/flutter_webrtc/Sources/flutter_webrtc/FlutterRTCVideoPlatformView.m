@@ -125,10 +125,13 @@
 #if defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 140000
   if (@available(macOS 14.0, *)) {
     AVSampleBufferVideoRenderer* renderer = _videoLayer.sampleBufferRenderer;
-    if ([renderer requiresFlushToResumeDecoding]) {
-      [renderer flushWithRemovalOfDisplayedImage:YES completionHandler:nil];
+    if (renderer.status == AVQueuedSampleBufferRenderingStatusFailed ||
+        [renderer requiresFlushToResumeDecoding]) {
+      [renderer flush];
     }
-    [renderer enqueueSampleBuffer:sampleBuffer];
+    if ([renderer isReadyForMoreMediaData]) {
+      [renderer enqueueSampleBuffer:sampleBuffer];
+    }
     return;
   }
 #endif
@@ -136,6 +139,9 @@
     if ([_videoLayer requiresFlushToResumeDecoding]) {
       [_videoLayer flushAndRemoveImage];
     }
+  }
+  if (_videoLayer.status == AVQueuedSampleBufferRenderingStatusFailed) {
+    [_videoLayer flush];
   }
 #endif
   [_videoLayer enqueueSampleBuffer:sampleBuffer];

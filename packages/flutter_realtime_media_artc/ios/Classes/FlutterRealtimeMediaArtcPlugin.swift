@@ -266,6 +266,7 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
                 complete(publish, result: result, message: "ARTC failed to stop publishing processed video")
                 return
             }
+            _ = engine!.stopPreview()
             let publish = engine!.publishLocalVideoStream(false)
             let capture = engine!.enableLocalVideo(false)
             let code = publish == 0 ? capture : publish
@@ -281,7 +282,11 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
             withPermission(.video, result: result) {
                 let capture = self.engine!.enableLocalVideo(true)
                 let publish = capture == 0 ? self.engine!.publishLocalVideoStream(true) : capture
-                if publish == 0 { self.localVideoEnabled = true }
+                if publish == 0 {
+                    self.localVideoEnabled = true
+                    self.attachViews()
+                    _ = self.engine!.startPreview()
+                }
                 self.complete(publish, result: result, message: "ARTC failed to enable local video")
             }
         }
