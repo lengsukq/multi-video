@@ -272,6 +272,7 @@ class MediaBackendClient
     String? avatarUrl,
     MediaRoomMode roomMode = MediaRoomMode.meeting,
     MediaMeetingMode? meetingMode,
+    bool? preventScreenCapture,
     MediaRole? role,
   }) async {
     final body = <String, Object?>{
@@ -281,6 +282,7 @@ class MediaBackendClient
       if (avatarUrl != null) 'avatarUrl': avatarUrl,
       'roomMode': roomMode.wireName,
       if (meetingMode != null) 'meetingMode': meetingMode.name,
+      if (preventScreenCapture == true) 'preventScreenCapture': true,
       if (role != null) 'role': role.wireName,
       if (deviceId != null && deviceId.trim().isNotEmpty)
         'deviceId': deviceId.trim(),

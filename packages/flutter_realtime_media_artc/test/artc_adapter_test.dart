@@ -494,6 +494,66 @@ void main() {
   );
 
   test(
+    'ARTC iOS accepts the shared processed video source and delegates camera control',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final commands = <MethodCall>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      for (final name in [
+        'com.oneplusdream.flutter_realtime_media_artc/methods',
+        'com.oneplusdream.flutter_realtime_processed_video/methods',
+      ]) {
+        final channel = MethodChannel(name);
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          commands.add(call);
+          if (call.method == 'listCameras') {
+            return [
+              {'id': 'front', 'label': 'Front Camera'},
+              {'id': 'back', 'label': 'Back Camera'},
+            ];
+          }
+          return null;
+        });
+        addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      }
+      final engine = _FakeArtcEngine();
+      final session = ArtcSessionFactory(
+        engineFactory: () async => engine,
+      ).createSession(joinInfo());
+      await session.join(joinInfo());
+      final sink = session as ProcessedVideoSink;
+      const source = ProcessedVideoSource(
+        id: 'shared-ios-processed-frame-source',
+        platform: ProcessedVideoPlatform.ios,
+        kind: ProcessedVideoSourceKind.nativeFrameHub,
+        width: 1280,
+        height: 720,
+        frameRate: 24,
+      );
+      expect(session.capabilities.canBlurBackground, isTrue);
+      expect(session.capabilities.canReplaceBackgroundImage, isTrue);
+      expect(session.snapshot.capabilities.canBlurBackground, isTrue);
+      expect(sink.supportsProcessedVideoSource(source), isTrue);
+      await sink.attachProcessedVideoSource(source);
+      expect(
+        (commands
+                .firstWhere((c) => c.method == 'attachProcessedVideoSource')
+                .arguments
+            as Map)['sourceId'],
+        source.id,
+      );
+      await session.leave();
+      expect(
+        commands.where((c) => c.method == 'detachProcessedVideoSource'),
+        hasLength(1),
+      );
+      await session.dispose();
+    },
+  );
+
+  test(
     'ARTC Android screen capture is an SDK capability, not Demo logic',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;

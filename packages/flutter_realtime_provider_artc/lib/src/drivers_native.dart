@@ -29,6 +29,7 @@ Future<MediaBackgroundCapabilities> _probeEffects(
   if (role == MediaRole.viewer ||
       (!kIsWeb &&
           defaultTargetPlatform != TargetPlatform.android &&
+          defaultTargetPlatform != TargetPlatform.iOS &&
           defaultTargetPlatform != TargetPlatform.macOS &&
           defaultTargetPlatform != TargetPlatform.windows)) {
     return const MediaBackgroundCapabilities.none();

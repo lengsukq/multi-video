@@ -220,6 +220,39 @@ void main() {
       expect(chatRoom.isScreenCaptured, isFalse);
     },
   );
+
+  test(
+    'RealtimeClient inherits room-wide preventScreenCapture from backend metadata even when local setting is false',
+    () async {
+      final protection = _FakeScreenProtection(initiallyCaptured: false);
+      final session = _FakeMediaSession();
+      final client = RealtimeClient(
+        mediaAdapters: RealtimeMediaAdapters([
+          RealtimeMediaAdapter(
+            sessionFactory: _FakeMediaFactory(session),
+            renderer: const _NoopRenderer(),
+          ),
+        ]),
+        preventScreenCapture: false,
+        screenCaptureProtection: protection,
+      );
+      final mediaClient = client.newMediaClient();
+      final roomSession = MediaRoomSession.direct(
+        roomCode: 'sec-room-1',
+        participantId: 'u2',
+        session: session,
+        backendMetadata: const {'preventScreenCapture': true},
+      );
+
+      final room = await client.adopt(mediaClient, roomSession);
+      await room.initialize();
+      expect(room.preventScreenCapture, isTrue);
+      expect(protection.activeLeases, hasLength(1));
+
+      await room.dispose();
+      expect(protection.activeLeases, isEmpty);
+    },
+  );
 }
 
 final class _FakeScreenProtection implements ScreenCaptureProtectionService {

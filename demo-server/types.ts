@@ -135,6 +135,7 @@ export interface RoomEntry extends Partial<ChatRoomEntry> {
   roomCode: string;
   roomMode?: RoomMode;
   meetingMode?: 'standard' | 'classroom';
+  preventScreenCapture?: boolean;
   roomOwnerCredentialHash?: string;
   createdAt: string;
   attendees: RoomAttendee[];
@@ -181,6 +182,7 @@ export interface ChimeRoomEntry extends RoomEntry {
 export interface ProviderBaseResponse {
   /** Enables the optional provider-neutral Live interaction SDK. */
   liveInteractions?: boolean;
+  preventScreenCapture?: boolean;
   contractVersion: number;
   provider: string;
   vendor?: MediaVendorId;
@@ -203,6 +205,7 @@ export interface RoomSummary {
   roomCode: string;
   roomMode?: RoomMode;
   meetingMode?: 'standard' | 'classroom';
+  preventScreenCapture?: boolean;
   meetingId?: string;
   externalMeetingId?: string;
   mediaRegion?: string;

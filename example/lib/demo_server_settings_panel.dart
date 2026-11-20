@@ -145,8 +145,8 @@ class DemoServerSettingsPanel extends StatelessWidget {
               ),
               subtitle: Text(
                 isZh
-                    ? 'iOS / Android 检测到系统录屏或投屏时弹窗拦截，Android 同步启用窗口防截屏保护'
-                    : 'Alerts on iOS/Android external recording or mirroring and secures Android window',
+                    ? '房主开启后建房将自动同步到房间内所有参会端；iOS / Android 15+ 弹窗拦截，Android 同步启用窗口黑屏防截屏'
+                    : 'Host creation syncs protection to all attendees; alerts on iOS/Android 15+ and secures Android windows',
               ),
               value: preventScreenCapture,
               onChanged: onPreventScreenCaptureChanged,

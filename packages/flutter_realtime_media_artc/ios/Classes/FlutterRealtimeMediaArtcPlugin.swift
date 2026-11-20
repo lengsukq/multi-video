@@ -33,12 +33,14 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
     private var viewer = false
     private var inChannel = false
     private var disposed = false
+    private var localVideoEnabled = false
     private var localUserId: String?
     private var pendingJoinResult: FlutterResult?
     private var pendingLeaveResult: FlutterResult?
     private var leaveTimeout: DispatchWorkItem?
     private var videoViews: [ArtcVideoPlatformView] = []
     private var iosScreenSink: ArtcIosExternalScreenSink?
+    private var processedVideoSink: ArtcIosExternalCameraSink?
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = FlutterRealtimeMediaArtcPlugin()
@@ -71,6 +73,54 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
         }
     }
 
+    private func attachProcessedVideoSource(
+        _ arguments: Any?, result: @escaping FlutterResult
+    ) {
+        guard requirePublisher(result) else { return }
+        guard let sourceId = (arguments as? [String: Any])?["sourceId"] as? String,
+              !sourceId.isEmpty, let engine else {
+            fail(result, code: "invalid_argument", message: "sourceId is required.")
+            return
+        }
+        let wasEnabled = localVideoEnabled
+        detachProcessedVideoSource()
+        _ = engine.publishLocalVideoStream(false)
+        let captureCode = engine.enableLocalVideo(false)
+        guard captureCode == 0 else {
+            fail(result, code: "attach_provider_failed",
+                 message: "ARTC failed to stop its camera (\(captureCode)).")
+            return
+        }
+        let sink = ArtcIosExternalCameraSink(sourceId: sourceId, engine: engine)
+        do {
+            try sink.start()
+            if wasEnabled {
+                let publishCode = engine.publishLocalVideoStream(true)
+                guard publishCode == 0 else {
+                    sink.stop()
+                    fail(result, code: "attach_provider_failed",
+                         message: "ARTC failed to publish processed video (\(publishCode)).")
+                    return
+                }
+            }
+            processedVideoSink = sink
+            localVideoEnabled = wasEnabled
+            result(nil)
+        } catch {
+            sink.stop()
+            fail(result, code: "attach_provider_failed", message: error.localizedDescription)
+        }
+    }
+
+    private func detachProcessedVideoSource() {
+        let sink = processedVideoSink
+        processedVideoSink = nil
+        if let sink {
+            sink.stop()
+            localVideoEnabled = false
+        }
+    }
+
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         eventSink = events
         return nil
@@ -90,6 +140,11 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
             case "setVideoEnabled": self.setVideoEnabled(call.arguments, result: result)
             case "switchCamera": self.switchCamera(call.arguments, result: result)
             case "sendMessage": self.sendMessage(call.arguments, result: result)
+            case "attachProcessedVideoSource":
+                self.attachProcessedVideoSource(call.arguments, result: result)
+            case "detachProcessedVideoSource":
+                self.detachProcessedVideoSource()
+                result(nil)
             case "attachIosScreenCaptureKitSource":
                 self.attachIosScreenCaptureKitSource(call.arguments, result: result)
             case "detachIosScreenCaptureKitSource":
@@ -156,6 +211,8 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
     private func leave(result: @escaping FlutterResult) {
         iosScreenSink?.stop()
         iosScreenSink = nil
+        detachProcessedVideoSource()
+        localVideoEnabled = false
         guard let engine, inChannel else { result(nil); return }
         if pendingLeaveResult != nil {
             fail(result, code: "invalid_state", message: "ARTC leave is already in progress.")
@@ -203,13 +260,28 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
         guard requirePublisher(result) else { return }
         let enabled = ((arguments as? [String: Any])?["enabled"] as? Bool) ?? false
         if !enabled {
+            if processedVideoSink != nil {
+                let publish = engine!.publishLocalVideoStream(false)
+                if publish == 0 { localVideoEnabled = false }
+                complete(publish, result: result, message: "ARTC failed to stop publishing processed video")
+                return
+            }
             let publish = engine!.publishLocalVideoStream(false)
             let capture = engine!.enableLocalVideo(false)
-            complete(publish == 0 ? capture : publish, result: result, message: "ARTC failed to disable local video")
+            let code = publish == 0 ? capture : publish
+            if code == 0 { localVideoEnabled = false }
+            complete(code, result: result, message: "ARTC failed to disable local video")
         } else {
+            if processedVideoSink != nil {
+                let publish = engine!.publishLocalVideoStream(true)
+                if publish == 0 { localVideoEnabled = true }
+                complete(publish, result: result, message: "ARTC failed to publish processed video")
+                return
+            }
             withPermission(.video, result: result) {
                 let capture = self.engine!.enableLocalVideo(true)
                 let publish = capture == 0 ? self.engine!.publishLocalVideoStream(true) : capture
+                if publish == 0 { self.localVideoEnabled = true }
                 self.complete(publish, result: result, message: "ARTC failed to enable local video")
             }
         }
@@ -281,6 +353,8 @@ public final class FlutterRealtimeMediaArtcPlugin: NSObject, FlutterPlugin, Flut
     private func disposeEngine() {
         iosScreenSink?.stop()
         iosScreenSink = nil
+        detachProcessedVideoSource()
+        localVideoEnabled = false
         disposed = true
         if let pendingJoinResult { fail(pendingJoinResult, code: "invalid_state", message: "ARTC engine was disposed during join.") }
         pendingJoinResult = nil

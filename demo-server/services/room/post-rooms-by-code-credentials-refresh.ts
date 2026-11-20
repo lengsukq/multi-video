@@ -58,7 +58,7 @@ const { providerRegistry, resolveRoom, isRoomPartiallyClosed, pruneStaleAttendee
       );
     }
     const response = await provider.refreshCredentials({ entry, participantId, role });
-    return reply(exposeVendorResponse({...response, ...(entry.meetingMode ? {meetingMode: entry.meetingMode} : {}), ...(attendee.avatarUrl ? {avatarUrl: attendee.avatarUrl} : {}), participantProfiles: publicParticipantProfiles(entry)}));
+    return reply(exposeVendorResponse({...response, ...(entry.meetingMode ? {meetingMode: entry.meetingMode} : {}), ...(entry.preventScreenCapture ? {preventScreenCapture: true} : {}), ...(attendee.avatarUrl ? {avatarUrl: attendee.avatarUrl} : {}), participantProfiles: publicParticipantProfiles(entry)}));
   } catch (error) {
     if (error instanceof ProviderOperationError) throw error;
     console.error('credential refresh failed', error);

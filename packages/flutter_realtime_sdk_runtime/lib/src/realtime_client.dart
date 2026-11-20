@@ -257,6 +257,7 @@ class RealtimeClient {
         identity: identity,
         roomMode: roomMode,
         meetingMode: meetingMode,
+        preventScreenCapture: preventScreenCapture ? true : null,
         role: role,
         roomCode: roomCode,
       );
@@ -392,7 +393,8 @@ class RealtimeClient {
         effectsCapabilities: effects,
         videoEffects: videoEffects,
         cloudRecordingSession: recordingSessionFactory?.call(room),
-        preventScreenCapture: preventScreenCapture,
+        preventScreenCapture:
+            preventScreenCapture || room.roomPreventScreenCapture,
         screenCaptureProtection: _screenCaptureProtection,
         media: room,
         publicProviderId:

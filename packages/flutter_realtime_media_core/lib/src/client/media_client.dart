@@ -230,6 +230,7 @@ class MediaClient {
     required MediaIdentity identity,
     MediaRoomMode roomMode = MediaRoomMode.meeting,
     MediaMeetingMode? meetingMode,
+    bool? preventScreenCapture,
     MediaRole? role,
     String? roomCode,
   }) async {
@@ -275,6 +276,7 @@ class MediaClient {
     return _joinCreatedResponse(
       await _requireBackend('create rooms').createRoomWithIdentity(
         meetingMode: meetingMode,
+        preventScreenCapture: preventScreenCapture,
         role: role,
         roomMode: roomMode,
         roomCode: roomCode,

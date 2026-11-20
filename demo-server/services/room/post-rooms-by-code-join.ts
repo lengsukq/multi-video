@@ -92,6 +92,7 @@ const { roomDirectory, providerRegistry, classroomDirectory, resolveRoom, withRo
     if (entry.chatProvider) response.chatProvider = entry.chatProvider;
     if (entry.roomMode) response.roomMode = entry.roomMode;
     if (entry.meetingMode) response.meetingMode = entry.meetingMode;
+    if (entry.preventScreenCapture) response.preventScreenCapture = true;
     if (entry.roomMode === 'broadcast') response.liveInteractions = true;
     response.management = mediaManagementCapabilities(provider);
     const presentedOwnerCredential = String(

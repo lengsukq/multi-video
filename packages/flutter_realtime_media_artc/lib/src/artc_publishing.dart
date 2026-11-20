@@ -98,6 +98,7 @@ class _ArtcPublishing {
   bool get _effectsPlatform =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS ||
           (_desktopCameraPlatform && _desktopEffectsInputAvailable));
   Future<void> _probeProcessedVideoInput() async {
     if (!_desktopCameraPlatform) return;
@@ -125,6 +126,7 @@ class _ArtcPublishing {
       ? null
       : switch (defaultTargetPlatform) {
           TargetPlatform.android => ProcessedVideoPlatform.android,
+          TargetPlatform.iOS => ProcessedVideoPlatform.ios,
           TargetPlatform.macOS => ProcessedVideoPlatform.macos,
           TargetPlatform.windows => ProcessedVideoPlatform.windows,
           _ => null,

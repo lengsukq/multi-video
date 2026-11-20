@@ -11,6 +11,7 @@ export interface RoomCreationInput {
   roomCode: string;
   roomMode: RoomMode;
   meetingMode?: 'standard' | 'classroom';
+  preventScreenCapture?: boolean;
   role: MediaRole;
   provider: ProviderAdapter;
   selectedChatProvider: string | null;
@@ -41,6 +42,7 @@ export function createRoomProvisioner(deps: RoomCreationDependencies) {
     roomCode,
     roomMode,
     meetingMode,
+    preventScreenCapture,
     role,
     provider,
     selectedChatProvider,
@@ -76,6 +78,10 @@ export function createRoomProvisioner(deps: RoomCreationDependencies) {
     if (roomMode === 'meeting' && meetingMode) {
       created.entry.meetingMode = meetingMode;
       created.response.meetingMode = meetingMode;
+    }
+    if (preventScreenCapture === true) {
+      created.entry.preventScreenCapture = true;
+      created.response.preventScreenCapture = true;
     }
     if (roomMode === 'meeting' && meetingMode !== 'standard') {
       created.entry.classroomSpeakEnforcement =

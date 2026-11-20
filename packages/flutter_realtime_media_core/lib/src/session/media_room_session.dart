@@ -125,6 +125,10 @@ class MediaRoomSession implements MediaBackgroundEffectsController {
   MediaMeetingMode? get meetingMode => backendMetadata['roomMode'] == 'meeting'
       ? MediaMeetingMode.fromMetadata(backendMetadata)
       : null;
+
+  /// Whether the room host/backend enabled room-wide screen-capture protection.
+  bool get roomPreventScreenCapture =>
+      backendMetadata['preventScreenCapture'] == true;
   MediaSession _session;
   MediaSession get session => _session;
   void Function(MediaSession next)? _sessionReplacedCallback;

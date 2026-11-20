@@ -46,6 +46,10 @@ const provisionRoom = createRoomProvisioner({
       requestedRoomMode ?? (requestedRole === 'host' || requestedRole === 'viewer' ? 'broadcast' : 'meeting');
     const meetingMode = input.body?.meetingMode;
     if (meetingMode != null && (!['standard', 'classroom'].includes(String(meetingMode)) || roomMode !== 'meeting')) return fail(400, 'invalid-argument', 'meetingMode requires a meeting and must be standard or classroom.');
+    const rawPreventScreenCapture = input.body?.preventScreenCapture;
+    if (rawPreventScreenCapture != null && typeof rawPreventScreenCapture !== 'boolean') {
+      return fail(400, 'invalid-argument', 'preventScreenCapture must be a boolean.');
+    }
     const derivedCreatorRole = creatorRoleForMode(roomMode);
     if (requestedRoomMode && requestedRole && requestedRole !== derivedCreatorRole) {
       return fail(
@@ -71,7 +75,7 @@ const provisionRoom = createRoomProvisioner({
     }
     const rawNickname = input.body?.displayName?.trim() || input.body?.nickname?.trim() || null;
     const { created, roomOwnerCredential } = await provisionRoom({
-      roomCode, roomMode, meetingMode: meetingMode as 'standard' | 'classroom' | undefined, role, provider,
+      roomCode, roomMode, meetingMode: meetingMode as 'standard' | 'classroom' | undefined, preventScreenCapture: rawPreventScreenCapture === true, role, provider,
       selectedChatProvider: currentChatProvider(),
     });
 
@@ -95,6 +99,7 @@ const provisionRoom = createRoomProvisioner({
     if (created.entry.chatProvider) response.chatProvider = created.entry.chatProvider;
     response.roomMode = roomMode;
     if (created.entry.meetingMode) response.meetingMode = created.entry.meetingMode;
+    if (created.entry.preventScreenCapture) response.preventScreenCapture = true;
     if (roomMode === 'broadcast') response.liveInteractions = true;
     if (roomOwnerCredential) {
       response.roomOwnerCredential = roomOwnerCredential;

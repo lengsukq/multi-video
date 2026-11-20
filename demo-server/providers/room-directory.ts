@@ -54,6 +54,7 @@ export class RoomDirectory {
           provider: e.provider, roomCode: e.roomCode,
           createdAt: e.createdAt, lastHeartbeatMs: e.lastHeartbeatMs,
           vendor: e.vendor, engine: e.engine, roomMode: e.roomMode, meetingMode: e.meetingMode,
+          ...(e.preventScreenCapture ? {preventScreenCapture: true} : {}),
           providerRoomName: e.providerRoomName, scene: e.scene,
           classroomTeacherUserId: e.classroomTeacherUserId,
           classroomSpeakEnforcement: e.classroomSpeakEnforcement,

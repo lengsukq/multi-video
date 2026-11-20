@@ -106,7 +106,7 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_media_artc/lib/src/artc_data_messenger.dart`: `fc81f3876fa354aa`
 - `packages/flutter_realtime_media_artc/lib/src/artc_media_session.dart`: `0635935ba85ca8bb`
 - `packages/flutter_realtime_media_artc/lib/src/artc_participant_session.dart`: `f8c90be8f374dc08`
-- `packages/flutter_realtime_media_artc/lib/src/artc_publishing.dart`: `5697c6857a001be3`
+- `packages/flutter_realtime_media_artc/lib/src/artc_publishing.dart`: `e8f0abb6af4b7060`
 - `packages/flutter_realtime_media_artc/lib/src/artc_session_factory.dart`: `160ebd4e1282f901`
 - `packages/flutter_realtime_media_artc/lib/src/artc_snapshot_mapper.dart`: `b1817fc7cb34a16c`
 - `packages/flutter_realtime_media_chime/lib/src/chime_media_controls.dart`: `65feae0ead7dd803`
@@ -119,7 +119,7 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_media_session.dart`: `0987bc080c091a6e`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_participant_session.dart`: `6a8698cecaadb93d`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_publishing.dart`: `4fd690cd8bfaf6da`
-- `packages/flutter_realtime_media_ivs/lib/src/ivs_session_factory.dart`: `7e847f3acfeee888`
+- `packages/flutter_realtime_media_ivs/lib/src/ivs_session_factory.dart`: `3d3eaebf87acaebe`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_snapshot_mapper.dart`: `6d84962e2d59d615`
 - `packages/flutter_realtime_media_ivs/lib/src/ivs_statistics.dart`: `f3d94cb05a2b89b9`
 - `packages/flutter_realtime_media_livekit/lib/src/livekit_capabilities.dart`: `8c2a6ce7df32ad0d`
@@ -152,7 +152,7 @@ These fingerprints make CI reject stale declarations, including changes to the e
 - `packages/flutter_realtime_provider_agora/lib/src/drivers_web.dart`: `bd81a8d666ea0441`
 - `packages/flutter_realtime_provider_agora_chat/lib/src/drivers_native.dart`: `92e27a762ff096e8`
 - `packages/flutter_realtime_provider_agora_chat/lib/src/drivers_web.dart`: `ea37a522e2246302`
-- `packages/flutter_realtime_provider_artc/lib/src/drivers_native.dart`: `58ce051a51c91f1b`
+- `packages/flutter_realtime_provider_artc/lib/src/drivers_native.dart`: `83cd99402850dab0`
 - `packages/flutter_realtime_provider_artc/lib/src/drivers_web.dart`: `7aa589413c8e9665`
 - `packages/flutter_realtime_provider_aws/lib/src/drivers_native.dart`: `0ef31f16f1c26b18`
 - `packages/flutter_realtime_provider_aws/lib/src/drivers_web.dart`: `8ebcb8186e43b6ef`

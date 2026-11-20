@@ -892,3 +892,17 @@ test('standard meeting policy survives join and discovery without classroom micr
   assert.equal(rejoined.body.roomOwnerCredential, created.body.roomOwnerCredential);
   assert.equal((await post('/rooms/standardSdk1/close', {...hostAuth, requesterParticipantId: rejoined.body.participantId, participantCredential: rejoined.body.participantCredential})).status, 200);
 });
+
+test('room-wide preventScreenCapture policy propagates from host creation to joining attendees', async () => {
+  await post('/api/provider', {provider: 'livekit'});
+  const invalid = await post('/rooms', {roomCode: 'secBad001', roomMode: 'meeting', preventScreenCapture: 'yes', nickname: 'Host'});
+  assert.equal(invalid.status, 400);
+  const created = await post('/rooms', {roomCode: 'secRoom01', roomMode: 'meeting', preventScreenCapture: true, nickname: 'Host', userId: 'sec-host'});
+  assert.equal(created.status, 200);
+  assert.equal((created.body as Record<string, unknown>).preventScreenCapture, true);
+  const member = await post('/rooms/secRoom01/join', {userId: 'sec-member', displayName: 'Member'});
+  assert.equal(member.status, 200);
+  assert.equal((member.body as Record<string, unknown>).preventScreenCapture, true);
+  const hostAuth = {requesterParticipantId: created.body.participantId, participantCredential: created.body.participantCredential, roomOwnerCredential: created.body.roomOwnerCredential};
+  assert.equal((await post('/rooms/secRoom01/close', hostAuth)).status, 200);
+});
