@@ -278,7 +278,8 @@ export class ClassroomStateDirectory {
     const snapshot = classroomToolsSnapshot(tools, isTeacher, selfUserId);
     const participant = entry.attendees.find(a => (a.userId ?? a.externalUserId) === selfUserId);
     if (entry.meetingMode === 'standard') {
-      snapshot.content.canManage = isTeacher || Boolean(participant && tools.mode === 'screen' && tools.annotation.participantId === participant.attendeeId);
+      snapshot.content.whiteboard.canEdit = true;
+      snapshot.content.canManage = isTeacher || tools.mode === 'whiteboard' || Boolean(participant && tools.mode === 'screen' && tools.annotation.participantId === participant.attendeeId);
     }
     return { ...snapshot, content: { ...snapshot.content, canShareScreen: entry.meetingMode === 'standard' || isTeacher, canAnnotateScreen: entry.meetingMode === 'standard' ? Boolean(participant && tools.mode === 'screen' && tools.annotation.participantId === participant.attendeeId) : isTeacher } };
   }
@@ -461,7 +462,13 @@ export class ClassroomStateDirectory {
             if (!data || typeof data !== 'object' || Array.isArray(data)) fail('Invalid tool payload');
             const payload = data as Record<string, unknown>;
             const ownsScreen = tools.mode === 'screen' && tools.annotation.participantId === requester.attendeeId;
-            authority = (action === 'tool.content.mode' && (payload.mode === 'screen' || (ownsScreen && payload.mode === 'members'))) ||
+            const canSwitchToMembers =
+              (ownsScreen || tools.mode === 'whiteboard') &&
+              payload.mode === 'members';
+            authority =
+              (action === 'tool.content.mode' &&
+                (payload.mode === 'screen' || payload.mode === 'whiteboard' || canSwitchToMembers)) ||
+              action.startsWith('tool.whiteboard.') ||
               (action.startsWith('tool.annotation.') && ownsScreen);
           }
           changed = applyClassroomTool(tools, action, raw, requester, authority);

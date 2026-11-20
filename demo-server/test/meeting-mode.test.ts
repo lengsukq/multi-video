@@ -14,7 +14,7 @@ function fixture() {
   return {entry, directory: new ClassroomStateDirectory()};
 }
 
-test('standard meetings reject teaching commands while preserving host whiteboards', () => {
+test('standard meetings reject teaching commands while allowing all participants to share and edit whiteboards', () => {
   const {entry, directory} = fixture();
   const host = entry.attendees[0]!;
   const member = entry.attendees[1]!;
@@ -27,8 +27,14 @@ test('standard meetings reject teaching commands while preserving host whiteboar
   assert.equal(state.tools.content.whiteboard.canEdit, true);
   const viewed = directory.snapshot(entry, false, 'member');
   assert.equal(viewed.tools.content.mode, 'whiteboard');
-  assert.equal(viewed.tools.content.whiteboard.canEdit, false);
-  assert.throws(() => directory.act(entry, member, false, {action: 'tool.whiteboard.page.add', payload: '{}'}), /Teacher permission/);
+  assert.equal(viewed.tools.content.whiteboard.canEdit, true);
+  assert.equal(viewed.tools.content.canManage, true);
+  const added = directory.act(entry, member, false, {action: 'tool.whiteboard.page.add', payload: JSON.stringify({title: 'Page 2', expectedRevision: viewed.tools.content.whiteboard.revision})});
+  assert.equal(added.tools.content.whiteboard.pages.length, 2);
+  const closed = directory.act(entry, member, false, {action: 'tool.content.mode', payload: JSON.stringify({mode: 'members', expectedRevision: added.tools.content.revision})});
+  assert.equal(closed.tools.content.mode, 'members');
+  const reopened = directory.act(entry, member, false, {action: 'tool.content.mode', payload: JSON.stringify({mode: 'whiteboard', expectedRevision: closed.tools.content.revision})});
+  assert.equal(reopened.tools.content.mode, 'whiteboard');
 });
 
 test('ordinary members share screens and only the current sharer may annotate', () => {
